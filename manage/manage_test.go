@@ -626,3 +626,26 @@ func TestTwoGrantsAtOnceDoNotEatEachOther(t *testing.T) {
 		t.Fatalf("%d of %d grants survived: %#v", len(got), n, got)
 	}
 }
+
+// os.ReadDir on a path that is a file reports ENOTDIR on Unix and a not-found
+// error on Windows. Reading the error instead of asking means "there is
+// nothing here" is answered correctly on one platform and wrongly on the
+// other — and a caller that treats no annotations as no restrictions then
+// fails open on exactly one of them.
+func TestSomethingWrongWhereAnnotationsGoIsNotReadAsNoneWritten(t *testing.T) {
+	s := store(t)
+	if err := os.WriteFile(filepath.Join(s.Root(), metaDir), []byte("in the way"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.AllMeta()
+	if err == nil {
+		t.Fatalf("a broken store read as empty: %#v", got)
+	}
+}
+
+func TestNoAnnotationsYetIsStillJustEmpty(t *testing.T) {
+	got, err := store(t).AllMeta()
+	if err != nil || len(got) != 0 {
+		t.Fatalf("%#v %v", got, err)
+	}
+}

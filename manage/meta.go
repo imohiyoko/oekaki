@@ -1,6 +1,7 @@
 package manage
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -73,10 +74,26 @@ func (s *Store) Meta(item string) (Meta, error) {
 
 // AllMeta is everything written down, keyed by item.
 func (s *Store) AllMeta() (map[string]Meta, error) {
-	entries, err := os.ReadDir(filepath.Join(s.root, metaDir))
+	dir := filepath.Join(s.root, metaDir)
+
+	// "Nothing written yet" and "something is wrong here" have to be told
+	// apart by asking, not by reading the error. os.ReadDir on a path that is
+	// a file reports ENOTDIR on Unix and a not-found error on Windows, so
+	// os.IsNotExist alone answers "there is nothing here" on one platform and
+	// nothing at all on the other — and a caller that treats no annotations as
+	// no restrictions would then fail open on exactly one of them.
+	info, err := os.Stat(dir)
 	if os.IsNotExist(err) {
 		return map[string]Meta{}, nil
 	}
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("%s is where annotations go and it is not a directory", dir)
+	}
+
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
