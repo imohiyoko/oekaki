@@ -167,3 +167,31 @@ func same(a, b []string) bool {
 	}
 	return true
 }
+
+// Output is usually filed under a directory per generation, so the name
+// reaching Describe is runs/abc123/core.html. path.Match does not cross a
+// slash, so a rule written as "core.html" would silently describe nothing, and
+// making everybody write the directory in asks them to know something they
+// should not have to.
+func TestARuleForAFileNameFindsItWhereverItIsFiled(t *testing.T) {
+	c := sample()
+	got := c.Describe("runs/abc123/core.html")
+	if got.Title != "the whole thing" {
+		t.Fatalf("a rule for the file name did not reach it: %#v", got)
+	}
+	if got.Kind != "drawing" {
+		t.Fatalf("%#v", got)
+	}
+}
+
+// A pattern that names a directory means that directory, and must not be
+// matched against a bare file name.
+func TestAPatternWithAPathStillMeansThePath(t *testing.T) {
+	c := &Catalog{Items: []Rule{{Match: "shared/*.html", Kind: "shared"}}}
+	if got := c.Describe("runs/a/core.html"); got.Kind == "shared" {
+		t.Fatalf("a path pattern matched somewhere else: %#v", got)
+	}
+	if got := c.Describe("shared/core.html"); got.Kind != "shared" {
+		t.Fatalf("%#v", got)
+	}
+}

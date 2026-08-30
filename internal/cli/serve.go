@@ -464,6 +464,17 @@ func (s *site) page(w http.ResponseWriter, r *http.Request) {
 	}
 	full := filepath.Join(s.pages, clean)
 
+	// A directory of pages with nothing called index.html is the ordinary case
+	// for output somebody generated, and answering the root with 404 tells a
+	// person who just started the server that it is broken. Send them to the
+	// listing this program can always build instead.
+	if clean == "index.html" {
+		if _, err := os.Stat(full); os.IsNotExist(err) {
+			http.Redirect(w, r, "/manage", http.StatusSeeOther)
+			return
+		}
+	}
+
 	// The state directory sits beside the pages by default, which puts it
 	// inside the tree being handed out. Everything in it — who holds which
 	// role, what was done, what people wrote down including who may see what —

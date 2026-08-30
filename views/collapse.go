@@ -11,11 +11,13 @@ import (
 // the references between two groups become one line carrying how many there
 // were.
 //
-// A group that nothing reaches and that holds no references of its own is left
-// out. That is what least is for — raising it is asking for the part of the
-// estate that is heavily connected, and a page of isolated boxes is what the
-// question was trying to get away from. It does mean the threshold changes
-// which boxes exist, not only which lines are drawn.
+// least is a threshold on how many references something stands for, and it
+// means the same thing for a box as for a line: a group is drawn when it is an
+// end of a surviving line, or when it holds at least that many references of
+// its own. At zero that is every group there is, so nothing is hidden by
+// asking for no filtering. Raised, it asks for the busy part of the estate and
+// leaves out what nothing reaches — which is the point, and does mean the
+// threshold changes which boxes exist and not only which lines are drawn.
 //
 // This is the drawing you make when the fine-grained one has stopped being
 // readable. The question it answers is not "what talks to what" but "which of
@@ -48,7 +50,13 @@ func Collapse(g *core.Graph, axis string, least int) (*core.Graph, error) {
 		kind     core.EdgeKind
 	}
 	between := map[pair]int{}
-	inside := map[string]int{}
+	// Inside references are counted per kind too. Counting them together and
+	// then comparing the total against a threshold that lines are held to per
+	// kind makes the two mean different things: a group joined to itself by
+	// one declared and one observed reference would outrank a pair of groups
+	// joined by exactly the same two, and survive as a box with no lines while
+	// the pair vanishes. That is the drawing least exists to prevent.
+	inside := map[pair]int{}
 	examples := map[pair][]string{}
 	for _, e := range g.Edges {
 		from, okFrom := groupOf(g, axis, e.From)
@@ -59,7 +67,7 @@ func Collapse(g *core.Graph, axis string, least int) (*core.Graph, error) {
 			continue
 		}
 		if from == to {
-			inside[from]++
+			inside[pair{from, from, e.Kind}]++
 			continue
 		}
 		key := pair{from, to, e.Kind}
@@ -73,6 +81,31 @@ func Collapse(g *core.Graph, axis string, least int) (*core.Graph, error) {
 	for _, n := range g.Nodes {
 		if got, ok := n.Groups[axis]; ok && got != "" {
 			members[got]++
+		}
+	}
+	// A container somebody declared and put nothing in is still a container
+	// they declared — an empty subnet is a normal thing for a parser to find.
+	// Leaving it out would make "no filtering draws every group" untrue for
+	// exactly the groups whose emptiness is the interesting part.
+	for _, group := range g.Groups {
+		if group.Axis != axis {
+			continue
+		}
+		path, err := g.GroupPath(group.ID)
+		if err != nil {
+			continue
+		}
+		if _, known := members[path]; !known {
+			members[path] = 0
+		}
+	}
+
+	// The most any one kind of reference stays inside a group. Compared
+	// against least the same way a line's own count is.
+	busiest := map[string]int{}
+	for key, n := range inside {
+		if n > busiest[key.from] {
+			busiest[key.from] = n
 		}
 	}
 
@@ -100,8 +133,15 @@ func Collapse(g *core.Graph, axis string, least int) (*core.Graph, error) {
 		}
 		return pairs[i].kind < pairs[j].kind
 	})
-	for id, n := range inside {
-		if n > 0 {
+	// least is a threshold on how many references something stands for, and it
+	// has to mean the same thing for a group as it does for a line. Keeping
+	// every group that has any reference of its own, however high the threshold
+	// was set, fills a drawing asked to show only the busy part with boxes that
+	// nothing reaches — which is the picture the threshold was raised to
+	// escape. At zero it still means "draw what exists", so a group nothing
+	// touches is drawn when nothing was filtered.
+	for id := range members {
+		if busiest[id] >= least {
 			kept[id] = true
 		}
 	}
@@ -131,7 +171,7 @@ func Collapse(g *core.Graph, axis string, least int) (*core.Graph, error) {
 		}
 		n := core.Node{ID: id, Type: kind, Name: label, Attrs: map[string]any{
 			"members":            members[id],
-			"internal_reference": inside[id],
+			"internal_reference": busiest[id],
 		}}
 		out.Nodes = append(out.Nodes, n)
 	}

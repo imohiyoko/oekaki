@@ -17,6 +17,7 @@ import (
 	"maps"
 	"path"
 	"sort"
+	"strings"
 )
 
 // Kind is a group items fall into.
@@ -80,8 +81,7 @@ func (c *Catalog) Describe(name string) Entry {
 		return out
 	}
 	for i, r := range c.Items {
-		ok, err := path.Match(r.Match, name)
-		if err != nil || !ok {
+		if !matches(r.Match, name) {
 			continue
 		}
 		out.Rank = i
@@ -105,8 +105,28 @@ func (c *Catalog) Hidden(name string) bool {
 		return false
 	}
 	for _, r := range c.Items {
-		if ok, err := path.Match(r.Match, name); err == nil && ok {
+		if matches(r.Match, name) {
 			return r.Hidden
+		}
+	}
+	return false
+}
+
+// matches tries a pattern against the whole name and against its last segment.
+//
+// A person writing "core.html" means the file called that, wherever it turned
+// up. Output is usually filed under a directory per generation, so the name
+// reaching here is runs/abc123/core.html — and path.Match does not cross a
+// slash, so the obvious rule would silently describe nothing. Making everybody
+// write the directory in would be asking them to know something they should
+// not have to.
+func matches(pattern, name string) bool {
+	if ok, err := path.Match(pattern, name); err == nil && ok {
+		return true
+	}
+	if !strings.Contains(pattern, "/") {
+		if ok, err := path.Match(pattern, path.Base(name)); err == nil && ok {
+			return true
 		}
 	}
 	return false

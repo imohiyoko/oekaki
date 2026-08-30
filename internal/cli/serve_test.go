@@ -532,3 +532,28 @@ func TestAListingLeavesOutWhatTheReaderMayNotOpen(t *testing.T) {
 		}
 	}
 }
+
+// A directory of generated pages with nothing called index.html is ordinary,
+// and answering the root with 404 tells whoever just started the server that
+// it is broken.
+func TestTheRootGoesSomewhereWhenThereIsNoIndex(t *testing.T) {
+	s := testSite(t)
+	got := ask(t, s, http.MethodGet, "/", "", nil)
+	if got.Code != http.StatusSeeOther {
+		t.Fatalf("came back %d", got.Code)
+	}
+	if to := got.Header().Get("Location"); to != "/manage" {
+		t.Fatalf("sent to %q", to)
+	}
+}
+
+// A directory that does have one keeps it.
+func TestAnIndexThatExistsIsStillServed(t *testing.T) {
+	s := testSite(t)
+	if err := os.WriteFile(filepath.Join(s.pages, "index.html"), []byte(servedPage), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := ask(t, s, http.MethodGet, "/", "", nil); got.Code != http.StatusOK {
+		t.Fatalf("came back %d", got.Code)
+	}
+}
