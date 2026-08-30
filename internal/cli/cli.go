@@ -98,6 +98,10 @@ func Run(ctx context.Context, env Env, args []string) int {
 		err = runScan(env, args[1:])
 	case "serve":
 		err = runServe(ctx, env, args[1:])
+	case "focus":
+		err = runFocus(env, args[1:])
+	case "export":
+		err = runExport(env, args[1:])
 	case "validate":
 		err = runValidate(env, args[1:])
 	case "schema":
@@ -130,7 +134,9 @@ Usage:
   oekaki graph  <input> [flags]     emit the intermediate representation
   oekaki scan   <dir>   [flags]     read committed Terraform source, no init or credentials
   oekaki probe  <graph> [flags]     probe explicitly named network targets
-  oekaki serve  [dir]               hand out rendered pages and their layouts
+  oekaki focus  <graph> [flags]     keep one group whole, fold the rest to a box each
+  oekaki export <graph> [flags]     write the graph out as a table
+  oekaki serve  [dir]               hand out rendered pages, their layouts and what was decided
   oekaki validate <graph.json>      check a graph against the IR schema
   oekaki schema                     print the IR JSON Schema
   oekaki version                    print the version
