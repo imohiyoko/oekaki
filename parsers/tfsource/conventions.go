@@ -239,6 +239,22 @@ func (c *Conventions) account(text string) string {
 	return ""
 }
 
+// Read loads conventions from a file or from a directory of them.
+//
+// A caller that keeps one file and a caller that keeps a directory should not
+// have to say which they are; the path itself already says. Making them
+// declare it again is a flag whose only job is repeating what os.Stat knows.
+func Read(path string) (*Conventions, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if info.IsDir() {
+		return ReadConventionsDir(path)
+	}
+	return ReadConventions(path)
+}
+
 // ReadConventionsDir reads every conventions file in a directory and folds
 // them into one.
 //

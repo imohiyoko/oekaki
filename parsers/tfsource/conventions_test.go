@@ -387,3 +387,37 @@ func TestTheCollisionMessageOnlyBlamesThePrefixWhenThereIsOne(t *testing.T) {
 		t.Fatalf("it blamed a setting nobody wrote: %v", err)
 	}
 }
+
+// A caller that keeps one file and a caller that keeps a directory of them
+// should not have to say which they are: the path already says.
+func TestConventionsCanBeAFileOrADirectoryOfThem(t *testing.T) {
+	dir := t.TempDir()
+	body := head + "accountFromLocal: [deploy_account]\n"
+	one := filepath.Join(dir, "c.yaml")
+	if err := os.WriteFile(one, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	fromFile, err := Read(one)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fromDir, err := Read(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for what, c := range map[string]*Conventions{"file": fromFile, "directory": fromDir} {
+		if len(c.AccountFromLocal) != 1 {
+			t.Fatalf("%s: %#v", what, c)
+		}
+		if got := c.account("locals {\n  deploy_account = \"210987654321\"\n}\n"); got != "210987654321" {
+			t.Fatalf("%s: the rules were not compiled: %q", what, got)
+		}
+	}
+}
+
+func TestAPathThatIsNotThereIsSaidOutLoud(t *testing.T) {
+	if _, err := Read(filepath.Join(t.TempDir(), "nowhere.yaml")); err == nil {
+		t.Fatal("a missing path was accepted")
+	}
+}

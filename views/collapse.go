@@ -11,11 +11,13 @@ import (
 // the references between two groups become one line carrying how many there
 // were.
 //
-// A group that nothing reaches and that holds no references of its own is left
-// out. That is what least is for — raising it is asking for the part of the
-// estate that is heavily connected, and a page of isolated boxes is what the
-// question was trying to get away from. It does mean the threshold changes
-// which boxes exist, not only which lines are drawn.
+// least is a threshold on how many references something stands for, and it
+// means the same thing for a box as for a line: a group is drawn when it is an
+// end of a surviving line, or when it holds at least that many references of
+// its own. At zero that is every group there is, so nothing is hidden by
+// asking for no filtering. Raised, it asks for the busy part of the estate and
+// leaves out what nothing reaches — which is the point, and does mean the
+// threshold changes which boxes exist and not only which lines are drawn.
 //
 // This is the drawing you make when the fine-grained one has stopped being
 // readable. The question it answers is not "what talks to what" but "which of
@@ -100,8 +102,15 @@ func Collapse(g *core.Graph, axis string, least int) (*core.Graph, error) {
 		}
 		return pairs[i].kind < pairs[j].kind
 	})
-	for id, n := range inside {
-		if n > 0 {
+	// least is a threshold on how many references something stands for, and it
+	// has to mean the same thing for a group as it does for a line. Keeping
+	// every group that has any reference of its own, however high the threshold
+	// was set, fills a drawing asked to show only the busy part with boxes that
+	// nothing reaches — which is the picture the threshold was raised to
+	// escape. At zero it still means "draw what exists", so a group nothing
+	// touches is drawn when nothing was filtered.
+	for id := range members {
+		if inside[id] >= least {
 			kept[id] = true
 		}
 	}

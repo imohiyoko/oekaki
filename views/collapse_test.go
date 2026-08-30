@@ -201,3 +201,58 @@ func TestFoldingKeepsWhatKindOfLineItWas(t *testing.T) {
 		t.Fatalf("the two kinds were folded into one: %#v", got.Edges)
 	}
 }
+
+// least is a threshold on how many references something stands for, and it has
+// to mean the same for a box as for a line. Keeping every group that has any
+// reference of its own, however high the threshold, fills a drawing asked to
+// show only the busy part with boxes nothing reaches — the picture the
+// threshold was raised to escape.
+func TestAGroupBusyOnlyWithItselfIsHeldToTheSameThreshold(t *testing.T) {
+	g := estate()
+	// "three" ends up with one internal reference and one line out.
+	g.Edges = append(g.Edges, core.Edge{From: "c1", To: "c1", Kind: core.EdgeIACRef, Relation: "self"})
+	g.Normalize()
+
+	loose, err := Collapse(g, "account", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !has(loose.Nodes, "three") {
+		t.Fatalf("nothing was filtered and a group still went missing: %#v", loose.Nodes)
+	}
+
+	tight, err := Collapse(g, "account", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if has(tight.Nodes, "three") {
+		t.Fatalf("a group with one reference survived a threshold of three: %#v", tight.Nodes)
+	}
+}
+
+// At zero nothing is being filtered, so a group nothing touches is still part
+// of what exists and is drawn.
+func TestAskingForNoFilteringDrawsEveryGroupThereIs(t *testing.T) {
+	g := estate()
+	g.Groups = append(g.Groups, core.Group{ID: "lonely", Axis: "account", Type: "account", Label: "lonely"})
+	g.Nodes = append(g.Nodes, core.Node{ID: "d1", Type: "thing", Name: "d1", Provider: "aws",
+		Groups: map[string]string{"account": "lonely"}})
+	g.Normalize()
+
+	got, err := Collapse(g, "account", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !has(got.Nodes, "lonely") {
+		t.Fatalf("a group with members and no references was left out: %#v", got.Nodes)
+	}
+}
+
+func has(nodes []core.Node, id string) bool {
+	for _, n := range nodes {
+		if n.ID == id {
+			return true
+		}
+	}
+	return false
+}
