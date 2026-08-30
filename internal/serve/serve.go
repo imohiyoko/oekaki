@@ -221,15 +221,20 @@ func Path(root, page, name string) (string, error) {
 
 // Layouts lists what has been saved for a page, each measured against the
 // graph that page carries.
-func Layouts(root string, page Page) ([]Layout, error) {
-	entries, err := os.ReadDir(folder(root, page.Name))
+//
+// It is the one place that needs both directories at once. What was saved is
+// state and outlives any generation; the graph to measure it against is in the
+// page, which is regenerated. Handing the same path to both is fine and is
+// what a caller keeping them together does.
+func Layouts(pages, state string, page Page) ([]Layout, error) {
+	entries, err := os.ReadDir(folder(state, page.Name))
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	base, err := GraphIDs(root, page, nil)
+	base, err := GraphIDs(pages, page, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -240,7 +245,7 @@ func Layouts(root string, page Page) ([]Layout, error) {
 			continue
 		}
 		name := strings.TrimSuffix(e.Name(), suffix)
-		path, err := Path(root, page.Name, name)
+		path, err := Path(state, page.Name, name)
 		if err != nil {
 			continue
 		}
@@ -259,14 +264,14 @@ func Layouts(root string, page Page) ([]Layout, error) {
 		// that overlay makes. Counting against the bare graph would report a
 		// box the page will draw as landing nowhere.
 		known := base
-		if claims, err := ReadOverlay(root, page.Name, name); err == nil {
-			if with, err := GraphIDs(root, page, claims); err == nil {
+		if claims, err := ReadOverlay(state, page.Name, name); err == nil {
+			if with, err := GraphIDs(pages, page, claims); err == nil {
 				known = with
 			}
 		}
 		at := doc.Against(known)
 		out = append(out, Layout{Name: name, Nodes: at.Total(),
-			Placed: at.Placed, Missing: at.Missing, Paired: hasOverlay(root, page.Name, name)})
+			Placed: at.Placed, Missing: at.Missing, Paired: hasOverlay(state, page.Name, name)})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil

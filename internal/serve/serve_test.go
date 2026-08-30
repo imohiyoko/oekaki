@@ -68,7 +68,7 @@ func TestALayoutIsMeasuredAgainstThePageItWouldBeAppliedTo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := Layouts(root, Page{Rel: "core.html", Name: "core"})
+	got, err := Layouts(root, root, Page{Rel: "core.html", Name: "core"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestABoxDrawnInThePageComesBackWithItsPlace(t *testing.T) {
 	}
 	// And the count must agree: without the overlay the position lands
 	// nowhere, and saying so would be wrong for a pair saved together.
-	got, err := Layouts(root, Page{Rel: "core.html", Name: "core"})
+	got, err := Layouts(root, root, Page{Rel: "core.html", Name: "core"})
 	if err != nil {
 		t.Fatal(err)
 	}
