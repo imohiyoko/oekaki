@@ -409,6 +409,7 @@ Useful flags for `render`:
 | `--ai-command FILE` | Explicitly run a local model adapter with the graph on stdin |
 | `--ai-arg VALUE` | Pass one argument to `--ai-command`; repeatable, without shell expansion |
 | `--icon-dir DIR` | Use your own licensed icons in HTML output; see [`icons/README.md`](icons/README.md) |
+| `--css FILE` | Add a stylesheet to HTML or SVG output. The two need different selectors: an HTML page puts the class on the line, Graphviz puts it on a group around the line |
 | `--external-assets` | HTML: load a shared runtime and fetch the graph, instead of one self-contained file. Needs `-o` and a server |
 | `--asset-base URL` | Where that shared runtime is served from, e.g. `/shell/v1`; empty writes it beside the page |
 | `--source-dir DIR` | Record which `.tf` file and line declared each resource |

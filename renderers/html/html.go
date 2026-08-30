@@ -78,12 +78,12 @@ const (
 // All but one are the same bytes a self-contained page inlines, so the two
 // kinds of page run identical code. The exception, the bootstrap, exists only
 // here: a self-contained page already has its graph and has nothing to fetch.
-func Assets() map[string][]byte {
+func Assets(extraCSS []byte) map[string][]byte {
 	return map[string][]byte{
 		AssetELK:  []byte(elkJS),
 		AssetMax:  []byte(maxJS),
 		AssetApp:  []byte(appJS),
-		AssetCSS:  []byte(appCSS),
+		AssetCSS:  append([]byte(appCSS), extraCSS...),
 		AssetBoot: []byte(bootJS),
 	}
 }
@@ -109,8 +109,8 @@ func Assets() map[string][]byte {
 // and cannot be served from the old entry; a runtime that did not change is
 // the same URL and is still shared. Nobody has to remember to rename
 // anything.
-func assetURL(base, name string) string {
-	stamped := name + "?v=" + runtimeStamp()
+func assetURL(base, name, stamp string) string {
+	stamped := name + "?v=" + stamp
 	switch {
 	case base == "":
 		return stamped
@@ -129,12 +129,24 @@ func assetURL(base, name string) string {
 // opposite, which is a fresh runtime being served to a page rendered against
 // an older one. Pages outlive builds when they are kept per generation, so
 // both directions happen.
-func RuntimeStamp() string { return runtimeStamp() }
+func RuntimeStamp(extraCSS []byte) string {
+	if len(extraCSS) == 0 {
+		return builtinStamp()
+	}
+	// Hashed on top of the built-in stamp rather than beside it, so a build
+	// that changed the runtime and a caller that changed the theme both move
+	// the answer, and neither can land on the other's value.
+	sum := sha256.New()
+	sum.Write([]byte(builtinStamp()))
+	sum.Write(extraCSS)
+	return hex.EncodeToString(sum.Sum(nil))[:12]
+}
 
-// runtimeStamp fingerprints the shared files. It is the same for every page a
-// given build renders, so a server still holds one copy of each file.
-var runtimeStamp = sync.OnceValue(func() string {
-	assets := Assets()
+// builtinStamp fingerprints the shared files as this build ships them. It is
+// the same for every page a given build renders, so a server still holds one
+// copy of each file.
+var builtinStamp = sync.OnceValue(func() string {
+	assets := Assets(nil)
 	names := make([]string, 0, len(assets))
 	for name := range assets {
 		names = append(names, name)
@@ -186,6 +198,20 @@ type Options struct {
 	// licence.
 	IconDir string
 
+	// CSS is an extra stylesheet appended to the built-in one, for a caller
+	// who wants the diagrams to look like the rest of what they publish.
+	//
+	// Appended in both page kinds, so a self-contained page and an external
+	// one go on running identical styles — the same reason the other assets
+	// are the same bytes either way.
+	//
+	// It is part of what the fingerprint covers. The shared stylesheet is
+	// served from one URL for every diagram and every generation of them, so
+	// a theme that changed and did not move the fingerprint would go on being
+	// served from cache, and the pages that asked for it would be the ones
+	// that never saw it.
+	CSS []byte
+
 	// ExternalAssets writes a page that fetches its graph and loads the
 	// runtime from separate files instead of carrying both itself.
 	//
@@ -225,6 +251,14 @@ func Render(g *core.Graph, opts Options) ([]byte, error) {
 	}
 	if opts.Lines != "curved" && opts.Lines != "orthogonal" {
 		return nil, fmt.Errorf("unknown HTML line shape %q: want curved or orthogonal", opts.Lines)
+	}
+	// A self-contained page carries the stylesheet inside a <style> element,
+	// where that element's closing tag ends the block and drops the rest of
+	// the sheet into the document as markup. An external page would take the
+	// same bytes without complaint, so the two kinds would disagree about a
+	// file that is wrong in both.
+	if at := bytes.Index(bytes.ToLower(opts.CSS), []byte("</style")); at >= 0 {
+		return nil, fmt.Errorf("this stylesheet writes \"</style\" at byte %d, which would end the page's style element early", at)
 	}
 	axis := g.AxisOrDefault(opts.Axis)
 	if opts.Axis != "" && axis == "" {
@@ -279,6 +313,8 @@ func Render(g *core.Graph, opts Options) ([]byte, error) {
 		}
 	}
 
+	stamp := RuntimeStamp(opts.CSS)
+
 	var out bytes.Buffer
 	err := page.Execute(&out, struct {
 		Title    string
@@ -311,14 +347,14 @@ func Render(g *core.Graph, opts Options) ([]byte, error) {
 		ELK:      template.JS(elkJS),
 		Max:      template.JS(maxJS),
 		App:      template.JS(appJS),
-		CSS:      template.CSS(appCSS),
+		CSS:      template.CSS(appCSS + string(opts.CSS)),
 		Icons:    template.HTML(icons),
 		External: opts.ExternalAssets,
-		CSSSrc:   assetURL(opts.AssetBase, AssetCSS),
-		ELKSrc:   assetURL(opts.AssetBase, AssetELK),
-		MaxSrc:   assetURL(opts.AssetBase, AssetMax),
-		AppSrc:   assetURL(opts.AssetBase, AssetApp),
-		BootSrc:  assetURL(opts.AssetBase, AssetBoot),
+		CSSSrc:   assetURL(opts.AssetBase, AssetCSS, stamp),
+		ELKSrc:   assetURL(opts.AssetBase, AssetELK, stamp),
+		MaxSrc:   assetURL(opts.AssetBase, AssetMax, stamp),
+		AppSrc:   assetURL(opts.AssetBase, AssetApp, stamp),
+		BootSrc:  assetURL(opts.AssetBase, AssetBoot, stamp),
 		GraphSrc: opts.GraphSrc,
 	})
 	if err != nil {

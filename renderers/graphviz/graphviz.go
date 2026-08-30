@@ -14,7 +14,10 @@ package graphviz
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"regexp"
+	"unicode/utf8"
 
 	gv "github.com/goccy/go-graphviz"
 
@@ -30,6 +33,16 @@ type Options struct {
 	Axis    string
 	Kinds   []core.EdgeKind
 	Legend  bool
+
+	// CSS is a stylesheet placed inside the SVG, for a caller who wants the
+	// picture to match the rest of what they publish.
+	//
+	// The selectors are not the ones an HTML page takes: Graphviz writes an
+	// edge as <g class="edge"><path/><polygon/>, so the line is a descendant
+	// of the class rather than carrying it. A sheet written for one format
+	// therefore does nothing in the other, which is a property of the markup
+	// and not something this flag can paper over.
+	CSS []byte
 }
 
 // Render lays out the graph and returns SVG.
@@ -44,7 +57,75 @@ func Render(ctx context.Context, g *core.Graph, opts Options) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return RenderDOT(ctx, src)
+	out, err := RenderDOT(ctx, src)
+	if err != nil {
+		return nil, err
+	}
+	return withStyle(out, opts.CSS)
+}
+
+// svgRoot matches the document's own <svg> open tag. Graphviz breaks it over
+// two lines, and a DOCTYPE naming the SVG DTD stands before it, so this looks
+// for the element rather than for the letters.
+var svgRoot = regexp.MustCompile(`<svg\b[^>]*>`)
+
+// withStyle puts a caller's stylesheet inside the SVG root.
+//
+// It is written into the document rather than asked of Graphviz because
+// Graphviz cannot emit one: its `stylesheet` attribute produces an
+// xml-stylesheet instruction, which is a reference to a second file, and an
+// SVG that only looks right next to its stylesheet is no longer a thing you
+// can attach to a ticket.
+//
+// The sheet goes in a CDATA section because an SVG is XML, where a bare & or
+// < is a parse error rather than a style that fails to apply — and both occur
+// in ordinary CSS now that nesting uses & and container queries use <.
+func withStyle(svg, css []byte) ([]byte, error) {
+	if len(css) == 0 {
+		return svg, nil
+	}
+	if at := bytes.Index(css, []byte("]]>")); at >= 0 {
+		return nil, fmt.Errorf("this stylesheet writes \"]]>\" at byte %d, which would end the SVG's CDATA section early", at)
+	}
+	if err := xmlText(css); err != nil {
+		return nil, err
+	}
+	root := svgRoot.FindIndex(svg)
+	if root == nil {
+		return nil, errors.New("graphviz produced no <svg> element to put a stylesheet in")
+	}
+	var out bytes.Buffer
+	out.Write(svg[:root[1]])
+	out.WriteString("\n<style type=\"text/css\"><![CDATA[\n")
+	out.Write(bytes.TrimRight(css, "\n"))
+	out.WriteString("\n]]></style>")
+	out.Write(svg[root[1]:])
+	return out.Bytes(), nil
+}
+
+// xmlText reports whether the bytes can appear in an XML document at all.
+//
+// CDATA settles what the characters mean, not whether they are characters.
+// XML 1.0 admits no control character but tab, newline and carriage return,
+// and no byte sequence that is not UTF-8 — so a stylesheet saved in Latin-1,
+// or one carrying a stray NUL, produces a picture that every parser refuses
+// to open rather than a rule that fails to apply.
+//
+// An HTML page takes both without complaint: its parser substitutes the
+// replacement character and carries on. This check therefore belongs here and
+// not in the HTML renderer, where it would refuse files that work.
+func xmlText(css []byte) error {
+	for at := 0; at < len(css); {
+		r, size := utf8.DecodeRune(css[at:])
+		if r == utf8.RuneError && size == 1 {
+			return fmt.Errorf("this stylesheet is not UTF-8 at byte %d, and an SVG carrying it will not open", at)
+		}
+		if (r < 0x20 && r != '\t' && r != '\n' && r != '\r') || r == 0xFFFE || r == 0xFFFF {
+			return fmt.Errorf("this stylesheet has the character %U at byte %d, which XML does not allow anywhere", r, at)
+		}
+		at += size
+	}
+	return nil
 }
 
 // RenderDOT lays out DOT source produced elsewhere. Splitting this out keeps

@@ -858,3 +858,65 @@ func TestAMisspeltLayoutPolicyIsCaughtWithoutALayoutToApplyIt(t *testing.T) {
 		t.Fatalf("%q", got.stderr)
 	}
 }
+
+// DOT and Mermaid are handed to something else to draw, so a stylesheet given
+// with them would be read, accepted and thrown away. Saying so beats a picture
+// that comes back unstyled with no explanation of why.
+func TestAStylesheetIsOnlyAcceptedWhereItCanGo(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "theme.css")
+	if err := os.WriteFile(path, []byte(".edge { stroke: red; }"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	r := run(t, "", "render", plan, "--css", path, "-f", "mermaid")
+	if r.code == 0 || !strings.Contains(r.stderr, "only html and svg") {
+		t.Fatalf("a stylesheet was accepted for mermaid: %#v", r)
+	}
+}
+
+func TestAStylesheetReachesBothPictureFormats(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "theme.css")
+	if err := os.WriteFile(path, []byte(".edge { stroke: rebeccapurple; }"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, format := range []string{"html", "svg"} {
+		r := mustRun(t, "", "render", plan, "--css", path, "-f", format)
+		if !strings.Contains(r.stdout, "rebeccapurple") {
+			t.Errorf("%s output does not carry the stylesheet it was given", format)
+		}
+	}
+}
+
+// The runtime directory is named after the bytes in it so that pages rendered
+// against one runtime go on reading it. The theme is served out of that
+// directory too, so editing the theme has to land in a different one — or the
+// old stylesheet stays where every page is still looking.
+func TestTheSharedRuntimeMovesWhenTheThemeDoes(t *testing.T) {
+	dir := t.TempDir()
+	shells := map[string]bool{}
+	for _, colour := range []string{"red", "blue"} {
+		theme := filepath.Join(dir, colour+".css")
+		if err := os.WriteFile(theme, []byte(".edge { stroke: "+colour+"; }"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		page := filepath.Join(dir, colour, "page.html")
+		mustRun(t, "", "render", plan, "--css", theme, "-f", "html",
+			"--external-assets", "--asset-base", "shell/auto", "-o", page)
+
+		found, err := filepath.Glob(filepath.Join(dir, colour, "shell", "*", "oekaki.app.css"))
+		if err != nil || len(found) != 1 {
+			t.Fatalf("looking for the shared stylesheet: %v %v", found, err)
+		}
+		css, err := os.ReadFile(found[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(css), "stroke: "+colour) {
+			t.Errorf("the shared stylesheet does not carry the %s theme", colour)
+		}
+		shells[filepath.Base(filepath.Dir(found[0]))] = true
+	}
+	if len(shells) != 2 {
+		t.Error("both themes were written to the same directory, so the second is served the first")
+	}
+}
