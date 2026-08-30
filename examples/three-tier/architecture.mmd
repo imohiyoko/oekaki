@@ -1,0 +1,51 @@
+flowchart LR
+  subgraph g4["vpc: main"]
+    direction LR
+    subgraph g0["subnet: private-a"]
+      direction LR
+    end
+    subgraph g1["subnet: private-c"]
+      direction LR
+    end
+    subgraph g2["subnet: public-a"]
+      direction LR
+      n5["bastion<br/>instance"]
+    end
+    subgraph g3["subnet: public-c"]
+      direction LR
+    end
+    n0["main<br/>db_instance"]
+    n1["main<br/>db_subnet_group"]
+    n3["api<br/>ecs_service"]
+    n6["public<br/>lb"]
+    n7["http<br/>lb_listener"]
+    n8["api<br/>lb_target_group"]
+    n9["alb<br/>security_group"]
+    n10["app<br/>security_group"]
+    n11["bastion<br/>security_group"]
+    n12["db<br/>security_group"]
+  end
+  n2["main<br/>ecs_cluster"]
+  n4["api<br/>ecs_task_definition"]
+  n0 --> n1
+  n0 --> n12
+  n3 --> n2
+  n3 --> n4
+  n3 --> n8
+  n3 --> n10
+  n5 --> n11
+  n6 --> n9
+  n7 --> n6
+  n7 --> n8
+  n10 --> n9
+  n12 --> n10
+  n12 --> n11
+  classDef compute fill:#e7f5ec,stroke:#3f9159,color:#1c4429,stroke-width:1px
+  class n2,n3,n4,n5 compute
+  classDef database fill:#f0eafc,stroke:#7a52c7,color:#38215e,stroke-width:1px
+  class n0,n1 database
+  classDef network fill:#e8f0fe,stroke:#3b6fd4,color:#16305e,stroke-width:1px
+  class n6,n7,n8 network
+  classDef security fill:#fdf0e3,stroke:#c97b1e,color:#5e3a0c,stroke-width:1px
+  class n10,n11,n12,n9 security
+  linkStyle 0,1,2,3,4,5,6,7,8,9,10,11,12 stroke:#8a9099,stroke-width:1.5px

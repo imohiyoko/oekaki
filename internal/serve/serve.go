@@ -1,0 +1,421 @@
+// Package serve hands out rendered pages together with the layouts a person
+// chose for them.
+//
+// A layout is a document this tool already defines: where the boxes go, applied
+// with --layout. What was missing is the loop. You export one from the browser,
+// it lands in a downloads folder, and putting it back means remembering a path
+// and re-running the CLI. Most people do that once.
+//
+// Layouts live beside the pages, under layouts/<page>/<name>.layout.json. A
+// page is served with one applied by injecting the document the page already
+// reads by id — no re-render, and the original input does not need to be
+// nearby.
+//
+// Every layout is reported against the graph the page actually carries. A
+// layout written for last month's graph still applies, just less of it; the
+// count is the only thing that says so.
+package serve
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
+
+	"github.com/imohiyoko/oekaki/core"
+	"github.com/imohiyoko/oekaki/enrichers/overlay"
+	layoutdoc "github.com/imohiyoko/oekaki/layout"
+)
+
+// Dir is where layouts live, relative to the served root. OverlayDir is the
+// same for overlays.
+//
+// They are kept apart because they are different claims. A layout says where a
+// box goes; an overlay says a box exists. A box somebody drew in the browser
+// has both facts, and saving only one of them loses half of it — which is the
+// whole reason this package handles both.
+const (
+	Dir        = "layouts"
+	OverlayDir = "overlays"
+)
+
+const (
+	suffix        = ".layout.json"
+	overlaySuffix = ".overlay.json"
+)
+
+// marker identifies a page this tool rendered. Both the embedded and the
+// external-asset forms carry it; the external one leaves the element empty and
+// fetches the graph named by data-graph.
+const marker = `id="oekaki-graph"`
+
+var (
+	layoutTag = regexp.MustCompile(`(?s)<script type="application/json" id="oekaki-layout">.*?</script>\s*`)
+	graphAttr = regexp.MustCompile(`data-graph="([^"]*)"`)
+	graphTag  = regexp.MustCompile(`(?s)<script type="application/json" id="oekaki-graph">(.*?)</script>`)
+	safeName  = regexp.MustCompile(`\A[A-Za-z0-9][A-Za-z0-9._-]{0,63}\z`)
+)
+
+// Page is a rendered page found under the served root.
+type Page struct {
+	Rel  string // path relative to the root, e.g. "runs/abc/core.html"
+	Name string // the stem, which names the folder its layouts live in
+}
+
+// Layout is one saved layout and how much of it this page can use.
+type Layout struct {
+	Name    string
+	Nodes   int
+	Placed  int
+	Missing []string
+	Paired  bool // an overlay of the same name sits beside it
+}
+
+func hasOverlay(root, page, name string) bool {
+	path, err := OverlayPath(root, page, name)
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(path)
+	return err == nil
+}
+
+// Pages lists the rendered pages under root, nearest the top first.
+func Pages(root string) ([]Page, error) {
+	var out []Page
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		if !strings.EqualFold(filepath.Ext(path), ".html") {
+			return nil
+		}
+		body, err := os.ReadFile(path)
+		if err != nil || !bytes.Contains(body, []byte(marker)) {
+			// Not one of ours, or unreadable. An index page someone wrote by
+			// hand is not an error; it is just not a diagram.
+			return nil //nolint:nilerr // unreadable files are simply not pages
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		out = append(out, Page{Rel: filepath.ToSlash(rel),
+			Name: strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))})
+		return nil
+	})
+	sort.Slice(out, func(i, j int) bool { return out[i].Rel < out[j].Rel })
+	return out, err
+}
+
+// CheckName rejects anything that would escape the layout folder.
+func CheckName(name string) error {
+	if !safeName.MatchString(name) {
+		return fmt.Errorf("%q cannot be a layout name: letters, digits, dot, underscore and dash, up to 64", name)
+	}
+	return nil
+}
+
+func folder(root, page string) string { return filepath.Join(root, Dir, page) }
+
+func overlayFolder(root, page string) string { return filepath.Join(root, OverlayDir, page) }
+
+// OverlayPath is where an overlay for a page is kept.
+func OverlayPath(root, page, name string) (string, error) {
+	if err := CheckName(page); err != nil {
+		return "", err
+	}
+	if err := CheckName(name); err != nil {
+		return "", err
+	}
+	return filepath.Join(overlayFolder(root, page), name+overlaySuffix), nil
+}
+
+// Overlays lists the overlays saved for a page.
+func Overlays(root string, page Page) ([]string, error) {
+	entries, err := os.ReadDir(overlayFolder(root, page.Name))
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), overlaySuffix) {
+			out = append(out, strings.TrimSuffix(e.Name(), overlaySuffix))
+		}
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// SaveOverlay writes an overlay, refusing anything that is not one.
+func SaveOverlay(root, page, name string, body []byte) error {
+	path, err := OverlayPath(root, page, name)
+	if err != nil {
+		return err
+	}
+	if _, err := overlay.Parse(body, name); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, body, 0o600)
+}
+
+// ReadOverlay returns a saved overlay.
+func ReadOverlay(root, page, name string) ([]byte, error) {
+	path, err := OverlayPath(root, page, name)
+	if err != nil {
+		return nil, err
+	}
+	return os.ReadFile(path)
+}
+
+// RemoveOverlay deletes a saved overlay.
+func RemoveOverlay(root, page, name string) error {
+	path, err := OverlayPath(root, page, name)
+	if err != nil {
+		return err
+	}
+	return os.Remove(path)
+}
+
+// Enrich applies an overlay to a graph document.
+//
+// The graph a page carries is what the drawing is of, so a box asserted in the
+// browser only comes back if it is put there before the page reads it. Doing
+// it here rather than asking people to re-render means the assertion survives
+// a reload, which is the least a person expects of something they saved.
+func Enrich(graph, claims []byte) ([]byte, error) {
+	doc, err := overlay.Parse(claims, "overlay")
+	if err != nil {
+		return nil, err
+	}
+	g, err := core.Decode(bytes.NewReader(graph))
+	if err != nil {
+		return nil, err
+	}
+	if _, err := overlay.New([]*overlay.Document{doc}, overlay.Options{}).Enrich(g); err != nil {
+		return nil, err
+	}
+	return g.MarshalIndent()
+}
+
+// Path is where a layout for a page is kept.
+func Path(root, page, name string) (string, error) {
+	if err := CheckName(page); err != nil {
+		return "", err
+	}
+	if err := CheckName(name); err != nil {
+		return "", err
+	}
+	return filepath.Join(folder(root, page), name+suffix), nil
+}
+
+// Layouts lists what has been saved for a page, each measured against the
+// graph that page carries.
+func Layouts(root string, page Page) ([]Layout, error) {
+	entries, err := os.ReadDir(folder(root, page.Name))
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	base, err := GraphIDs(root, page, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var out []Layout
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), suffix) {
+			continue
+		}
+		name := strings.TrimSuffix(e.Name(), suffix)
+		path, err := Path(root, page.Name, name)
+		if err != nil {
+			continue
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		doc, err := layoutdoc.Parse(raw, path)
+		if err != nil {
+			// A file that will not parse is still worth listing: it is there,
+			// somebody put it there, and hiding it makes it unfindable.
+			out = append(out, Layout{Name: name})
+			continue
+		}
+		// A layout saved alongside an overlay is counted against the graph
+		// that overlay makes. Counting against the bare graph would report a
+		// box the page will draw as landing nowhere.
+		known := base
+		if claims, err := ReadOverlay(root, page.Name, name); err == nil {
+			if with, err := GraphIDs(root, page, claims); err == nil {
+				known = with
+			}
+		}
+		at := doc.Against(known)
+		out = append(out, Layout{Name: name, Nodes: at.Total(),
+			Placed: at.Placed, Missing: at.Missing, Paired: hasOverlay(root, page.Name, name)})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+// GraphIDs is every node and group id the page carries, which is what a layout
+// can land on.
+func GraphIDs(root string, page Page, claims []byte) (map[string]struct{}, error) {
+	body, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(page.Rel)))
+	if err != nil {
+		return nil, err
+	}
+
+	raw := []byte(nil)
+	if m := graphTag.FindSubmatch(body); m != nil && len(bytes.TrimSpace(m[1])) > 0 {
+		raw = m[1]
+	} else if m := graphAttr.FindSubmatch(body); m != nil {
+		// External assets: the graph sits beside the page.
+		next := filepath.Join(filepath.Dir(filepath.Join(root, filepath.FromSlash(page.Rel))),
+			filepath.FromSlash(string(m[1])))
+		if raw, err = os.ReadFile(next); err != nil {
+			return nil, fmt.Errorf("reading the graph %s names: %w", page.Rel, err)
+		}
+	}
+	if len(raw) == 0 {
+		return nil, fmt.Errorf("%s carries no graph", page.Rel)
+	}
+
+	if len(claims) > 0 {
+		enriched, err := Enrich(raw, claims)
+		if err != nil {
+			return nil, err
+		}
+		raw = enriched
+	}
+
+	var g struct {
+		Nodes []struct {
+			ID string `json:"id"`
+		} `json:"nodes"`
+		Groups []struct {
+			ID string `json:"id"`
+		} `json:"groups"`
+	}
+	if err := json.Unmarshal(raw, &g); err != nil {
+		return nil, fmt.Errorf("reading the graph %s carries: %w", page.Rel, err)
+	}
+	ids := make(map[string]struct{}, len(g.Nodes)+len(g.Groups))
+	for _, n := range g.Nodes {
+		ids[n.ID] = struct{}{}
+	}
+	for _, n := range g.Groups {
+		ids[n.ID] = struct{}{}
+	}
+	return ids, nil
+}
+
+// Dressing is what to put into a page before handing it over.
+type Dressing struct {
+	Layout      []byte // the layout to apply, if any
+	Overlay     []byte // the overlay to apply, if any
+	GraphQuery  string // appended to the graph url when the graph is a separate file
+	LayoutPost  string // where the page saves its layout
+	OverlayPost string // where the page saves what it asserted
+}
+
+// Apply puts a layout and an overlay into a rendered page and tells it where
+// to save.
+//
+// The page reads a layout by id, so injecting the element is enough. Any
+// layout already there is removed first: getElementById answers with the first
+// match, so adding a second would leave the old one winning.
+//
+// An overlay changes the graph rather than the page, so it is applied to the
+// graph the page carries. When the graph is a separate file the page is only
+// pointed at a url that will have it applied — rewriting the document here
+// would leave the page fetching one graph and drawing another.
+func Apply(page []byte, d Dressing) ([]byte, error) {
+	out := page
+	if len(d.Layout) > 0 {
+		out = layoutTag.ReplaceAll(out, nil)
+		tag := []byte(`<script type="application/json" id="oekaki-layout">` +
+			strings.ReplaceAll(string(d.Layout), "</", `<\/`) + "</script>\n")
+		out = bytes.Replace(out, []byte(`<script type="application/json" id="oekaki-graph">`),
+			append(tag, []byte(`<script type="application/json" id="oekaki-graph">`)...), 1)
+	}
+
+	if len(d.Overlay) > 0 {
+		if m := graphTag.FindSubmatch(out); m != nil && len(bytes.TrimSpace(m[1])) > 0 {
+			enriched, err := Enrich(m[1], d.Overlay)
+			if err != nil {
+				return nil, err
+			}
+			out = graphTag.ReplaceAll(out, []byte(`<script type="application/json" id="oekaki-graph">`+
+				strings.ReplaceAll(string(enriched), "</", `<\/`)+`</script>`))
+		}
+	}
+	if d.GraphQuery != "" {
+		out = graphAttr.ReplaceAllFunc(out, func(m []byte) []byte {
+			src := string(graphAttr.FindSubmatch(m)[1])
+			sep := "?"
+			if strings.Contains(src, "?") {
+				sep = "&"
+			}
+			return []byte(`data-graph="` + src + sep + d.GraphQuery + `"`)
+		})
+	}
+
+	for attr, url := range map[string]string{"data-layout-post": d.LayoutPost, "data-overlay-post": d.OverlayPost} {
+		if url != "" {
+			out = bytes.Replace(out, []byte("<body "), []byte(`<body `+attr+`="`+url+`" `), 1)
+		}
+	}
+	return out, nil
+}
+
+// Save writes a layout, refusing anything that is not one.
+//
+// Checking here rather than at load keeps a broken document from becoming the
+// one a page is served with. The browser is not the only thing that writes
+// here, so the check cannot live there.
+func Save(root, page, name string, body []byte) error {
+	path, err := Path(root, page, name)
+	if err != nil {
+		return err
+	}
+	if _, err := layoutdoc.Parse(body, name); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, body, 0o600)
+}
+
+// Read returns a saved layout.
+func Read(root, page, name string) ([]byte, error) {
+	path, err := Path(root, page, name)
+	if err != nil {
+		return nil, err
+	}
+	return os.ReadFile(path)
+}
+
+// Remove deletes a saved layout.
+func Remove(root, page, name string) error {
+	path, err := Path(root, page, name)
+	if err != nil {
+		return err
+	}
+	return os.Remove(path)
+}

@@ -1,0 +1,68 @@
+<!-- Category glyphs, drawn here and licensed with the rest of this project.
+
+     Not vendor icons. AWS, Google Cloud and Azure all publish icon sets under
+     terms that restrict redistribution, and vendoring them into a public
+     Apache-2.0 repository would be a real hazard rather than a theoretical
+     one. Anyone who already has a licensed set can point --icon-dir at it.
+
+     One glyph per category rather than one per resource type, deliberately.
+     Categories are the distinction an operator actually makes at a glance, a
+     per-type set is unbounded, and covering every provider resource is
+     explicitly not a goal of this project. These are meant to be read at
+     14 pixels next to a label, so each is a single silhouette: adding detail
+     makes them worse, not better.
+
+     Drawn on a 16x16 grid, currentColor so each takes its node's text colour. -->
+<svg xmlns="http://www.w3.org/2000/svg" class="icon-sprite">
+
+  <!-- compute: a chip -->
+  <symbol id="icon-compute" viewBox="0 0 16 16">
+    <rect x="4.5" y="4.5" width="7" height="7" rx="1"
+          fill="none" stroke="currentColor" stroke-width="1.3"/>
+    <g stroke="currentColor" stroke-width="1.2" stroke-linecap="round">
+      <path d="M6.5 4.5V2.4M9.5 4.5V2.4M6.5 13.6V11.5M9.5 13.6V11.5"/>
+      <path d="M4.5 6.5H2.4M4.5 9.5H2.4M13.6 6.5H11.5M13.6 9.5H11.5"/>
+    </g>
+  </symbol>
+
+  <!-- database: a stack of platters -->
+  <symbol id="icon-database" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.3">
+      <ellipse cx="8" cy="4.2" rx="5" ry="2"/>
+      <path d="M3 4.2v7.6c0 1.1 2.2 2 5 2s5-.9 5-2V4.2"/>
+      <path d="M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
+    </g>
+  </symbol>
+
+  <!-- network: nodes joined by links -->
+  <symbol id="icon-network" viewBox="0 0 16 16">
+    <g stroke="currentColor" stroke-width="1.3" fill="none">
+      <path d="M8 4.6v6.8M8 8H3.4M8 8h4.6"/>
+      <circle cx="8" cy="3" r="1.7"/>
+      <circle cx="2.6" cy="8" r="1.5" transform="translate(-0.6 0)"/>
+      <circle cx="13.4" cy="8" r="1.5"/>
+      <circle cx="8" cy="13" r="1.7"/>
+    </g>
+  </symbol>
+
+  <!-- security: a shield -->
+  <symbol id="icon-security" viewBox="0 0 16 16">
+    <path d="M8 2.2l4.6 1.7v4.3c0 2.6-1.9 4.6-4.6 5.6-2.7-1-4.6-3-4.6-5.6V3.9L8 2.2z"
+          fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+  </symbol>
+
+  <!-- storage: a bucket -->
+  <symbol id="icon-storage" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">
+      <path d="M3 4.4h10l-1.1 8.3c-.1.6-.6 1-1.2 1H5.3c-.6 0-1.1-.4-1.2-1L3 4.4z"/>
+      <path d="M2.4 4.4h11.2"/>
+    </g>
+  </symbol>
+
+  <!-- generic: a plain box, for everything unrecognised -->
+  <symbol id="icon-generic" viewBox="0 0 16 16">
+    <rect x="3.2" y="3.2" width="9.6" height="9.6" rx="1.6"
+          fill="none" stroke="currentColor" stroke-width="1.3"/>
+  </symbol>
+
+</svg>

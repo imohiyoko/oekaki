@@ -1,0 +1,112 @@
+name: oekaki
+description: Render an architecture diagram from a Terraform plan, and keep it up to date in your repository.
+branding:
+  icon: git-merge
+  color: blue
+
+inputs:
+  plan:
+    description: '`terraform show -json` output, or a graph oekaki produced earlier.'
+    required: true
+  output:
+    description: 'Where to write the diagram. The extension picks the format unless `format` is set.'
+    required: false
+    default: architecture.svg
+  format:
+    description: 'Output format: svg, dot, mermaid or json. Defaults to the output extension.'
+    required: false
+    default: ''
+  source-dir:
+    description: 'Directory of .tf files, so the diagram records where each resource was declared.'
+    required: false
+    default: ''
+  title:
+    description: 'Title drawn above the diagram.'
+    required: false
+    default: ''
+  kind:
+    description: 'Comma-separated edge kinds to draw. Defaults to all of them.'
+    required: false
+    default: ''
+  fenced:
+    description: 'For mermaid output, wrap the result in a Markdown code fence.'
+    required: false
+    default: 'false'
+  version:
+    description: 'Module version override. Empty builds the exact action revision.'
+    required: false
+    default: ''
+
+outputs:
+  changed:
+    description: 'true when the rendered diagram differs from what was committed.'
+    value: ${{ steps.render.outputs.changed }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+      with:
+        go-version: '1.24'
+        cache: false
+
+    - name: Build oekaki
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+
+        if [ -n "$VERSION" ]; then
+          go install "github.com/imohiyoko/oekaki/cmd/oekaki@$VERSION"
+        else
+          # A caller that pins this action to a tag or SHA must run the code at
+          # that same revision, not whichever module version happens to be
+          # latest when the workflow runs.
+          bin_dir="$RUNNER_TEMP/oekaki-bin"
+          mkdir -p "$bin_dir"
+          (
+            cd "$GITHUB_ACTION_PATH"
+            go build -trimpath -o "$bin_dir/oekaki" ./cmd/oekaki
+          )
+          echo "$bin_dir" >> "$GITHUB_PATH"
+        fi
+
+    - name: Render
+      id: render
+      shell: bash
+      env:
+        PLAN: ${{ inputs.plan }}
+        OUTPUT: ${{ inputs.output }}
+        FORMAT: ${{ inputs.format }}
+        SOURCE_DIR: ${{ inputs.source-dir }}
+        TITLE: ${{ inputs.title }}
+        KIND: ${{ inputs.kind }}
+        FENCED: ${{ inputs.fenced }}
+      run: |
+        set -euo pipefail
+
+        args=(render "$PLAN" -o "$OUTPUT")
+        [ -n "$FORMAT" ]     && args+=(-f "$FORMAT")
+        [ -n "$SOURCE_DIR" ] && args+=(--source-dir "$SOURCE_DIR")
+        [ -n "$TITLE" ]      && args+=(--title "$TITLE")
+        [ -n "$KIND" ]       && args+=(--kind "$KIND")
+        [ "$FENCED" = "true" ] && args+=(--fenced)
+
+        before=""
+        if [ -f "$OUTPUT" ]; then
+          before=$(git hash-object "$OUTPUT")
+        fi
+
+        oekaki "${args[@]}"
+
+        # Rendering is deterministic, so this only reports true when the
+        # infrastructure actually changed — not on every run.
+        after=$(git hash-object "$OUTPUT")
+        if [ "$before" = "$after" ]; then
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+          echo "The diagram is unchanged."
+        else
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "The diagram changed; commit $OUTPUT to update it."
+        fi

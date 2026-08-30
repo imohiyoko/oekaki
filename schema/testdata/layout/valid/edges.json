@@ -1,0 +1,13 @@
+{
+  "kind": "oekaki.layout",
+  "version": "0.2",
+  "nodes": [
+    {"id": "account:one", "x": 120, "y": 40}
+  ],
+  "edges": [
+    {"from": "account:one", "to": "account:two", "kind": "iac_ref", "relation": "remote_state",
+     "source": "right", "target": "left"},
+    {"from": "account:two", "to": "account:one", "kind": "iac_ref", "target": "top"}
+  ],
+  "claim": {"origin": "human"}
+}

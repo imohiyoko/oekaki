@@ -1,0 +1,91 @@
+version: 2
+
+project_name: oekaki
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: oekaki
+    main: ./cmd/oekaki
+    binary: oekaki
+    # Graphviz is embedded as WebAssembly and run by wazero, so there is
+    # nothing to link against and cross-compilation is unremarkable.
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w -X github.com/imohiyoko/oekaki/internal/cli.Version={{ .Version }}
+    mod_timestamp: '{{ .CommitTimestamp }}'
+
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    # Directories are listed bare rather than as `docs/**/*`: that glob needs a
+    # subdirectory level to match, and these hold files directly, so it
+    # silently shipped an archive with no docs in it.
+    files:
+      - README.md
+      - LICENSE
+      # Required, not decorative: the binary embeds Graphviz (EPL-2.0), so
+      # every archive has to carry its attribution.
+      - THIRD_PARTY_NOTICES.md
+      - CONTRIBUTING.md
+      - docs
+      - schema/graph.schema.json
+      # Shipped so that an installed binary has something to render without
+      # anyone needing a Terraform setup first.
+      - examples
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: '{{ incpatch .Version }}-next'
+
+changelog:
+  sort: asc
+  use: github
+  groups:
+    - title: Features
+      regexp: '^feat'
+      order: 0
+    - title: Fixes
+      regexp: '^fix'
+      order: 1
+    - title: Other
+      order: 99
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+
+release:
+  draft: false
+  prerelease: auto
+  # GitHub releases start as drafts while artifacts are uploaded. Reuse that
+  # draft, and replace any artifact that made it up before a transient failure,
+  # so rerunning the same workflow can finish the same immutable tag.
+  use_existing_draft: true
+  replace_existing_artifacts: true
+  preflight:
+    fail_on_error: true
+  footer: |
+    ## Install
+
+    ```console
+    go install github.com/imohiyoko/oekaki/cmd/oekaki@{{ .Tag }}
+    ```
+
+    Or download a binary above. Nothing else is required: Graphviz is compiled
+    in, so there is no `dot` to install and no cgo.

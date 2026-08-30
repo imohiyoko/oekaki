@@ -1,0 +1,37 @@
+# Build output
+/dist/
+/out/
+/oekaki
+/oekaki.exe
+
+# Terraform working files. The example's plan.json is checked in on purpose:
+# the repository has to run immediately after a clone.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+.terraform.lock.hcl
+
+# Local configuration. A conventions file says where to look in somebody's
+# repository — which local holds an account id, which file carries the account
+# table. The values are only names, but the names describe the repository being
+# read, and that repository is usually not this one's business.
+#
+# Ignored before anything invites people to write one: an ignore rule added
+# afterwards does not help whoever already committed theirs.
+*.conventions.yaml
+*.conventions.yml
+.oekaki.yaml
+.oekaki.yml
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Local agent state: machine-specific settings and scratch worktrees. Nothing
+# here belongs to the project, and settings.local.json in particular records
+# one person's local configuration.
+.claude/

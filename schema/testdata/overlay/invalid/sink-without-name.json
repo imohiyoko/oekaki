@@ -1,0 +1,11 @@
+{
+  "kind": "oekaki.overlay",
+  "version": "0.1",
+  "sinks": [
+    {
+      "id": "sink.app",
+      "type": "log_group"
+    }
+  ],
+  "assertions": []
+}

@@ -1,0 +1,156 @@
+{
+  "format_version": "1.0",
+  "terraform_version": "1.9.8",
+  "values": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_db_instance.main",
+          "mode": "managed",
+          "type": "aws_db_instance",
+          "name": "main",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 2,
+          "values": {
+            "id": "db-QWERTYUIOPASDFGH",
+            "arn": "arn:aws:rds:ap-northeast-1:123456789012:db:main-postgres",
+            "identifier": "main-postgres",
+            "engine": "postgres",
+            "engine_version": "16.3",
+            "instance_class": "db.t4g.medium",
+            "allocated_storage": 100,
+            "multi_az": true,
+            "db_subnet_group_name": "main-private",
+            "vpc_security_group_ids": [
+              "sg-0ddd444eee555fff66"
+            ]
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "aws_db_subnet_group.main",
+          "mode": "managed",
+          "type": "aws_db_subnet_group",
+          "name": "main",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 0,
+          "values": {
+            "id": "main-private",
+            "arn": "arn:aws:rds:ap-northeast-1:123456789012:subgrp:main-private",
+            "name": "main-private",
+            "subnet_ids": [
+              "subnet-0aaa111bbb222ccc33",
+              "subnet-0eee555fff666aaa77"
+            ]
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "aws_instance.bastion",
+          "mode": "managed",
+          "type": "aws_instance",
+          "name": "bastion",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 1,
+          "values": {
+            "id": "i-0123456789abcdef0",
+            "arn": "arn:aws:ec2:ap-northeast-1:123456789012:instance/i-0123456789abcdef0",
+            "ami": "ami-0d52744d6551d851e",
+            "instance_type": "t3.micro",
+            "subnet_id": "subnet-0aaa111bbb222ccc33",
+            "vpc_security_group_ids": [
+              "sg-0ddd444eee555fff66"
+            ],
+            "tags": {
+              "Name": "bastion"
+            }
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "aws_security_group.db",
+          "mode": "managed",
+          "type": "aws_security_group",
+          "name": "db",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 1,
+          "values": {
+            "id": "sg-0ddd444eee555fff66",
+            "arn": "arn:aws:ec2:ap-northeast-1:123456789012:security-group/sg-0ddd444eee555fff66",
+            "name": "db",
+            "description": "PostgreSQL",
+            "vpc_id": "vpc-0a1b2c3d4e5f6a7b8",
+            "ingress": [
+              {
+                "cidr_blocks": [],
+                "description": "PostgreSQL from the VPC",
+                "from_port": 5432,
+                "protocol": "tcp",
+                "security_groups": [],
+                "self": true,
+                "to_port": 5432
+              }
+            ]
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "aws_subnet.private_a",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "private_a",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 0,
+          "values": {
+            "id": "subnet-0aaa111bbb222ccc33",
+            "arn": "arn:aws:ec2:ap-northeast-1:123456789012:subnet/subnet-0aaa111bbb222ccc33",
+            "availability_zone": "ap-northeast-1a",
+            "cidr_block": "10.0.10.0/24",
+            "vpc_id": "vpc-0a1b2c3d4e5f6a7b8",
+            "tags": {
+              "Name": "private-a"
+            }
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "aws_subnet.private_c",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "private_c",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 0,
+          "values": {
+            "id": "subnet-0eee555fff666aaa77",
+            "arn": "arn:aws:ec2:ap-northeast-1:123456789012:subnet/subnet-0eee555fff666aaa77",
+            "availability_zone": "ap-northeast-1c",
+            "cidr_block": "10.0.11.0/24",
+            "vpc_id": "vpc-0a1b2c3d4e5f6a7b8",
+            "tags": {
+              "Name": "private-c"
+            }
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "aws_vpc.main",
+          "mode": "managed",
+          "type": "aws_vpc",
+          "name": "main",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 1,
+          "values": {
+            "id": "vpc-0a1b2c3d4e5f6a7b8",
+            "arn": "arn:aws:ec2:ap-northeast-1:123456789012:vpc/vpc-0a1b2c3d4e5f6a7b8",
+            "cidr_block": "10.0.0.0/16",
+            "enable_dns_hostnames": true,
+            "tags": {
+              "Name": "main"
+            }
+          },
+          "sensitive_values": {}
+        }
+      ]
+    }
+  }
+}

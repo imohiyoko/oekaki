@@ -1,0 +1,9 @@
+{
+  "kind": "oekaki.layout",
+  "version": "0.1",
+  "nodes": [
+    {"id": "account:one", "x": 120, "y": 40},
+    {"id": "service:api", "parent": "account:one", "x": 20, "y": 30}
+  ],
+  "claim": {"origin": "human", "author": "designer"}
+}

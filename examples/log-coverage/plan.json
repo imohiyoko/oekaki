@@ -1,0 +1,437 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.9.0",
+  "planned_values": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_vpc.main",
+          "mode": "managed",
+          "type": "aws_vpc",
+          "name": "main",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 0,
+          "values": {
+            "cidr_block": "10.20.0.0/16",
+            "enable_dns_hostnames": true
+          }
+        },
+        {
+          "address": "aws_subnet.private_a",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "private_a",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 0,
+          "values": {
+            "cidr_block": "10.20.1.0/24",
+            "availability_zone": "eu-west-1a",
+            "map_public_ip_on_launch": false
+          }
+        },
+        {
+          "address": "aws_subnet.private_b",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "private_b",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 0,
+          "values": {
+            "cidr_block": "10.20.2.0/24",
+            "availability_zone": "eu-west-1b",
+            "map_public_ip_on_launch": false
+          }
+        },
+        {
+          "address": "aws_cloudwatch_log_group.app",
+          "mode": "managed",
+          "type": "aws_cloudwatch_log_group",
+          "name": "app",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 0,
+          "values": {
+            "name": "/platform/app",
+            "retention_in_days": 30
+          }
+        },
+        {
+          "address": "aws_cloudwatch_log_group.batch",
+          "mode": "managed",
+          "type": "aws_cloudwatch_log_group",
+          "name": "batch",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 0,
+          "values": {
+            "name": "/platform/batch",
+            "retention_in_days": 7
+          }
+        },
+        {
+          "address": "aws_lb.public",
+          "mode": "managed",
+          "type": "aws_lb",
+          "name": "public",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 0,
+          "values": {
+            "name": "public",
+            "internal": false,
+            "load_balancer_type": "application"
+          }
+        },
+        {
+          "address": "aws_ecs_cluster.main",
+          "mode": "managed",
+          "type": "aws_ecs_cluster",
+          "name": "main",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 0,
+          "values": {
+            "name": "main"
+          }
+        },
+        {
+          "address": "aws_ecs_service.api",
+          "mode": "managed",
+          "type": "aws_ecs_service",
+          "name": "api",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 0,
+          "values": {
+            "name": "api",
+            "desired_count": 3,
+            "launch_type": "FARGATE"
+          }
+        },
+        {
+          "address": "aws_ecs_service.checkout",
+          "mode": "managed",
+          "type": "aws_ecs_service",
+          "name": "checkout",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 0,
+          "values": {
+            "name": "checkout",
+            "desired_count": 2,
+            "launch_type": "FARGATE"
+          }
+        },
+        {
+          "address": "aws_ecs_service.search",
+          "mode": "managed",
+          "type": "aws_ecs_service",
+          "name": "search",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 0,
+          "values": {
+            "name": "search",
+            "desired_count": 1,
+            "launch_type": "FARGATE"
+          }
+        },
+        {
+          "address": "aws_db_subnet_group.main",
+          "mode": "managed",
+          "type": "aws_db_subnet_group",
+          "name": "main",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 0,
+          "values": {
+            "name": "main"
+          }
+        },
+        {
+          "address": "aws_db_instance.main",
+          "mode": "managed",
+          "type": "aws_db_instance",
+          "name": "main",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 0,
+          "values": {
+            "allocated_storage": 50,
+            "engine": "postgres",
+            "engine_version": "16.3",
+            "instance_class": "db.t4g.small",
+            "multi_az": false
+          }
+        }
+      ]
+    }
+  },
+  "configuration": {
+    "provider_config": {
+      "aws": {
+        "name": "aws",
+        "full_name": "registry.terraform.io/hashicorp/aws",
+        "expressions": {
+          "region": {
+            "constant_value": "eu-west-1"
+          }
+        }
+      }
+    },
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_vpc.main",
+          "mode": "managed",
+          "type": "aws_vpc",
+          "name": "main",
+          "provider_config_key": "aws",
+          "schema_version": 0,
+          "expressions": {
+            "cidr_block": {
+              "constant_value": "10.20.0.0/16"
+            },
+            "enable_dns_hostnames": {
+              "constant_value": true
+            }
+          }
+        },
+        {
+          "address": "aws_subnet.private_a",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "private_a",
+          "provider_config_key": "aws",
+          "schema_version": 0,
+          "expressions": {
+            "vpc_id": {
+              "references": [
+                "aws_vpc.main.id",
+                "aws_vpc.main"
+              ]
+            },
+            "cidr_block": {
+              "constant_value": "10.20.1.0/24"
+            },
+            "availability_zone": {
+              "constant_value": "eu-west-1a"
+            }
+          }
+        },
+        {
+          "address": "aws_subnet.private_b",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "private_b",
+          "provider_config_key": "aws",
+          "schema_version": 0,
+          "expressions": {
+            "vpc_id": {
+              "references": [
+                "aws_vpc.main.id",
+                "aws_vpc.main"
+              ]
+            },
+            "cidr_block": {
+              "constant_value": "10.20.2.0/24"
+            },
+            "availability_zone": {
+              "constant_value": "eu-west-1b"
+            }
+          }
+        },
+        {
+          "address": "aws_cloudwatch_log_group.app",
+          "mode": "managed",
+          "type": "aws_cloudwatch_log_group",
+          "name": "app",
+          "provider_config_key": "aws",
+          "schema_version": 0,
+          "expressions": {
+            "name": {
+              "constant_value": "/platform/app"
+            },
+            "retention_in_days": {
+              "constant_value": 30
+            }
+          }
+        },
+        {
+          "address": "aws_cloudwatch_log_group.batch",
+          "mode": "managed",
+          "type": "aws_cloudwatch_log_group",
+          "name": "batch",
+          "provider_config_key": "aws",
+          "schema_version": 0,
+          "expressions": {
+            "name": {
+              "constant_value": "/platform/batch"
+            },
+            "retention_in_days": {
+              "constant_value": 7
+            }
+          }
+        },
+        {
+          "address": "aws_lb.public",
+          "mode": "managed",
+          "type": "aws_lb",
+          "name": "public",
+          "provider_config_key": "aws",
+          "schema_version": 0,
+          "expressions": {
+            "name": {
+              "constant_value": "public"
+            },
+            "internal": {
+              "constant_value": false
+            },
+            "load_balancer_type": {
+              "constant_value": "application"
+            },
+            "subnets": {
+              "references": [
+                "aws_subnet.private_a.id",
+                "aws_subnet.private_a",
+                "aws_subnet.private_b.id",
+                "aws_subnet.private_b"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_ecs_cluster.main",
+          "mode": "managed",
+          "type": "aws_ecs_cluster",
+          "name": "main",
+          "provider_config_key": "aws",
+          "schema_version": 0,
+          "expressions": {
+            "name": {
+              "constant_value": "main"
+            }
+          }
+        },
+        {
+          "address": "aws_ecs_service.api",
+          "mode": "managed",
+          "type": "aws_ecs_service",
+          "name": "api",
+          "provider_config_key": "aws",
+          "schema_version": 0,
+          "expressions": {
+            "name": {
+              "constant_value": "api"
+            },
+            "desired_count": {
+              "constant_value": 3
+            },
+            "launch_type": {
+              "constant_value": "FARGATE"
+            },
+            "cluster": {
+              "references": [
+                "aws_ecs_cluster.main.id",
+                "aws_ecs_cluster.main"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_ecs_service.checkout",
+          "mode": "managed",
+          "type": "aws_ecs_service",
+          "name": "checkout",
+          "provider_config_key": "aws",
+          "schema_version": 0,
+          "expressions": {
+            "name": {
+              "constant_value": "checkout"
+            },
+            "desired_count": {
+              "constant_value": 2
+            },
+            "launch_type": {
+              "constant_value": "FARGATE"
+            },
+            "cluster": {
+              "references": [
+                "aws_ecs_cluster.main.id",
+                "aws_ecs_cluster.main"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_ecs_service.search",
+          "mode": "managed",
+          "type": "aws_ecs_service",
+          "name": "search",
+          "provider_config_key": "aws",
+          "schema_version": 0,
+          "expressions": {
+            "name": {
+              "constant_value": "search"
+            },
+            "desired_count": {
+              "constant_value": 1
+            },
+            "launch_type": {
+              "constant_value": "FARGATE"
+            },
+            "cluster": {
+              "references": [
+                "aws_ecs_cluster.main.id",
+                "aws_ecs_cluster.main"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_db_subnet_group.main",
+          "mode": "managed",
+          "type": "aws_db_subnet_group",
+          "name": "main",
+          "provider_config_key": "aws",
+          "schema_version": 0,
+          "expressions": {
+            "name": {
+              "constant_value": "main"
+            },
+            "subnet_ids": {
+              "references": [
+                "aws_subnet.private_a.id",
+                "aws_subnet.private_a",
+                "aws_subnet.private_b.id",
+                "aws_subnet.private_b"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_db_instance.main",
+          "mode": "managed",
+          "type": "aws_db_instance",
+          "name": "main",
+          "provider_config_key": "aws",
+          "schema_version": 0,
+          "expressions": {
+            "allocated_storage": {
+              "constant_value": 50
+            },
+            "engine": {
+              "constant_value": "postgres"
+            },
+            "engine_version": {
+              "constant_value": "16.3"
+            },
+            "instance_class": {
+              "constant_value": "db.t4g.small"
+            },
+            "multi_az": {
+              "constant_value": false
+            },
+            "db_subnet_group_name": {
+              "references": [
+                "aws_db_subnet_group.main.name",
+                "aws_db_subnet_group.main"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

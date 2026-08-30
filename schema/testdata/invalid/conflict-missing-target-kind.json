@@ -1,0 +1,15 @@
+{
+  "version": "0.5",
+  "axes": [],
+  "nodes": [{"id":"a","type":"service","name":"a"}],
+  "edges": [],
+  "groups": [],
+  "conflicts": [{
+    "target": "a",
+    "field": "name",
+    "claims": [
+      {"value":"one","claim":{"origin":"human"}},
+      {"value":"two","claim":{"origin":"ai"}}
+    ]
+  }]
+}

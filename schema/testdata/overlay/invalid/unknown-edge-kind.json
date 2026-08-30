@@ -1,0 +1,16 @@
+{
+  "kind": "oekaki.overlay",
+  "version": "0.1",
+  "assertions": [
+    {
+      "assert": "edge",
+      "from": {
+        "name": "a"
+      },
+      "to": {
+        "name": "b"
+      },
+      "kind": "talks_to"
+    }
+  ]
+}

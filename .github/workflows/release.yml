@@ -1,0 +1,163 @@
+name: Release
+
+# リリースを切る方法は 2 つ。
+#   1. workflow_dispatch（Actions タブから手動）: bump=patch|minor|major を選ぶと
+#      最新の v* タグから次バージョンを計算し、そのコミットを凍結する
+#      release/vX.Y.Z ブランチを作ってから、同じコミットに vX.Y.Z タグを付けて
+#      push し、続けて公開する。
+#   2. push: tags v*（ローカルから `git push origin vX.Y.Z`）: そのタグで公開する。
+#      リリースブランチは作らない直接経路。
+#
+# 手動実行時のタグ push は GITHUB_TOKEN 由来なので push トリガーを再帰起動しない
+# （= 二重リリースにならない）。同じジョブ内で続けて goreleaser を回す。
+#
+# 公開は environment: release に紐づくため、required reviewers が承認するまで
+# publish ジョブは動かない。これが「リリースできる人」を絞る一次コントロールで、
+# どちらの経路でも承認前には何も公開されない。
+#
+# ruleset との噛み合わせ:
+#   - v* タグの ruleset は削除・更新・force-push を禁止しているが *作成* は禁止して
+#     いない。だから下のタグ push は bypass なしで通る。逆に creation ルールを足す
+#     なら、このワークフローの push 主体を bypass に入れないと弾かれる。
+#   - release/* も同様に、削除・更新は禁止・作成は許可にしてある。
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'セマンティックバージョンの上げ幅'
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      prerelease:
+        description: 'プレリリース識別子（例: rc1。安定版は空欄）'
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+# タグの競合や二重公開を防ぐため、リリースは同時に 1 本しか走らせない。
+# 進行中のリリースを新しい実行で打ち切らせない（cancel-in-progress: false）。
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  # 再現性のため goreleaser を固定版にする（`~> v2` だと実行時期で結果が変わる）。
+  GORELEASER_VERSION: 'v2.18.0'
+
+jobs:
+  # 公開から切り離してあるのは、承認を求めるのがタグの健全性を確かめた *後* に
+  # なるようにするため。テストに落ちるタグの承認を人に求めるのは、ゲートが守ろう
+  # としているものを無駄にする。
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      CGO_ENABLED: '0'
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.24'
+
+      - name: Test
+        run: go test ./...
+
+      # 公開せずにリリースビルドを丸ごと通す。承認者が見るのは、既に成功が確認
+      # できているビルドだけになる。
+      - name: Dry-run the release build
+        uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
+        with:
+          version: ${{ env.GORELEASER_VERSION }}
+          args: release --snapshot --clean
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    # required reviewers による承認と、main ブランチ / v* タグ限定の
+    # deployment policy がここに掛かる。手動実行は main の ref のままこの
+    # environment に入るため、ここを release/* 限定にはしない。
+    environment: release
+    permissions:
+      contents: write # タグ・リリースブランチの作成と Release の公開に必要
+    env:
+      CGO_ENABLED: '0'
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          # goreleaser は changelog を履歴から作るので浅いクローンでは足りない。
+          # タグ計算にも全タグが要る。
+          fetch-depth: 0
+
+      # 手動実行のときだけ: 次バージョンを採番し、そのコミットを凍結する。
+      # 同じ workflow run の再実行では、最初の試行が作った branch/tag を再利用する。
+      - name: Compute version, create release branch and tag
+        id: prepare
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          BUMP: ${{ inputs.bump }}
+          PRE: ${{ inputs.prerelease }}
+        run: .github/scripts/prepare-release.sh
+
+      - name: Resolve release tag
+        id: release-tag
+        shell: bash
+        env:
+          PREPARED_TAG: ${{ steps.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+          tag="$PREPARED_TAG"
+          [ -z "$tag" ] && tag="$GITHUB_REF_NAME"
+          if [[ ! "$tag" =~ ^v(0|[1-9][0-9]*)[.](0|[1-9][0-9]*)[.](0|[1-9][0-9]*)(-[0-9A-Za-z-]+([.][0-9A-Za-z-]+)*)?$ ]]; then
+            echo "::error::release tag is not SemVer: ${tag}"
+            exit 1
+          fi
+          if [[ "$tag" == *-* ]]; then
+            prerelease="${tag#*-}"
+            IFS='.' read -r -a identifiers <<< "$prerelease"
+            for identifier in "${identifiers[@]}"; do
+              if [[ "$identifier" =~ ^0[0-9]+$ ]]; then
+                echo "::error::numeric prerelease identifiers cannot have a leading zero: ${tag}"
+                exit 1
+              fi
+            done
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Check for an already published release
+        id: release-state
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.release-tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          state="$(gh release view "$TAG" --json isDraft --jq '.isDraft' 2>/dev/null || true)"
+          if [ "$state" = "false" ]; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "${TAG} is already published; nothing to retry."
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.24'
+
+      - uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
+        if: steps.release-state.outputs.published != 'true'
+        with:
+          version: ${{ env.GORELEASER_VERSION }}
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # A commit can carry more than one tag. Pin the tag selected above so
+          # GoReleaser never guesses a different release on a retry.
+          GORELEASER_CURRENT_TAG: ${{ steps.release-tag.outputs.tag }}

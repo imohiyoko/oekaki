@@ -1,0 +1,7 @@
+{
+  "version": "0.2",
+  "axes": [{ "id": "network" }],
+  "nodes": [{ "id": "a", "name": "a" }],
+  "edges": [],
+  "groups": []
+}

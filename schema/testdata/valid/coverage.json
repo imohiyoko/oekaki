@@ -1,0 +1,100 @@
+{
+  "version": "0.5",
+  "metadata": {
+    "generator": "oekaki/0.3.0",
+    "source": "terraform",
+    "overlays": [
+      { "source": "overlay.json", "origin": "human", "author": "operator", "window": "last-7d" }
+    ]
+  },
+  "axes": [{ "id": "network", "label": "Network" }],
+  "nodes": [
+    {
+      "id": "logsink:app",
+      "type": "oekaki_log_sink",
+      "name": "application",
+      "provider": "oekaki"
+    },
+    {
+      "id": "aws_ecs_service.api",
+      "type": "aws_ecs_service",
+      "name": "api",
+      "provider": "aws",
+      "metrics": { "log_records": 128400 },
+      "coverage": {
+        "state": "flowing",
+        "reason": "declared by the task definition and seen arriving",
+        "evidence": [
+          {
+            "kind": "declared",
+            "sink": "logsink:app",
+            "stream": "api/*",
+            "via": "task definition log driver",
+            "matched": "id"
+          },
+          {
+            "kind": "observed",
+            "sink": "logsink:app",
+            "records": 128400,
+            "matched": "id",
+            "claim": { "origin": "human", "author": "operator" }
+          }
+        ]
+      }
+    },
+    {
+      "id": "aws_lb.public",
+      "type": "aws_lb",
+      "name": "public",
+      "provider": "aws",
+      "coverage": {
+        "state": "silent",
+        "reason": "access logging is configured and nothing has arrived",
+        "evidence": [
+          { "kind": "declared", "sink": "logsink:app", "via": "access_logs block" },
+          { "kind": "observed", "sink": "logsink:app", "records": 0 }
+        ]
+      }
+    },
+    {
+      "id": "aws_ecs_service.checkout",
+      "type": "aws_ecs_service",
+      "name": "checkout",
+      "provider": "aws",
+      "coverage": {
+        "state": "blind",
+        "reason": "nothing was found shipping logs anywhere",
+        "evidence": [
+          { "kind": "none", "via": "read off the operations console", "claim": { "origin": "human" } }
+        ]
+      }
+    },
+    {
+      "id": "logsubject:service=legacy",
+      "type": "oekaki_asserted",
+      "name": "legacy",
+      "provider": "oekaki",
+      "claim": { "origin": "human", "note": "matched nothing in the plan, adopted so it is not lost" },
+      "coverage": {
+        "state": "undeclared",
+        "reason": "logs arrive from something no configuration in this graph declares",
+        "evidence": [{ "kind": "observed", "sink": "logsink:app", "records": 91 }]
+      }
+    },
+    {
+      "id": "aws_ecs_service.search",
+      "type": "aws_ecs_service",
+      "name": "search",
+      "provider": "aws",
+      "coverage": {
+        "state": "unknown",
+        "reason": "an overlay assertion could not be told apart from another subject"
+      }
+    }
+  ],
+  "edges": [
+    { "from": "aws_ecs_service.api", "to": "logsink:app", "kind": "iac_ref" },
+    { "from": "aws_ecs_service.api", "to": "logsink:app", "kind": "observed" }
+  ],
+  "groups": []
+}

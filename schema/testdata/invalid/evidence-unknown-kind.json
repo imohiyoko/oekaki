@@ -1,0 +1,4 @@
+{ "version": "0.5", "axes": [], "nodes": [
+  { "id": "a", "type": "aws_instance", "name": "a",
+    "coverage": { "state": "flowing", "evidence": [{ "kind": "guessed" }] } }
+], "edges": [], "groups": [] }

@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}}</title>
+{{if .External}}<link rel="stylesheet" href="{{.CSSSrc}}">{{else}}<style>{{.CSS}}</style>{{end}}
+</head>
+<body data-mode="read" data-axis="{{.Axis}}" data-rankdir="{{.RankDir}}" data-lines="{{.Lines}}" data-kinds="{{.Kinds}}"{{if .External}} data-graph="{{.GraphSrc}}" data-app="{{.AppSrc}}"{{end}}>
+
+<header id="bar">
+  <h1>{{.Title}}</h1>
+  <nav id="breadcrumbs" aria-label="diagram focus"></nav>
+  <div id="filters"></div>
+  <div class="spacer"></div>
+  <span id="status"></span>
+  <div id="mode" role="group" aria-label="editing mode">
+    <button id="mode-read" class="mode-option" aria-pressed="true">Read</button>
+    <button id="mode-edit" class="mode-option" aria-pressed="false">Edit</button>
+  </div>
+  <div id="tools" hidden>
+    <div class="tool-group" role="group" aria-label="line shape"></div>
+    <div class="tool-group" role="group" aria-label="selection">
+      <button id="select-all" type="button" title="Select every box">全選択</button>
+      <button id="select-none" type="button" title="Clear the selection">解除</button>
+    </div>
+    <div class="tool-group" role="group" aria-label="align">
+      <button id="align-left" type="button" title="Align left edges">⇤</button>
+      <button id="align-centre" type="button" title="Align centres">⇹</button>
+      <button id="align-right" type="button" title="Align right edges">⇥</button>
+      <button id="align-top" type="button" title="Align top edges">⤒</button>
+      <button id="align-middle" type="button" title="Align middles">⇳</button>
+      <button id="align-bottom" type="button" title="Align bottom edges">⤓</button>
+      <button id="spread-x" type="button" title="Even horizontal gaps">↔</button>
+      <button id="spread-y" type="button" title="Even vertical gaps">↕</button>
+    </div>
+    <button id="add-node" type="button">Add box</button>
+  </div>
+  <button id="fit" type="button" title="Fit the whole diagram">全体</button>
+  <button id="export" hidden>Export overlay</button>
+{{if .Layout}}  <button id="export-layout" hidden>Export layout</button>{{end}}
+  <button id="copy" hidden>Copy JSON</button>
+</header>
+
+{{.Icons}}
+
+<main>
+  <div id="canvas"></div>
+  <aside id="detail" hidden></aside>
+</main>
+
+<footer id="hint">
+  <span class="hint-read">Click a box or a line for detail. Click a container's title to fold it.
+  Drag or scroll to move the view, pinch to zoom. Switch to Edit to move boxes and assert
+  connections.</span>
+  <span class="hint-edit">Drag a box to place it. Drag the canvas to draw a box round several,
+  or ⌘/Ctrl-click them one at a time; then drag any of them to move them together, or use the
+  align controls. Drag a box's edge to resize it. Shift-drag between two boxes to assert a
+  connection. Scroll or right-drag (or ⌥-drag) moves the view; pinch to zoom.</span>
+</footer>
+
+{{if .Layout}}<script type="application/json" id="oekaki-layout">{{.Layout}}</script>{{end}}
+{{if .External}}<script type="application/json" id="oekaki-graph"></script>
+<script src="{{.ELKSrc}}"></script>
+<script src="{{.MaxSrc}}"></script>
+<script src="{{.BootSrc}}"></script>
+{{else}}<script type="application/json" id="oekaki-graph">{{.Graph}}</script>
+<script>{{.ELK}}</script>
+<script>{{.Max}}</script>
+<script>{{.App}}</script>
+{{end}}</body>
+</html>

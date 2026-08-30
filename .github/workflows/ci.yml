@@ -1,0 +1,199 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# PR ブランチ単位でまとめ、同じ PR への新しい push が前の実行を打ち切るようにする。
+# 打ち切られるのは常に「追い越されたコミット」の実行で PR の HEAD ではないので、
+# 赤いチェックとして残らない。push / workflow_dispatch には head_ref がないので
+# github.ref に落ちる。main への push は打ち切らない（全マージコミットをビルドする）。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
+
+env:
+  CGO_ENABLED: '0'
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        # WebAssembly 版 Graphviz の狙いは cgo なしでどこでも動くことなので、
+        # それは全 OS で検証しない限り主張にすぎない。
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.24'
+          check-latest: true
+
+      - name: Test
+        run: go test ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Check formatting
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "::error::these files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Check go.mod is tidy
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
+  race:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.24'
+      # -race は cgo を要求するので、ここだけ既定の CGO_ENABLED=0 を上書きする。
+      - run: go test -race ./...
+        env:
+          CGO_ENABLED: '1'
+
+  lint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.24'
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.4.0
+          args: ./...
+
+  example:
+    # 決定性は文書化された保証なので、約束ではなくテストにする。
+    # チェックイン済みの example を再生成して、1 バイトでも動いたら落とす。
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.24'
+      - name: Regenerate the example and check nothing moved
+        run: make verify-example
+
+      - name: Test retry-safe release preparation
+        run: .github/scripts/prepare-release_test.sh
+
+      - name: Exercise the action at this exact revision
+        id: local-action
+        uses: ./
+        with:
+          plan: examples/three-tier/plan.json
+          output: ${{ runner.temp }}/action-architecture.svg
+
+      - name: Verify action output
+        env:
+          CHANGED: ${{ steps.local-action.outputs.changed }}
+        run: |
+          test "$CHANGED" = true
+          test -s "${{ runner.temp }}/action-architecture.svg"
+          case ":$PATH:" in
+            *":${RUNNER_TEMP}:"*)
+              echo "::error::the action added the shared runner temp directory to PATH"
+              exit 1
+              ;;
+          esac
+          case ":$PATH:" in
+            *":${RUNNER_TEMP}/oekaki-bin:"*) ;;
+            *)
+              echo "::error::the action's dedicated binary directory is missing from PATH"
+              exit 1
+              ;;
+          esac
+
+  build:
+    # リリースはこの構成を配布するので、コンパイル不能はタグ作成時ではなく
+    # プルリクエストの時点で表に出す。
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+          - { goos: windows, goarch: amd64 }
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.24'
+      - env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: go build ./cmd/oekaki
+
+  # main の ruleset が要求する唯一のステータスチェック。
+  #
+  # 個々のマトリクス脚を直接要求すると、脚の名前を変えたり OS を足したりする
+  # たびに ruleset を追従させる必要があり、片方だけ直し忘れると保護が静かに
+  # 緩む。要求するのを gate 1 つにすれば、必須チェックの一覧はワークフロー側の
+  # needs で表現され、設定と実体がずれない。
+  #
+  # if: always() なので上流が失敗・スキップしても必ずステータスを報告する。
+  # 上流がスキップされたまま「Expected — Waiting for status」で固まる、という
+  # デッドロックを避けるための形。
+  gate:
+    needs: [test, race, lint, example, build]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: verify required jobs are green
+        run: |
+          for r in "${{ needs.test.result }}" "${{ needs.race.result }}" \
+                   "${{ needs.lint.result }}" \
+                   "${{ needs.example.result }}" "${{ needs.build.result }}"; do
+            case "$r" in
+              failure|cancelled)
+                echo "::error::a required job did not pass: $r"
+                exit 1 ;;
+            esac
+          done
+          echo "test=${{ needs.test.result }} race=${{ needs.race.result }} lint=${{ needs.lint.result }} example=${{ needs.example.result }} build=${{ needs.build.result }}"

@@ -1,0 +1,5 @@
+{ "version": "0.5", "axes": [], "nodes": [
+  { "id": "a", "type": "aws_instance", "name": "a" }
+], "edges": [], "groups": [], "conflicts": [
+  { "target_kind": "entity", "target": "a", "field": "name", "claims": [ { "value": "a", "claim": { "origin": "human" } } ] }
+] }

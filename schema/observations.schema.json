@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/imohiyoko/oekaki/main/schema/observations.schema.json",
+  "title": "oekaki observations",
+  "type": "object",
+  "required": ["kind", "version", "observations"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": { "const": "oekaki.observations" },
+    "version": { "type": "string", "minLength": 1 },
+    "generated_at": { "type": "string" },
+    "observations": {
+      "type": "array",
+      "items": { "$ref": "graph.schema.json#/$defs/observation" }
+    }
+  }
+}

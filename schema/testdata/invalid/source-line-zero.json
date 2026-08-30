@@ -1,0 +1,7 @@
+{
+  "version": "0.2",
+  "axes": [{ "id": "network" }],
+  "nodes": [{ "id": "a", "type": "t", "name": "a", "source": { "file": "main.tf", "line": 0 } }],
+  "edges": [],
+  "groups": []
+}

@@ -1,0 +1,13 @@
+{
+  "kind": "oekaki.overlay",
+  "version": "0.1",
+  "assertions": [
+    {
+      "assert": "logs.none",
+      "subject": {
+        "service": "api"
+      },
+      "origin": "parser"
+    }
+  ]
+}

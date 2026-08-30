@@ -1,0 +1,50 @@
+flowchart LR
+  subgraph g2["vpc: main"]
+    direction LR
+    subgraph g0["subnet: private_a"]
+      direction LR
+    end
+    subgraph g1["subnet: private_b"]
+      direction LR
+    end
+    n3["main<br/>db_instance · ?"]
+    n4["main<br/>db_subnet_group · ?"]
+    n9["public<br/>lb · silent"]
+  end
+  n0["reconciler<br/>asserted · unmodelled"]
+  n1["/platform/app<br/>cloudwatch_log_group"]
+  n2["/platform/batch<br/>cloudwatch_log_group"]
+  n5["main<br/>ecs_cluster · ?"]
+  n6["api<br/>ecs_service"]
+  n7["checkout<br/>ecs_service · no logs"]
+  n8["search<br/>ecs_service"]
+  n10["audit<br/>log_sink"]
+  n3 --> n4
+  n6 --> n1
+  n6 --> n5
+  n7 --> n5
+  n8 --> n5
+  n9 --> n1
+  n0 ==> n10
+  n6 ==> n1
+  n7 ==> n3
+  classDef compute fill:#e7f5ec,stroke:#3f9159,color:#1c4429,stroke-width:1px
+  class n5,n6,n7,n8 compute
+  classDef database fill:#f0eafc,stroke:#7a52c7,color:#38215e,stroke-width:1px
+  class n3,n4 database
+  classDef generic fill:#f2f3f5,stroke:#8a9099,color:#33383d,stroke-width:1px
+  class n0 generic
+  classDef network fill:#e8f0fe,stroke:#3b6fd4,color:#16305e,stroke-width:1px
+  class n9 network
+  classDef storage fill:#fdeef0,stroke:#c74f63,color:#5e1f2b,stroke-width:1px
+  class n1,n10,n2 storage
+  classDef logs_blind stroke:#c74f63,stroke-width:2px,stroke-dasharray: 4 3
+  class n7 logs_blind
+  classDef logs_silent stroke:#c97b1e,stroke-width:2px
+  class n9 logs_silent
+  classDef logs_undeclared stroke:#7a52c7,stroke-width:2px,stroke-dasharray: 4 3
+  class n0 logs_undeclared
+  classDef logs_unknown stroke:#8a9099,stroke-width:2px,stroke-dasharray: 4 3
+  class n3,n4,n5 logs_unknown
+  linkStyle 0,1,2,3,4,5 stroke:#8a9099,stroke-width:1.5px
+  linkStyle 6,7,8 stroke:#3b6fd4,stroke-width:1.5px

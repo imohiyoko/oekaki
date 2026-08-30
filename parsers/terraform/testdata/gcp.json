@@ -1,0 +1,104 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.9.8",
+  "planned_values": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "google_compute_network.main",
+          "mode": "managed", "type": "google_compute_network", "name": "main",
+          "provider_name": "registry.terraform.io/hashicorp/google",
+          "schema_version": 0,
+          "values": { "name": "main-vpc", "auto_create_subnetworks": false },
+          "sensitive_values": {}
+        },
+        {
+          "address": "google_compute_subnetwork.app",
+          "mode": "managed", "type": "google_compute_subnetwork", "name": "app",
+          "provider_name": "registry.terraform.io/hashicorp/google",
+          "schema_version": 0,
+          "values": { "name": "app-subnet", "ip_cidr_range": "10.0.0.0/24", "region": "asia-northeast1" },
+          "sensitive_values": {}
+        },
+        {
+          "address": "google_compute_instance.api",
+          "mode": "managed", "type": "google_compute_instance", "name": "api",
+          "provider_name": "registry.terraform.io/hashicorp/google",
+          "schema_version": 6,
+          "values": { "name": "api", "machine_type": "e2-medium", "zone": "asia-northeast1-a" },
+          "sensitive_values": {}
+        },
+        {
+          "address": "google_compute_firewall.allow_http",
+          "mode": "managed", "type": "google_compute_firewall", "name": "allow_http",
+          "provider_name": "registry.terraform.io/hashicorp/google",
+          "schema_version": 1,
+          "values": { "name": "allow-http", "direction": "INGRESS" },
+          "sensitive_values": {}
+        },
+        {
+          "address": "google_sql_database_instance.main",
+          "mode": "managed", "type": "google_sql_database_instance", "name": "main",
+          "provider_name": "registry.terraform.io/hashicorp/google",
+          "schema_version": 0,
+          "values": { "name": "main-db", "database_version": "POSTGRES_16" },
+          "sensitive_values": {}
+        }
+      ]
+    }
+  },
+  "configuration": {
+    "provider_config": { "google": { "name": "google", "full_name": "registry.terraform.io/hashicorp/google" } },
+    "root_module": {
+      "resources": [
+        {
+          "address": "google_compute_network.main",
+          "mode": "managed", "type": "google_compute_network", "name": "main",
+          "provider_config_key": "google", "schema_version": 0,
+          "expressions": { "name": { "constant_value": "main-vpc" } }
+        },
+        {
+          "address": "google_compute_subnetwork.app",
+          "mode": "managed", "type": "google_compute_subnetwork", "name": "app",
+          "provider_config_key": "google", "schema_version": 0,
+          "expressions": {
+            "name": { "constant_value": "app-subnet" },
+            "network": { "references": ["google_compute_network.main.id", "google_compute_network.main"] }
+          }
+        },
+        {
+          "address": "google_compute_instance.api",
+          "mode": "managed", "type": "google_compute_instance", "name": "api",
+          "provider_config_key": "google", "schema_version": 6,
+          "expressions": {
+            "machine_type": { "constant_value": "e2-medium" },
+            "network_interface": [
+              { "subnetwork": { "references": ["google_compute_subnetwork.app.id", "google_compute_subnetwork.app"] } }
+            ]
+          }
+        },
+        {
+          "address": "google_compute_firewall.allow_http",
+          "mode": "managed", "type": "google_compute_firewall", "name": "allow_http",
+          "provider_config_key": "google", "schema_version": 1,
+          "expressions": {
+            "network": { "references": ["google_compute_network.main.id", "google_compute_network.main"] }
+          }
+        },
+        {
+          "address": "google_sql_database_instance.main",
+          "mode": "managed", "type": "google_sql_database_instance", "name": "main",
+          "provider_config_key": "google", "schema_version": 0,
+          "expressions": {
+            "database_version": { "constant_value": "POSTGRES_16" },
+            "settings": [
+              { "ip_configuration": [
+                  { "private_network": { "references": ["google_compute_network.main.id", "google_compute_network.main"] } }
+              ] }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

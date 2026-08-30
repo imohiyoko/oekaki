@@ -1,0 +1,7 @@
+{
+  "version": "0.2",
+  "axes": [{ "id": "network" }],
+  "nodes": [],
+  "edges": [],
+  "groups": [{ "id": "vpc", "type": "vpc", "label": "x", "parent": null }]
+}

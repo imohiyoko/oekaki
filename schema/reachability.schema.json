@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/imohiyoko/oekaki/main/schema/reachability.schema.json",
+  "title": "oekaki reachability evidence",
+  "type": "object",
+  "required": ["kind", "version"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": { "const": "oekaki.reachability" },
+    "version": { "type": "string", "minLength": 1 },
+    "paths": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["from", "to", "allowed"],
+        "additionalProperties": false,
+        "properties": {
+          "from": { "type": "string", "minLength": 1 },
+          "to": { "type": "string", "minLength": 1 },
+          "protocol": { "type": "string" },
+          "port": { "type": "integer", "minimum": 0, "maximum": 65535 },
+          "allowed": { "type": "boolean" },
+          "reason": { "type": "string" },
+          "claim": { "$ref": "graph.schema.json#/$defs/claim" }
+        }
+      }
+    }
+  }
+}

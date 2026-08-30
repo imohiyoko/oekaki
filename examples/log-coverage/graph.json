@@ -1,0 +1,487 @@
+{
+  "version": "0.5",
+  "metadata": {
+    "generator": "oekaki/dev",
+    "source": "terraform",
+    "source_version": "1.9.0",
+    "overlays": [
+      {
+        "source": "examples/log-coverage/overlay.json",
+        "origin": "human",
+        "author": "operator",
+        "window": "last-7d"
+      }
+    ]
+  },
+  "axes": [
+    {
+      "id": "module",
+      "label": "Module"
+    },
+    {
+      "id": "network",
+      "label": "Network topology"
+    },
+    {
+      "id": "provider",
+      "label": "Provider"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "asserted:service=reconciler",
+      "type": "oekaki_asserted",
+      "name": "reconciler",
+      "provider": "oekaki",
+      "metrics": {
+        "log_records": 91
+      },
+      "coverage": {
+        "state": "undeclared",
+        "reason": "logs arrive from this, and nothing in the graph declares them",
+        "evidence": [
+          {
+            "kind": "observed",
+            "sink": "logsink:f04eb884e45ca72a:sink.audit",
+            "records": 91,
+            "matched": "id",
+            "claim": {
+              "origin": "human",
+              "author": "operator",
+              "note": "nothing in this estate declares this"
+            }
+          }
+        ]
+      },
+      "claim": {
+        "origin": "human",
+        "author": "operator",
+        "note": "nothing in this estate declares this"
+      }
+    },
+    {
+      "id": "aws_cloudwatch_log_group.app",
+      "type": "aws_cloudwatch_log_group",
+      "name": "/platform/app",
+      "provider": "aws",
+      "groups": {
+        "provider": "provider:aws"
+      },
+      "attrs": {
+        "name": "/platform/app",
+        "retention_in_days": 30
+      },
+      "source": {
+        "file": "main.tf",
+        "line": 44
+      }
+    },
+    {
+      "id": "aws_cloudwatch_log_group.batch",
+      "type": "aws_cloudwatch_log_group",
+      "name": "/platform/batch",
+      "provider": "aws",
+      "groups": {
+        "provider": "provider:aws"
+      },
+      "attrs": {
+        "name": "/platform/batch",
+        "retention_in_days": 7
+      },
+      "source": {
+        "file": "main.tf",
+        "line": 49
+      }
+    },
+    {
+      "id": "aws_db_instance.main",
+      "type": "aws_db_instance",
+      "name": "main",
+      "provider": "aws",
+      "groups": {
+        "network": "aws_vpc.main",
+        "provider": "provider:aws"
+      },
+      "attrs": {
+        "allocated_storage": 50,
+        "engine": "postgres",
+        "engine_version": "16.3",
+        "instance_class": "db.t4g.small",
+        "multi_az": false
+      },
+      "source": {
+        "file": "main.tf",
+        "line": 86
+      },
+      "coverage": {
+        "state": "unknown",
+        "reason": "an overlay assertion could not be told apart from 3 other subjects"
+      }
+    },
+    {
+      "id": "aws_db_subnet_group.main",
+      "type": "aws_db_subnet_group",
+      "name": "main",
+      "provider": "aws",
+      "groups": {
+        "network": "aws_vpc.main",
+        "provider": "provider:aws"
+      },
+      "attrs": {
+        "name": "main"
+      },
+      "source": {
+        "file": "main.tf",
+        "line": 96
+      },
+      "coverage": {
+        "state": "unknown",
+        "reason": "an overlay assertion could not be told apart from 3 other subjects"
+      }
+    },
+    {
+      "id": "aws_ecs_cluster.main",
+      "type": "aws_ecs_cluster",
+      "name": "main",
+      "provider": "aws",
+      "groups": {
+        "provider": "provider:aws"
+      },
+      "attrs": {
+        "name": "main"
+      },
+      "source": {
+        "file": "main.tf",
+        "line": 61
+      },
+      "coverage": {
+        "state": "unknown",
+        "reason": "an overlay assertion could not be told apart from 3 other subjects"
+      }
+    },
+    {
+      "id": "aws_ecs_service.api",
+      "type": "aws_ecs_service",
+      "name": "api",
+      "provider": "aws",
+      "groups": {
+        "provider": "provider:aws"
+      },
+      "attrs": {
+        "desired_count": 3,
+        "launch_type": "FARGATE",
+        "name": "api"
+      },
+      "metrics": {
+        "log_records": 128400
+      },
+      "source": {
+        "file": "main.tf",
+        "line": 65
+      },
+      "coverage": {
+        "state": "flowing",
+        "reason": "declared, and logs were seen arriving",
+        "evidence": [
+          {
+            "kind": "declared",
+            "sink": "aws_cloudwatch_log_group.app",
+            "via": "task definition log driver",
+            "matched": "id",
+            "claim": {
+              "origin": "human",
+              "author": "operator"
+            }
+          },
+          {
+            "kind": "observed",
+            "sink": "aws_cloudwatch_log_group.app",
+            "records": 128400,
+            "matched": "id",
+            "claim": {
+              "origin": "human",
+              "author": "operator"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "aws_ecs_service.checkout",
+      "type": "aws_ecs_service",
+      "name": "checkout",
+      "provider": "aws",
+      "groups": {
+        "provider": "provider:aws"
+      },
+      "attrs": {
+        "desired_count": 2,
+        "launch_type": "FARGATE",
+        "name": "checkout"
+      },
+      "source": {
+        "file": "main.tf",
+        "line": 72
+      },
+      "coverage": {
+        "state": "blind",
+        "reason": "somebody looked and found no destination at all",
+        "evidence": [
+          {
+            "kind": "none",
+            "via": "looked on the console and found nothing",
+            "matched": "id",
+            "claim": {
+              "origin": "human",
+              "author": "operator"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "aws_ecs_service.search",
+      "type": "aws_ecs_service",
+      "name": "search",
+      "provider": "aws",
+      "groups": {
+        "provider": "provider:aws"
+      },
+      "attrs": {
+        "desired_count": 1,
+        "launch_type": "FARGATE",
+        "name": "search"
+      },
+      "source": {
+        "file": "main.tf",
+        "line": 79
+      }
+    },
+    {
+      "id": "aws_lb.public",
+      "type": "aws_lb",
+      "name": "public",
+      "provider": "aws",
+      "groups": {
+        "network": "aws_vpc.main",
+        "provider": "provider:aws"
+      },
+      "attrs": {
+        "internal": false,
+        "load_balancer_type": "application",
+        "name": "public"
+      },
+      "metrics": {
+        "log_records": 0
+      },
+      "source": {
+        "file": "main.tf",
+        "line": 54
+      },
+      "coverage": {
+        "state": "silent",
+        "reason": "a destination is declared and nothing was seen arriving there",
+        "evidence": [
+          {
+            "kind": "declared",
+            "sink": "aws_cloudwatch_log_group.app",
+            "via": "access_logs block",
+            "matched": "id",
+            "claim": {
+              "origin": "human",
+              "author": "operator"
+            }
+          },
+          {
+            "kind": "observed",
+            "sink": "aws_cloudwatch_log_group.app",
+            "records": 0,
+            "matched": "id",
+            "claim": {
+              "origin": "human",
+              "author": "operator",
+              "note": "the destination is configured and empty"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "logsink:f04eb884e45ca72a:sink.audit",
+      "type": "oekaki_log_sink",
+      "name": "audit",
+      "provider": "oekaki",
+      "claim": {
+        "origin": "human",
+        "note": "log destination named by an overlay"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "aws_db_instance.main",
+      "to": "aws_db_subnet_group.main",
+      "kind": "iac_ref",
+      "attrs": {
+        "attribute": "db_subnet_group_name"
+      },
+      "claim": {
+        "origin": "human",
+        "author": "operator",
+        "note": "deliberately wrong, to show what a disagreement looks like"
+      },
+      "suppressed": true
+    },
+    {
+      "from": "aws_ecs_service.api",
+      "to": "aws_cloudwatch_log_group.app",
+      "kind": "iac_ref",
+      "claim": {
+        "origin": "human",
+        "author": "operator"
+      }
+    },
+    {
+      "from": "aws_ecs_service.api",
+      "to": "aws_ecs_cluster.main",
+      "kind": "iac_ref",
+      "attrs": {
+        "attribute": "cluster"
+      }
+    },
+    {
+      "from": "aws_ecs_service.checkout",
+      "to": "aws_ecs_cluster.main",
+      "kind": "iac_ref",
+      "attrs": {
+        "attribute": "cluster"
+      }
+    },
+    {
+      "from": "aws_ecs_service.search",
+      "to": "aws_ecs_cluster.main",
+      "kind": "iac_ref",
+      "attrs": {
+        "attribute": "cluster"
+      }
+    },
+    {
+      "from": "aws_lb.public",
+      "to": "aws_cloudwatch_log_group.app",
+      "kind": "iac_ref",
+      "claim": {
+        "origin": "human",
+        "author": "operator"
+      }
+    },
+    {
+      "from": "asserted:service=reconciler",
+      "to": "logsink:f04eb884e45ca72a:sink.audit",
+      "kind": "observed",
+      "claim": {
+        "origin": "human",
+        "author": "operator",
+        "note": "nothing in this estate declares this"
+      }
+    },
+    {
+      "from": "aws_ecs_service.api",
+      "to": "aws_cloudwatch_log_group.app",
+      "kind": "observed",
+      "claim": {
+        "origin": "human",
+        "author": "operator"
+      }
+    },
+    {
+      "from": "aws_ecs_service.checkout",
+      "to": "aws_db_instance.main",
+      "kind": "observed",
+      "claim": {
+        "origin": "ai",
+        "author": "operator",
+        "confidence": 0.6,
+        "note": "read off a service map; no configuration says so"
+      }
+    }
+  ],
+  "groups": [
+    {
+      "id": "aws_subnet.private_a",
+      "axis": "network",
+      "type": "subnet",
+      "label": "private_a",
+      "parent": "aws_vpc.main",
+      "attrs": {
+        "availability_zone": "eu-west-1a",
+        "cidr_block": "10.20.1.0/24",
+        "map_public_ip_on_launch": false
+      },
+      "source": {
+        "file": "main.tf",
+        "line": 30
+      }
+    },
+    {
+      "id": "aws_subnet.private_b",
+      "axis": "network",
+      "type": "subnet",
+      "label": "private_b",
+      "parent": "aws_vpc.main",
+      "attrs": {
+        "availability_zone": "eu-west-1b",
+        "cidr_block": "10.20.2.0/24",
+        "map_public_ip_on_launch": false
+      },
+      "source": {
+        "file": "main.tf",
+        "line": 36
+      }
+    },
+    {
+      "id": "aws_vpc.main",
+      "axis": "network",
+      "type": "vpc",
+      "label": "main",
+      "parent": null,
+      "attrs": {
+        "cidr_block": "10.20.0.0/16",
+        "enable_dns_hostnames": true
+      },
+      "source": {
+        "file": "main.tf",
+        "line": 25
+      }
+    },
+    {
+      "id": "provider:aws",
+      "axis": "provider",
+      "type": "provider",
+      "label": "aws",
+      "parent": null
+    }
+  ],
+  "conflicts": [
+    {
+      "target_kind": "edge",
+      "target": "edge:YXdzX2RiX2luc3RhbmNlLm1haW4.YXdzX2RiX3N1Ym5ldF9ncm91cC5tYWlu.aWFjX3JlZg.",
+      "field": "suppressed",
+      "claims": [
+        {
+          "value": "true",
+          "claim": {
+            "origin": "human",
+            "author": "operator",
+            "note": "deliberately wrong, to show what a disagreement looks like"
+          }
+        },
+        {
+          "value": "false",
+          "claim": {
+            "origin": "parser"
+          }
+        }
+      ]
+    }
+  ]
+}

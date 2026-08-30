@@ -1,0 +1,3 @@
+{ "version": "0.5", "axes": [], "nodes": [
+  { "id": "a", "type": "aws_instance", "name": "a", "claim": { "origin": "vibes" } }
+], "edges": [], "groups": [] }

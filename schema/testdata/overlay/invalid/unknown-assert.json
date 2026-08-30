@@ -1,0 +1,12 @@
+{
+  "kind": "oekaki.overlay",
+  "version": "0.1",
+  "assertions": [
+    {
+      "assert": "logs.maybe",
+      "subject": {
+        "service": "api"
+      }
+    }
+  ]
+}

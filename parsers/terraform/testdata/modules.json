@@ -1,0 +1,129 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.9.8",
+  "planned_values": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_vpc.main",
+          "mode": "managed",
+          "type": "aws_vpc",
+          "name": "main",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 1,
+          "values": { "cidr_block": "10.0.0.0/16", "tags": { "Name": "main" } },
+          "sensitive_values": {}
+        }
+      ],
+      "child_modules": [
+        {
+          "address": "module.platform",
+          "resources": [
+            {
+              "address": "module.platform.aws_security_group.shared",
+              "mode": "managed",
+              "type": "aws_security_group",
+              "name": "shared",
+              "provider_name": "registry.terraform.io/hashicorp/aws",
+              "schema_version": 1,
+              "values": { "name": "shared" },
+              "sensitive_values": {}
+            }
+          ],
+          "child_modules": [
+            {
+              "address": "module.platform.module.network",
+              "resources": [
+                {
+                  "address": "module.platform.module.network.aws_subnet.a",
+                  "mode": "managed",
+                  "type": "aws_subnet",
+                  "name": "a",
+                  "provider_name": "registry.terraform.io/hashicorp/aws",
+                  "schema_version": 0,
+                  "values": { "cidr_block": "10.0.1.0/24", "tags": { "Name": "a" } },
+                  "sensitive_values": {}
+                },
+                {
+                  "address": "module.platform.module.network.aws_instance.probe",
+                  "mode": "managed",
+                  "type": "aws_instance",
+                  "name": "probe",
+                  "provider_name": "registry.terraform.io/hashicorp/aws",
+                  "schema_version": 1,
+                  "values": { "instance_type": "t3.micro", "tags": { "Name": "probe" } },
+                  "sensitive_values": {}
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "configuration": {
+    "provider_config": { "aws": { "name": "aws" } },
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_vpc.main",
+          "mode": "managed",
+          "type": "aws_vpc",
+          "name": "main",
+          "provider_config_key": "aws",
+          "schema_version": 1,
+          "expressions": { "cidr_block": { "constant_value": "10.0.0.0/16" } }
+        }
+      ],
+      "module_calls": {
+        "platform": {
+          "source": "./modules/platform",
+          "module": {
+            "resources": [
+              {
+                "address": "aws_security_group.shared",
+                "mode": "managed",
+                "type": "aws_security_group",
+                "name": "shared",
+                "provider_config_key": "aws",
+                "schema_version": 1,
+                "expressions": { "name": { "constant_value": "shared" } }
+              }
+            ],
+            "module_calls": {
+              "network": {
+                "source": "./modules/network",
+                "module": {
+                  "resources": [
+                    {
+                      "address": "aws_subnet.a",
+                      "mode": "managed",
+                      "type": "aws_subnet",
+                      "name": "a",
+                      "provider_config_key": "aws",
+                      "schema_version": 0,
+                      "expressions": { "cidr_block": { "constant_value": "10.0.1.0/24" } }
+                    },
+                    {
+                      "address": "aws_instance.probe",
+                      "mode": "managed",
+                      "type": "aws_instance",
+                      "name": "probe",
+                      "provider_config_key": "aws",
+                      "schema_version": 1,
+                      "expressions": {
+                        "subnet_id": {
+                          "references": ["aws_subnet.a.id", "aws_subnet.a"]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

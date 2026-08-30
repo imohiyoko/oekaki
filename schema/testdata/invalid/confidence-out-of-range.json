@@ -1,0 +1,4 @@
+{ "version": "0.5", "axes": [], "nodes": [
+  { "id": "a", "type": "aws_instance", "name": "a",
+    "claim": { "origin": "ai", "confidence": 1.5 } }
+], "edges": [], "groups": [] }

@@ -1,0 +1,53 @@
+{
+  "version": "0.5",
+  "metadata": {
+    "overlays": [
+      { "source": "console.json", "origin": "ai", "author": "assistant", "window": "2026-08 review" }
+    ]
+  },
+  "axes": [{ "id": "network" }],
+  "nodes": [
+    { "id": "aws_ecs_service.checkout", "type": "aws_ecs_service", "name": "checkout" },
+    { "id": "aws_db_instance.orders", "type": "aws_db_instance", "name": "orders" },
+    { "id": "aws_security_group.db", "type": "aws_security_group", "name": "db" },
+    { "id": "aws_security_group.bastion", "type": "aws_security_group", "name": "bastion" },
+    {
+      "id": "vendor.payments",
+      "type": "external_service",
+      "name": "payments gateway",
+      "claim": { "origin": "human", "author": "operator", "note": "third party, in no repository we own" }
+    }
+  ],
+  "edges": [
+    {
+      "from": "aws_ecs_service.checkout",
+      "to": "aws_db_instance.orders",
+      "kind": "observed",
+      "claim": {
+        "origin": "ai",
+        "author": "assistant",
+        "confidence": 0.6,
+        "note": "read off a service map; not in any code"
+      }
+    },
+    {
+      "from": "aws_security_group.db",
+      "to": "aws_security_group.bastion",
+      "kind": "iac_ref",
+      "suppressed": true,
+      "claim": { "origin": "human", "note": "the rule was removed by hand last quarter" }
+    }
+  ],
+  "groups": [],
+  "conflicts": [
+    {
+      "target_kind": "edge",
+      "target": "edge:YXdzX3NlY3VyaXR5X2dyb3VwLmRi.YXdzX3NlY3VyaXR5X2dyb3VwLmJhc3Rpb24.aWFjX3JlZg.",
+      "field": "suppressed",
+      "claims": [
+        { "value": "true", "claim": { "origin": "human", "author": "operator" } },
+        { "value": "false", "claim": { "origin": "parser" } }
+      ]
+    }
+  ]
+}

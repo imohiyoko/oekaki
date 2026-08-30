@@ -1,0 +1,10 @@
+{
+  "kind": "oekaki.overlay",
+  "version": "0.1",
+  "metadata": { "origin": "ai", "author": "assistant" },
+  "assertions": [
+    { "assert": "edge", "from": { "name": "api" }, "to": { "name": "orders" },
+      "kind": "observed", "confidence": 0.4 },
+    { "assert": "logs.none", "subject": { "function": "reconcile" } }
+  ]
+}

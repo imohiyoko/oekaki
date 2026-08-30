@@ -1,0 +1,45 @@
+# Who gets asked to review what.
+#
+# There is one maintainer today, so every rule below resolves to the same
+# person and none of them change who is requested. They are here because the
+# paths they name are the ones where a careless change is expensive, and
+# because the moment a second maintainer exists the split should already be
+# written down rather than improvised.
+#
+# Code-owner review is deliberately *not* enforced by the branch ruleset while
+# there is one maintainer. GitHub does not let an author approve their own pull
+# request, so enforcing it against a sole owner produces a rule that can only
+# ever be satisfied by an admin override — which trains everyone to reach for
+# the override. Turn it on in the ruleset when a second maintainer arrives.
+#
+# Last match wins, so the default comes first.
+
+*                           @imohiyoko
+
+# The IR schema is the contract between parsers, enrichers and renderers, and
+# it is what a third-party parser is written against. Changing it breaks people
+# who are not in this repository. It freezes at v1.0.
+/schema/                    @imohiyoko
+/docs/schema.md             @imohiyoko
+
+# The conformance corpus *is* the definition of the format. A file added or
+# removed here changes what "valid" means.
+/schema/testdata/           @imohiyoko
+
+# Supply chain: these decide what runs with a write-scoped token, and what ends
+# up inside a binary other people download.
+/.github/workflows/         @imohiyoko
+/.github/CODEOWNERS         @imohiyoko
+/action.yml                 @imohiyoko
+/.goreleaser.yaml           @imohiyoko
+/go.mod                     @imohiyoko
+/go.sum                     @imohiyoko
+
+# Licensing. The binaries embed Graphviz under EPL-2.0; if a dependency changes
+# and this file does not, the release is out of compliance.
+/LICENSE                    @imohiyoko
+/THIRD_PARTY_NOTICES.md     @imohiyoko
+
+# Determinism is enforced by regenerating these and failing on any diff, so a
+# change here is either a real behaviour change or a bug.
+/examples/three-tier/       @imohiyoko

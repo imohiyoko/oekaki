@@ -1,0 +1,416 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/imohiyoko/oekaki/main/schema/graph.schema.json",
+  "title": "oekaki IR",
+  "description": "The intermediate representation oekaki passes from parsers to renderers. Parsers produce it, enrichers annotate it, renderers consume it. Nothing else in the pipeline is load-bearing.",
+  "type": "object",
+  "required": ["version", "axes", "nodes", "edges", "groups"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "description": "Schema version. Bumped when the shape changes incompatibly.",
+      "type": "string",
+      "const": "0.4"
+    },
+    "metadata": {
+      "description": "Provenance. Deliberately free of timestamps so that identical input yields byte-identical output.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "generator": {
+          "description": "Tool and version that produced this document, e.g. \"oekaki/0.2.0\".",
+          "type": "string"
+        },
+        "source": {
+          "description": "Parser that produced this document, e.g. \"terraform\".",
+          "type": "string"
+        },
+        "source_version": {
+          "description": "Version of the upstream tool the input came from, e.g. a Terraform version.",
+          "type": "string"
+        },
+        "scope": {
+          "description": "Names the estate this document describes, when ids have been qualified to be unique beyond one state file. A resource address is only unique within a single state, so `aws_vpc.main` from two teams' states are different VPCs; combining documents without a scope would silently merge them.",
+          "type": "string"
+        },
+        "inputs": {
+          "description": "Repositories or documents selected for this graph, so downstream tools can distinguish available context from missing context.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "path"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "path": { "type": "string", "minLength": 1 },
+              "kind": { "type": "string" },
+              "source_version": {
+                "description": "Version of the source tool for this individual input, when inputs were combined from independently produced graphs.",
+                "type": "string"
+              }
+            }
+          }
+        },
+        "overlays": {
+          "description": "The overlays applied to produce this document. Present so a reader can tell a purely derived graph from one carrying somebody's assertions.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/overlayRef" }
+        }
+      }
+    },
+    "axes": {
+      "description": "The ways this estate can be grouped. Infrastructure has no single correct hierarchy: the same database sits inside a subnet, inside an account, inside a module, and is owned by a team. Renderers nest by one axis at a time and leave the rest for colouring and filtering.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/axis" }
+    },
+    "nodes": {
+      "description": "Resources drawn as boxes. Containers are not nodes; they appear in `groups`.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/node" }
+    },
+    "edges": {
+      "description": "Relationships drawn as arrows. The `kind` is the whole point of this schema.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/edge" }
+    },
+    "groups": {
+      "description": "Containment, per axis. The authoritative record of parent/child nesting; the paths in a node's `groups` are built from these ids.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/group" }
+    },
+    "observations": {
+      "description": "Time-scoped measurements and assessments attached to graph entities.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/observation" }
+    },
+    "log_records": {
+      "description": "Classified log metadata only; raw log bodies are never stored in the graph.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/logRecord" }
+    },
+    "log_status": {
+      "description": "Safe summary of the log polling component.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "started_at": { "type": "string" },
+        "completed_at": { "type": "string" },
+        "fetched": { "type": "integer", "minimum": 0 },
+        "classified": { "type": "integer", "minimum": 0 },
+        "last_error": { "type": "string" }
+      }
+    },
+    "conflicts": {
+      "description": "Claims about the same thing that disagree. Recorded rather than resolved away: the document shows one value and admits it was contested, because a diagram that silently picks a winner is a diagram that lies quietly.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/conflict" }
+    }
+  },
+  "$defs": {
+    "axis": {
+      "type": "object",
+      "required": ["id"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Stable identifier, e.g. \"network\", \"provider\", \"module\".",
+          "type": "string",
+          "minLength": 1
+        },
+        "label": {
+          "description": "Human-readable name for a view selector.",
+          "type": "string"
+        }
+      }
+    },
+    "node": {
+      "type": "object",
+      "required": ["id", "type", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Stable, human-greppable identity, unique across nodes AND groups, since an edge may point at either. The Terraform parser uses the resource address verbatim, e.g. \"aws_ecs_service.api\".",
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "description": "Provider resource type, e.g. \"aws_ecs_service\". Unrecognised types are legal and render as generic boxes.",
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "description": "Short label for the diagram.",
+          "type": "string"
+        },
+        "description": {
+          "description": "Optional short explanation shown in interactive details.",
+          "type": "string"
+        },
+        "provider": {
+          "description": "Short provider name, e.g. \"aws\" or \"vsphere\". Containment refuses to cross a boundary between two of these: referencing something is not the same as living inside it, and an on-premises machine that reads from a cloud database does not belong to that cloud's network.",
+          "type": "string"
+        },
+        "groups": {
+          "description": "Maps an axis id to this node's group path on that axis, e.g. {\"network\": \"aws_vpc.main/aws_subnet.private_a\", \"provider\": \"provider:aws\"}. An axis absent here means the node sits at that axis's top level.",
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "attrs": {
+          "description": "Attributes carried over from the source. Parsers own this.",
+          "type": "object"
+        },
+        "metrics": {
+          "description": "Observed numbers. Enrichers own this; parsers must not write here.",
+          "type": "object",
+          "additionalProperties": { "type": "number" }
+        },
+        "source": { "$ref": "#/$defs/source" },
+        "coverage": { "$ref": "#/$defs/coverage" },
+        "claim": { "$ref": "#/$defs/claim" }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "required": ["from", "to", "kind"],
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "description": "Source id. May name a node or a group.",
+          "type": "string",
+          "minLength": 1
+        },
+        "to": {
+          "description": "Target id. May name a node or a group: a reference to a container is a real dependency, and when containment cannot express it — across a provider boundary, say — an edge is the only honest way left to record it.",
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "description": "iac_ref: one resource's configuration references another, so deleting the target breaks the source. reachable: the network permits this traffic. observed: this traffic actually happened.",
+          "type": "string",
+          "enum": ["iac_ref", "reachable", "observed"]
+        },
+        "relation": {
+          "description": "Open domain relationship vocabulary, such as calls, reads, writes, exposes, publishes, or contains. Kind remains the compatibility evidence category.",
+          "type": "string",
+          "minLength": 1
+        },
+        "attrs": {
+          "description": "Kind-specific detail: the referencing attribute for iac_ref, the port range for reachable, the request rate for observed.",
+          "type": "object"
+        },
+        "claim": { "$ref": "#/$defs/claim" },
+        "suppressed": {
+          "description": "Somebody asserted this edge is not real. A flag rather than a deletion, because \"a human said this is wrong\" and \"this never existed\" are different facts and only the first one is true.",
+          "type": "boolean"
+        }
+      }
+    },
+    "group": {
+      "type": "object",
+      "required": ["id", "axis", "type", "label"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Stable identity, unique across groups AND nodes. Must not contain a slash, since group paths are slash-separated.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^/]+$"
+        },
+        "axis": {
+          "description": "Which axis this container belongs to. A group's parent must be on the same axis.",
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "description": "Container kind, e.g. \"vpc\", \"subnet\", \"namespace\", \"datacenter\", \"module\".",
+          "type": "string",
+          "minLength": 1
+        },
+        "label": {
+          "description": "Short label for the container's border.",
+          "type": "string"
+        },
+        "parent": {
+          "description": "Enclosing group id, or null at top level.",
+          "type": ["string", "null"]
+        },
+        "attrs": {
+          "type": "object"
+        },
+        "source": { "$ref": "#/$defs/source" },
+        "claim": { "$ref": "#/$defs/claim" }
+      }
+    },
+    "observation": {
+      "type": "object",
+      "required": ["subject", "metric"],
+      "additionalProperties": false,
+      "properties": {
+        "subject": { "type": "string", "minLength": 1 },
+        "metric": { "type": "string", "minLength": 1 },
+        "labels": { "type": "object", "additionalProperties": { "type": "string" } },
+        "value": { "type": "number" },
+        "unit": { "type": "string" },
+        "observed_at": { "type": "string" },
+        "window": { "type": "string" },
+        "state": { "type": "string" },
+        "reason": { "type": "string" },
+        "threshold": {
+          "type": "object",
+          "required": ["operator", "value"],
+          "additionalProperties": false,
+          "properties": {
+            "operator": { "type": "string", "enum": [">", ">=", "<", "<=", "==", "!="] },
+            "value": { "type": "number" }
+          }
+        },
+        "claim": { "$ref": "#/$defs/claim" }
+      }
+    },
+    "logRecord": {
+      "type": "object",
+      "required": ["id"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "source": { "type": "string" },
+        "observed_at": { "type": "string" },
+        "characteristics": { "type": "object", "additionalProperties": { "type": "string" } },
+        "labels": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "claim": {
+      "description": "Who says so. Absent means a parser derived it from an input file, which is the overwhelmingly common case and therefore costs no bytes.",
+      "type": "object",
+      "required": ["origin"],
+      "additionalProperties": false,
+      "properties": {
+        "origin": {
+          "description": "parser: derived mechanically from an input file. human: entered by hand. ai: produced by a model. The three are kept apart because a diagram that cannot tell them apart presents somebody's guess with the authority of the code.",
+          "type": "string",
+          "enum": ["parser", "human", "ai"]
+        },
+        "author": { "type": "string" },
+        "confidence": {
+          "description": "How sure the claimant is, 0..1. Absent means unstated, which is not the same as zero.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "note": { "type": "string" }
+      }
+    },
+    "coverage": {
+      "description": "What is known about a node's log collection. Enrichers own this; parsers must not write here.",
+      "type": "object",
+      "required": ["state"],
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "description": "flowing: declared somewhere and something was seen. silent: declared, nothing seen. blind: somebody looked and found no destination. undeclared: logs arriving from something nothing declares. unknown: nobody asserted anything, or the assertion was ambiguous. Five states rather than four, because painting an unassessed resource as a blind spot is the same lie as painting a blind spot as covered.",
+          "type": "string",
+          "enum": ["unknown", "flowing", "silent", "blind", "undeclared"]
+        },
+        "reason": {
+          "description": "Why this state, in words a reader can argue with.",
+          "type": "string"
+        },
+        "evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/evidence" }
+        }
+      }
+    },
+    "evidence": {
+      "description": "One declaration or observation. A coverage state with no evidence behind it is a conclusion with no basis, which is what this array exists to prevent.",
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "description": "declared: configuration promises logs go here. observed: logs were actually seen here. none: somebody looked and found nothing, which is a finding rather than an absence.",
+          "type": "string",
+          "enum": ["declared", "observed", "none"]
+        },
+        "sink": {
+          "description": "Id of the node logs go to.",
+          "type": "string"
+        },
+        "stream": { "type": "string" },
+        "records": {
+          "description": "How many were seen. Absent means no count was available, which is not the same as a count of zero.",
+          "type": "number"
+        },
+        "via": {
+          "description": "How the claimant knew, in their own words.",
+          "type": "string"
+        },
+        "matched": {
+          "description": "Which resolution rule tied this evidence to its node, so a surprising join can be traced without rerunning anything.",
+          "type": "string"
+        },
+        "claim": { "$ref": "#/$defs/claim" }
+      }
+    },
+    "conflict": {
+      "description": "Two claims about the same thing that disagree.",
+      "type": "object",
+      "required": ["target", "field", "claims"],
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "description": "A node or group id, or an edge written as \"from|to|kind\", with \"|relation\" appended when the edge has a relation.",
+          "type": "string",
+          "minLength": 1
+        },
+        "field": {
+          "description": "What the claims disagree about.",
+          "type": "string",
+          "minLength": 1
+        },
+        "claims": {
+          "description": "Every competing answer with its claimant, highest-ranked origin first. The first entry is the one the document displays.",
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "object",
+            "required": ["value", "claim"],
+            "additionalProperties": false,
+            "properties": {
+              "value": { "type": "string" },
+              "claim": { "$ref": "#/$defs/claim" }
+            }
+          }
+        }
+      }
+    },
+    "overlayRef": {
+      "description": "An overlay that was applied to this document.",
+      "type": "object",
+      "required": ["origin"],
+      "additionalProperties": false,
+      "properties": {
+        "source": { "type": "string" },
+        "origin": {
+          "type": "string",
+          "enum": ["parser", "human", "ai"]
+        },
+        "author": { "type": "string" },
+        "window": {
+          "description": "The period the overlay's author says their evidence covers, echoed verbatim. Nothing here is read from a clock, so determinism holds — and a diagram that says \"blind spot\" without saying over what period would be a lie of omission.",
+          "type": "string"
+        }
+      }
+    },
+    "source": {
+      "description": "Where this came from in the original configuration, so a diagram can link back to code.",
+      "type": "object",
+      "required": ["file"],
+      "additionalProperties": false,
+      "properties": {
+        "file": { "type": "string", "minLength": 1 },
+        "line": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

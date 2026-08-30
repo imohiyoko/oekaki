@@ -1,0 +1,516 @@
+{
+  "version": "0.5",
+  "metadata": {
+    "generator": "oekaki/dev",
+    "source": "terraform",
+    "source_version": "1.9.8"
+  },
+  "axes": [
+    {
+      "id": "module",
+      "label": "Module"
+    },
+    {
+      "id": "network",
+      "label": "Network topology"
+    },
+    {
+      "id": "provider",
+      "label": "Provider"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "aws_db_instance.main",
+      "type": "aws_db_instance",
+      "name": "main",
+      "provider": "aws",
+      "groups": {
+        "network": "aws_vpc.main",
+        "provider": "provider:aws"
+      },
+      "attrs": {
+        "allocated_storage": 100,
+        "engine": "postgres",
+        "engine_version": "16.3",
+        "instance_class": "db.t4g.medium",
+        "multi_az": true
+      },
+      "source": {
+        "file": "main.tf",
+        "line": 254
+      }
+    },
+    {
+      "id": "aws_db_subnet_group.main",
+      "type": "aws_db_subnet_group",
+      "name": "main",
+      "provider": "aws",
+      "groups": {
+        "network": "aws_vpc.main",
+        "provider": "provider:aws"
+      },
+      "attrs": {
+        "name": "main"
+      },
+      "source": {
+        "file": "main.tf",
+        "line": 249
+      }
+    },
+    {
+      "id": "aws_ecs_cluster.main",
+      "type": "aws_ecs_cluster",
+      "name": "main",
+      "provider": "aws",
+      "groups": {
+        "provider": "provider:aws"
+      },
+      "attrs": {
+        "name": "main"
+      },
+      "source": {
+        "file": "main.tf",
+        "line": 210
+      }
+    },
+    {
+      "id": "aws_ecs_service.api",
+      "type": "aws_ecs_service",
+      "name": "api",
+      "provider": "aws",
+      "groups": {
+        "network": "aws_vpc.main",
+        "provider": "provider:aws"
+      },
+      "attrs": {
+        "desired_count": 3,
+        "launch_type": "FARGATE",
+        "name": "api"
+      },
+      "source": {
+        "file": "main.tf",
+        "line": 230
+      }
+    },
+    {
+      "id": "aws_ecs_task_definition.api",
+      "type": "aws_ecs_task_definition",
+      "name": "api",
+      "provider": "aws",
+      "groups": {
+        "provider": "provider:aws"
+      },
+      "attrs": {
+        "cpu": "512",
+        "family": "api",
+        "memory": "1024",
+        "network_mode": "awsvpc"
+      },
+      "source": {
+        "file": "main.tf",
+        "line": 214
+      }
+    },
+    {
+      "id": "aws_instance.bastion",
+      "type": "aws_instance",
+      "name": "bastion",
+      "provider": "aws",
+      "groups": {
+        "network": "aws_vpc.main/aws_subnet.public_a",
+        "provider": "provider:aws"
+      },
+      "attrs": {
+        "ami": "ami-0d52744d6551d851e",
+        "instance_type": "t3.micro"
+      },
+      "source": {
+        "file": "main.tf",
+        "line": 270
+      }
+    },
+    {
+      "id": "aws_lb.public",
+      "type": "aws_lb",
+      "name": "public",
+      "provider": "aws",
+      "groups": {
+        "network": "aws_vpc.main",
+        "provider": "provider:aws"
+      },
+      "attrs": {
+        "internal": false,
+        "load_balancer_type": "application",
+        "name": "public"
+      },
+      "source": {
+        "file": "main.tf",
+        "line": 179
+      }
+    },
+    {
+      "id": "aws_lb_listener.http",
+      "type": "aws_lb_listener",
+      "name": "http",
+      "provider": "aws",
+      "groups": {
+        "network": "aws_vpc.main",
+        "provider": "provider:aws"
+      },
+      "attrs": {
+        "port": 80,
+        "protocol": "HTTP"
+      },
+      "source": {
+        "file": "main.tf",
+        "line": 199
+      }
+    },
+    {
+      "id": "aws_lb_target_group.api",
+      "type": "aws_lb_target_group",
+      "name": "api",
+      "provider": "aws",
+      "groups": {
+        "network": "aws_vpc.main",
+        "provider": "provider:aws"
+      },
+      "attrs": {
+        "port": 8080,
+        "protocol": "HTTP",
+        "target_type": "ip"
+      },
+      "source": {
+        "file": "main.tf",
+        "line": 191
+      }
+    },
+    {
+      "id": "aws_security_group.alb",
+      "type": "aws_security_group",
+      "name": "alb",
+      "provider": "aws",
+      "groups": {
+        "network": "aws_vpc.main",
+        "provider": "provider:aws"
+      },
+      "attrs": {
+        "description": "Public entrypoint",
+        "egress": [
+          {
+            "cidr_blocks": [
+              "0.0.0.0/0"
+            ],
+            "description": "",
+            "from_port": 0,
+            "ipv6_cidr_blocks": [],
+            "prefix_list_ids": [],
+            "protocol": "-1",
+            "security_groups": [],
+            "self": false,
+            "to_port": 0
+          }
+        ],
+        "ingress": [
+          {
+            "cidr_blocks": [
+              "0.0.0.0/0"
+            ],
+            "description": "HTTP from the internet",
+            "from_port": 80,
+            "ipv6_cidr_blocks": [],
+            "prefix_list_ids": [],
+            "protocol": "tcp",
+            "security_groups": [],
+            "self": false,
+            "to_port": 80
+          }
+        ],
+        "name": "alb"
+      },
+      "source": {
+        "file": "main.tf",
+        "line": 75
+      }
+    },
+    {
+      "id": "aws_security_group.app",
+      "type": "aws_security_group",
+      "name": "app",
+      "provider": "aws",
+      "groups": {
+        "network": "aws_vpc.main",
+        "provider": "provider:aws"
+      },
+      "attrs": {
+        "description": "ECS tasks",
+        "name": "app"
+      },
+      "source": {
+        "file": "main.tf",
+        "line": 100
+      }
+    },
+    {
+      "id": "aws_security_group.bastion",
+      "type": "aws_security_group",
+      "name": "bastion",
+      "provider": "aws",
+      "groups": {
+        "network": "aws_vpc.main",
+        "provider": "provider:aws"
+      },
+      "attrs": {
+        "description": "Operator jump host",
+        "egress": [
+          {
+            "cidr_blocks": [
+              "0.0.0.0/0"
+            ],
+            "description": "",
+            "from_port": 0,
+            "ipv6_cidr_blocks": [],
+            "prefix_list_ids": [],
+            "protocol": "-1",
+            "security_groups": [],
+            "self": false,
+            "to_port": 0
+          }
+        ],
+        "ingress": [
+          {
+            "cidr_blocks": [
+              "203.0.113.0/24"
+            ],
+            "description": "SSH from the office",
+            "from_port": 22,
+            "ipv6_cidr_blocks": [],
+            "prefix_list_ids": [],
+            "protocol": "tcp",
+            "security_groups": [],
+            "self": false,
+            "to_port": 22
+          }
+        ],
+        "name": "bastion"
+      },
+      "source": {
+        "file": "main.tf",
+        "line": 125
+      }
+    },
+    {
+      "id": "aws_security_group.db",
+      "type": "aws_security_group",
+      "name": "db",
+      "provider": "aws",
+      "groups": {
+        "network": "aws_vpc.main",
+        "provider": "provider:aws"
+      },
+      "attrs": {
+        "description": "PostgreSQL",
+        "name": "db"
+      },
+      "source": {
+        "file": "main.tf",
+        "line": 153
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "aws_db_instance.main",
+      "to": "aws_db_subnet_group.main",
+      "kind": "iac_ref",
+      "attrs": {
+        "attribute": "db_subnet_group_name"
+      }
+    },
+    {
+      "from": "aws_db_instance.main",
+      "to": "aws_security_group.db",
+      "kind": "iac_ref",
+      "attrs": {
+        "attribute": "vpc_security_group_ids"
+      }
+    },
+    {
+      "from": "aws_ecs_service.api",
+      "to": "aws_ecs_cluster.main",
+      "kind": "iac_ref",
+      "attrs": {
+        "attribute": "cluster"
+      }
+    },
+    {
+      "from": "aws_ecs_service.api",
+      "to": "aws_ecs_task_definition.api",
+      "kind": "iac_ref",
+      "attrs": {
+        "attribute": "task_definition"
+      }
+    },
+    {
+      "from": "aws_ecs_service.api",
+      "to": "aws_lb_target_group.api",
+      "kind": "iac_ref",
+      "attrs": {
+        "attribute": "load_balancer"
+      }
+    },
+    {
+      "from": "aws_ecs_service.api",
+      "to": "aws_security_group.app",
+      "kind": "iac_ref",
+      "attrs": {
+        "attribute": "network_configuration"
+      }
+    },
+    {
+      "from": "aws_instance.bastion",
+      "to": "aws_security_group.bastion",
+      "kind": "iac_ref",
+      "attrs": {
+        "attribute": "vpc_security_group_ids"
+      }
+    },
+    {
+      "from": "aws_lb.public",
+      "to": "aws_security_group.alb",
+      "kind": "iac_ref",
+      "attrs": {
+        "attribute": "security_groups"
+      }
+    },
+    {
+      "from": "aws_lb_listener.http",
+      "to": "aws_lb.public",
+      "kind": "iac_ref",
+      "attrs": {
+        "attribute": "load_balancer_arn"
+      }
+    },
+    {
+      "from": "aws_lb_listener.http",
+      "to": "aws_lb_target_group.api",
+      "kind": "iac_ref",
+      "attrs": {
+        "attribute": "default_action"
+      }
+    },
+    {
+      "from": "aws_security_group.app",
+      "to": "aws_security_group.alb",
+      "kind": "iac_ref",
+      "attrs": {
+        "attribute": "ingress"
+      }
+    },
+    {
+      "from": "aws_security_group.db",
+      "to": "aws_security_group.app",
+      "kind": "iac_ref",
+      "attrs": {
+        "attribute": "ingress"
+      }
+    },
+    {
+      "from": "aws_security_group.db",
+      "to": "aws_security_group.bastion",
+      "kind": "iac_ref",
+      "attrs": {
+        "attribute": "ingress"
+      }
+    }
+  ],
+  "groups": [
+    {
+      "id": "aws_subnet.private_a",
+      "axis": "network",
+      "type": "subnet",
+      "label": "private-a",
+      "parent": "aws_vpc.main",
+      "attrs": {
+        "availability_zone": "ap-northeast-1a",
+        "cidr_block": "10.0.10.0/24",
+        "map_public_ip_on_launch": false
+      },
+      "source": {
+        "file": "main.tf",
+        "line": 53
+      }
+    },
+    {
+      "id": "aws_subnet.private_c",
+      "axis": "network",
+      "type": "subnet",
+      "label": "private-c",
+      "parent": "aws_vpc.main",
+      "attrs": {
+        "availability_zone": "ap-northeast-1c",
+        "cidr_block": "10.0.11.0/24",
+        "map_public_ip_on_launch": false
+      },
+      "source": {
+        "file": "main.tf",
+        "line": 64
+      }
+    },
+    {
+      "id": "aws_subnet.public_a",
+      "axis": "network",
+      "type": "subnet",
+      "label": "public-a",
+      "parent": "aws_vpc.main",
+      "attrs": {
+        "availability_zone": "ap-northeast-1a",
+        "cidr_block": "10.0.0.0/24",
+        "map_public_ip_on_launch": true
+      },
+      "source": {
+        "file": "main.tf",
+        "line": 29
+      }
+    },
+    {
+      "id": "aws_subnet.public_c",
+      "axis": "network",
+      "type": "subnet",
+      "label": "public-c",
+      "parent": "aws_vpc.main",
+      "attrs": {
+        "availability_zone": "ap-northeast-1c",
+        "cidr_block": "10.0.1.0/24",
+        "map_public_ip_on_launch": true
+      },
+      "source": {
+        "file": "main.tf",
+        "line": 41
+      }
+    },
+    {
+      "id": "aws_vpc.main",
+      "axis": "network",
+      "type": "vpc",
+      "label": "main",
+      "parent": null,
+      "attrs": {
+        "cidr_block": "10.0.0.0/16",
+        "enable_dns_hostnames": true
+      },
+      "source": {
+        "file": "main.tf",
+        "line": 19
+      }
+    },
+    {
+      "id": "provider:aws",
+      "axis": "provider",
+      "type": "provider",
+      "label": "aws",
+      "parent": null
+    }
+  ]
+}

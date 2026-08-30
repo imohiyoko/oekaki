@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/imohiyoko/oekaki/main/schema/layout.schema.json",
+  "title": "oekaki layout",
+  "description": "Human-authored positions and sizes for an oekaki view. Coordinates are relative to the optional parent.",
+  "type": "object",
+  "required": ["kind", "version", "nodes", "claim"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": { "const": "oekaki.layout" },
+    "version": { "enum": ["0.1", "0.2"] },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "x", "y"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "parent": { "type": "string", "minLength": 1 },
+          "x": { "type": "number" },
+          "y": { "type": "number" },
+          "width": { "type": "number", "exclusiveMinimum": 0 },
+          "height": { "type": "number", "exclusiveMinimum": 0 }
+        }
+      }
+    },
+    "lines": {
+      "description": "How lines this view draws itself get from one box to the other: a curve, or right angles. A line may override it.",
+      "enum": ["curved", "orthogonal"]
+    },
+    "edges": {
+      "description": "Which side of a box a line leaves and arrives on, and the shape of that line. A side that is not given is chosen from the geometry, and where along that side the line lands is always chosen from the geometry.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["from", "to", "kind"],
+        "additionalProperties": false,
+        "properties": {
+          "from": { "type": "string", "minLength": 1 },
+          "to": { "type": "string", "minLength": 1 },
+          "kind": { "type": "string", "minLength": 1 },
+          "relation": { "type": "string" },
+          "source": { "enum": ["left", "right", "top", "bottom"] },
+          "target": { "enum": ["left", "right", "top", "bottom"] },
+          "line": { "enum": ["curved", "orthogonal"] }
+        }
+      }
+    },
+    "claim": {
+      "type": "object",
+      "required": ["origin"],
+      "additionalProperties": false,
+      "properties": {
+        "origin": { "const": "human" },
+        "author": { "type": "string" },
+        "note": { "type": "string" }
+      }
+    }
+  }
+}

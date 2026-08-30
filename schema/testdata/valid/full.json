@@ -1,0 +1,61 @@
+{
+  "version": "0.5",
+  "metadata": {
+    "generator": "oekaki/0.2.0",
+    "source": "terraform",
+    "source_version": "1.9.8",
+    "scope": "platform-prod",
+    "inputs": [
+      { "id": "platform", "path": "platform/graph.json", "kind": "graph", "source_version": "1.9.8" }
+    ]
+  },
+  "axes": [
+    { "id": "network", "label": "Network topology" },
+    { "id": "provider", "label": "Provider" },
+    { "id": "module", "label": "Module" }
+  ],
+  "nodes": [
+    {
+      "id": "aws_ecs_service.api",
+      "type": "aws_ecs_service",
+      "name": "api",
+      "provider": "aws",
+      "groups": {
+        "network": "aws_vpc.main/aws_subnet.private_a",
+        "provider": "provider:aws",
+        "module": "module:module.platform"
+      },
+      "attrs": { "desired_count": 3 },
+      "metrics": { "cpu_p95": 0.34, "headroom": 0.66 },
+      "source": { "file": "main.tf", "line": 42 }
+    },
+    {
+      "id": "vsphere_virtual_machine.legacy_erp",
+      "type": "vsphere_virtual_machine",
+      "name": "legacy-erp",
+      "provider": "vsphere",
+      "groups": { "provider": "provider:vsphere" }
+    }
+  ],
+  "edges": [
+    {
+      "from": "vsphere_virtual_machine.legacy_erp",
+      "to": "aws_subnet.private_a",
+      "kind": "iac_ref",
+      "attrs": { "attribute": "custom_attributes" }
+    },
+    {
+      "from": "aws_ecs_service.api",
+      "to": "vsphere_virtual_machine.legacy_erp",
+      "kind": "observed",
+      "attrs": { "requests_per_second": 12.5 }
+    }
+  ],
+  "groups": [
+    { "id": "aws_vpc.main", "axis": "network", "type": "vpc", "label": "main", "parent": null },
+    { "id": "aws_subnet.private_a", "axis": "network", "type": "subnet", "label": "private-a", "parent": "aws_vpc.main" },
+    { "id": "provider:aws", "axis": "provider", "type": "provider", "label": "aws", "parent": null },
+    { "id": "provider:vsphere", "axis": "provider", "type": "provider", "label": "vsphere", "parent": null },
+    { "id": "module:module.platform", "axis": "module", "type": "module", "label": "module.platform", "parent": null }
+  ]
+}

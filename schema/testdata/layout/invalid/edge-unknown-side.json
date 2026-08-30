@@ -1,0 +1,9 @@
+{
+  "kind": "oekaki.layout",
+  "version": "0.2",
+  "nodes": [],
+  "edges": [
+    {"from": "account:one", "to": "account:two", "kind": "iac_ref", "source": "middle"}
+  ],
+  "claim": {"origin": "human"}
+}

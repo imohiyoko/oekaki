@@ -1,0 +1,16 @@
+{
+  "version": "0.5",
+  "axes": [],
+  "nodes": [{"id":"a","type":"service","name":"a"}],
+  "edges": [],
+  "groups": [],
+  "conflicts": [{
+    "target_kind": "edge",
+    "target": "a|b|iac_ref",
+    "field": "suppressed",
+    "claims": [
+      {"value":"false","claim":{"origin":"human"}},
+      {"value":"true","claim":{"origin":"ai"}}
+    ]
+  }]
+}

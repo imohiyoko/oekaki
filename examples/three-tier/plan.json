@@ -1,0 +1,1263 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.9.8",
+  "planned_values": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_db_instance.main",
+          "mode": "managed",
+          "type": "aws_db_instance",
+          "name": "main",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 2,
+          "values": {
+            "allocated_storage": 100,
+            "engine": "postgres",
+            "engine_version": "16.3",
+            "identifier": "main",
+            "instance_class": "db.t4g.medium",
+            "multi_az": true,
+            "publicly_accessible": false,
+            "skip_final_snapshot": true,
+            "storage_encrypted": true,
+            "tags": {
+              "Name": "main"
+            },
+            "tags_all": {
+              "Name": "main"
+            }
+          },
+          "sensitive_values": {
+            "tags": {},
+            "tags_all": {}
+          }
+        },
+        {
+          "address": "aws_db_subnet_group.main",
+          "mode": "managed",
+          "type": "aws_db_subnet_group",
+          "name": "main",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 0,
+          "values": {
+            "name": "main",
+            "tags": null,
+            "tags_all": {}
+          },
+          "sensitive_values": {
+            "tags_all": {}
+          }
+        },
+        {
+          "address": "aws_ecs_cluster.main",
+          "mode": "managed",
+          "type": "aws_ecs_cluster",
+          "name": "main",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 0,
+          "values": {
+            "name": "main",
+            "tags": null,
+            "tags_all": {}
+          },
+          "sensitive_values": {
+            "tags_all": {}
+          }
+        },
+        {
+          "address": "aws_ecs_service.api",
+          "mode": "managed",
+          "type": "aws_ecs_service",
+          "name": "api",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 0,
+          "values": {
+            "desired_count": 3,
+            "enable_ecs_managed_tags": false,
+            "launch_type": "FARGATE",
+            "name": "api",
+            "scheduling_strategy": "REPLICA",
+            "tags": null,
+            "tags_all": {}
+          },
+          "sensitive_values": {
+            "load_balancer": [
+              {}
+            ],
+            "network_configuration": [
+              {}
+            ],
+            "tags_all": {}
+          }
+        },
+        {
+          "address": "aws_ecs_task_definition.api",
+          "mode": "managed",
+          "type": "aws_ecs_task_definition",
+          "name": "api",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 1,
+          "values": {
+            "container_definitions": "[{\"image\":\"public.ecr.aws/nginx/nginx:latest\",\"name\":\"api\",\"portMappings\":[{\"containerPort\":8080}]}]",
+            "cpu": "512",
+            "family": "api",
+            "memory": "1024",
+            "network_mode": "awsvpc",
+            "requires_compatibilities": [
+              "FARGATE"
+            ],
+            "tags": null,
+            "tags_all": {}
+          },
+          "sensitive_values": {
+            "requires_compatibilities": [
+              false
+            ],
+            "tags_all": {}
+          }
+        },
+        {
+          "address": "aws_instance.bastion",
+          "mode": "managed",
+          "type": "aws_instance",
+          "name": "bastion",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 1,
+          "values": {
+            "ami": "ami-0d52744d6551d851e",
+            "instance_type": "t3.micro",
+            "monitoring": false,
+            "tags": {
+              "Name": "bastion"
+            },
+            "tags_all": {
+              "Name": "bastion"
+            }
+          },
+          "sensitive_values": {
+            "tags": {},
+            "tags_all": {}
+          }
+        },
+        {
+          "address": "aws_lb.public",
+          "mode": "managed",
+          "type": "aws_lb",
+          "name": "public",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 0,
+          "values": {
+            "enable_deletion_protection": false,
+            "internal": false,
+            "ip_address_type": "ipv4",
+            "load_balancer_type": "application",
+            "name": "public",
+            "tags": {
+              "Name": "public"
+            },
+            "tags_all": {
+              "Name": "public"
+            }
+          },
+          "sensitive_values": {
+            "tags": {},
+            "tags_all": {}
+          }
+        },
+        {
+          "address": "aws_lb_listener.http",
+          "mode": "managed",
+          "type": "aws_lb_listener",
+          "name": "http",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 0,
+          "values": {
+            "port": 80,
+            "protocol": "HTTP",
+            "tags": null,
+            "tags_all": {}
+          },
+          "sensitive_values": {
+            "default_action": [
+              {}
+            ],
+            "tags_all": {}
+          }
+        },
+        {
+          "address": "aws_lb_target_group.api",
+          "mode": "managed",
+          "type": "aws_lb_target_group",
+          "name": "api",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 0,
+          "values": {
+            "name": "api",
+            "port": 8080,
+            "protocol": "HTTP",
+            "tags": null,
+            "tags_all": {},
+            "target_type": "ip"
+          },
+          "sensitive_values": {
+            "tags_all": {}
+          }
+        },
+        {
+          "address": "aws_security_group.alb",
+          "mode": "managed",
+          "type": "aws_security_group",
+          "name": "alb",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 1,
+          "values": {
+            "description": "Public entrypoint",
+            "egress": [
+              {
+                "cidr_blocks": [
+                  "0.0.0.0/0"
+                ],
+                "description": "",
+                "from_port": 0,
+                "ipv6_cidr_blocks": [],
+                "prefix_list_ids": [],
+                "protocol": "-1",
+                "security_groups": [],
+                "self": false,
+                "to_port": 0
+              }
+            ],
+            "ingress": [
+              {
+                "cidr_blocks": [
+                  "0.0.0.0/0"
+                ],
+                "description": "HTTP from the internet",
+                "from_port": 80,
+                "ipv6_cidr_blocks": [],
+                "prefix_list_ids": [],
+                "protocol": "tcp",
+                "security_groups": [],
+                "self": false,
+                "to_port": 80
+              }
+            ],
+            "name": "alb",
+            "revoke_rules_on_delete": false,
+            "tags": {
+              "Name": "alb"
+            },
+            "tags_all": {
+              "Name": "alb"
+            }
+          },
+          "sensitive_values": {
+            "egress": [
+              {
+                "cidr_blocks": [
+                  false
+                ],
+                "ipv6_cidr_blocks": [],
+                "prefix_list_ids": [],
+                "security_groups": []
+              }
+            ],
+            "ingress": [
+              {
+                "cidr_blocks": [
+                  false
+                ],
+                "ipv6_cidr_blocks": [],
+                "prefix_list_ids": [],
+                "security_groups": []
+              }
+            ],
+            "tags": {},
+            "tags_all": {}
+          }
+        },
+        {
+          "address": "aws_security_group.app",
+          "mode": "managed",
+          "type": "aws_security_group",
+          "name": "app",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 1,
+          "values": {
+            "description": "ECS tasks",
+            "name": "app",
+            "revoke_rules_on_delete": false,
+            "tags": {
+              "Name": "app"
+            },
+            "tags_all": {
+              "Name": "app"
+            }
+          },
+          "sensitive_values": {
+            "tags": {},
+            "tags_all": {}
+          }
+        },
+        {
+          "address": "aws_security_group.bastion",
+          "mode": "managed",
+          "type": "aws_security_group",
+          "name": "bastion",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 1,
+          "values": {
+            "description": "Operator jump host",
+            "egress": [
+              {
+                "cidr_blocks": [
+                  "0.0.0.0/0"
+                ],
+                "description": "",
+                "from_port": 0,
+                "ipv6_cidr_blocks": [],
+                "prefix_list_ids": [],
+                "protocol": "-1",
+                "security_groups": [],
+                "self": false,
+                "to_port": 0
+              }
+            ],
+            "ingress": [
+              {
+                "cidr_blocks": [
+                  "203.0.113.0/24"
+                ],
+                "description": "SSH from the office",
+                "from_port": 22,
+                "ipv6_cidr_blocks": [],
+                "prefix_list_ids": [],
+                "protocol": "tcp",
+                "security_groups": [],
+                "self": false,
+                "to_port": 22
+              }
+            ],
+            "name": "bastion",
+            "revoke_rules_on_delete": false,
+            "tags": {
+              "Name": "bastion"
+            },
+            "tags_all": {
+              "Name": "bastion"
+            }
+          },
+          "sensitive_values": {
+            "egress": [
+              {
+                "cidr_blocks": [
+                  false
+                ],
+                "ipv6_cidr_blocks": [],
+                "prefix_list_ids": [],
+                "security_groups": []
+              }
+            ],
+            "ingress": [
+              {
+                "cidr_blocks": [
+                  false
+                ],
+                "ipv6_cidr_blocks": [],
+                "prefix_list_ids": [],
+                "security_groups": []
+              }
+            ],
+            "tags": {},
+            "tags_all": {}
+          }
+        },
+        {
+          "address": "aws_security_group.db",
+          "mode": "managed",
+          "type": "aws_security_group",
+          "name": "db",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 1,
+          "values": {
+            "description": "PostgreSQL",
+            "name": "db",
+            "revoke_rules_on_delete": false,
+            "tags": {
+              "Name": "db"
+            },
+            "tags_all": {
+              "Name": "db"
+            }
+          },
+          "sensitive_values": {
+            "tags": {},
+            "tags_all": {}
+          }
+        },
+        {
+          "address": "aws_subnet.private_a",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "private_a",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 0,
+          "values": {
+            "availability_zone": "ap-northeast-1a",
+            "cidr_block": "10.0.10.0/24",
+            "map_public_ip_on_launch": false,
+            "tags": {
+              "Name": "private-a",
+              "Tier": "private"
+            },
+            "tags_all": {
+              "Name": "private-a",
+              "Tier": "private"
+            }
+          },
+          "sensitive_values": {
+            "tags": {},
+            "tags_all": {}
+          }
+        },
+        {
+          "address": "aws_subnet.private_c",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "private_c",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 0,
+          "values": {
+            "availability_zone": "ap-northeast-1c",
+            "cidr_block": "10.0.11.0/24",
+            "map_public_ip_on_launch": false,
+            "tags": {
+              "Name": "private-c",
+              "Tier": "private"
+            },
+            "tags_all": {
+              "Name": "private-c",
+              "Tier": "private"
+            }
+          },
+          "sensitive_values": {
+            "tags": {},
+            "tags_all": {}
+          }
+        },
+        {
+          "address": "aws_subnet.public_a",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "public_a",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 0,
+          "values": {
+            "availability_zone": "ap-northeast-1a",
+            "cidr_block": "10.0.0.0/24",
+            "map_public_ip_on_launch": true,
+            "tags": {
+              "Name": "public-a",
+              "Tier": "public"
+            },
+            "tags_all": {
+              "Name": "public-a",
+              "Tier": "public"
+            }
+          },
+          "sensitive_values": {
+            "tags": {},
+            "tags_all": {}
+          }
+        },
+        {
+          "address": "aws_subnet.public_c",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "public_c",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 0,
+          "values": {
+            "availability_zone": "ap-northeast-1c",
+            "cidr_block": "10.0.1.0/24",
+            "map_public_ip_on_launch": true,
+            "tags": {
+              "Name": "public-c",
+              "Tier": "public"
+            },
+            "tags_all": {
+              "Name": "public-c",
+              "Tier": "public"
+            }
+          },
+          "sensitive_values": {
+            "tags": {},
+            "tags_all": {}
+          }
+        },
+        {
+          "address": "aws_vpc.main",
+          "mode": "managed",
+          "type": "aws_vpc",
+          "name": "main",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 1,
+          "values": {
+            "assign_generated_ipv6_cidr_block": false,
+            "cidr_block": "10.0.0.0/16",
+            "enable_dns_hostnames": true,
+            "enable_dns_support": true,
+            "instance_tenancy": "default",
+            "tags": {
+              "Name": "main"
+            },
+            "tags_all": {
+              "Name": "main"
+            }
+          },
+          "sensitive_values": {
+            "tags": {},
+            "tags_all": {}
+          }
+        }
+      ]
+    }
+  },
+  "configuration": {
+    "provider_config": {
+      "aws": {
+        "name": "aws",
+        "full_name": "registry.terraform.io/hashicorp/aws",
+        "version_constraint": "~> 5.0",
+        "expressions": {
+          "region": {
+            "constant_value": "ap-northeast-1"
+          }
+        }
+      }
+    },
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_db_instance.main",
+          "mode": "managed",
+          "type": "aws_db_instance",
+          "name": "main",
+          "provider_config_key": "aws",
+          "schema_version": 2,
+          "expressions": {
+            "allocated_storage": {
+              "constant_value": 100
+            },
+            "db_subnet_group_name": {
+              "references": [
+                "aws_db_subnet_group.main.name",
+                "aws_db_subnet_group.main"
+              ]
+            },
+            "engine": {
+              "constant_value": "postgres"
+            },
+            "engine_version": {
+              "constant_value": "16.3"
+            },
+            "identifier": {
+              "constant_value": "main"
+            },
+            "instance_class": {
+              "constant_value": "db.t4g.medium"
+            },
+            "multi_az": {
+              "constant_value": true
+            },
+            "skip_final_snapshot": {
+              "constant_value": true
+            },
+            "tags": {
+              "constant_value": {
+                "Name": "main"
+              }
+            },
+            "vpc_security_group_ids": {
+              "references": [
+                "aws_security_group.db.id",
+                "aws_security_group.db"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_db_subnet_group.main",
+          "mode": "managed",
+          "type": "aws_db_subnet_group",
+          "name": "main",
+          "provider_config_key": "aws",
+          "schema_version": 0,
+          "expressions": {
+            "name": {
+              "constant_value": "main"
+            },
+            "subnet_ids": {
+              "references": [
+                "aws_subnet.private_a.id",
+                "aws_subnet.private_a",
+                "aws_subnet.private_c.id",
+                "aws_subnet.private_c"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_ecs_cluster.main",
+          "mode": "managed",
+          "type": "aws_ecs_cluster",
+          "name": "main",
+          "provider_config_key": "aws",
+          "schema_version": 0,
+          "expressions": {
+            "name": {
+              "constant_value": "main"
+            }
+          }
+        },
+        {
+          "address": "aws_ecs_service.api",
+          "mode": "managed",
+          "type": "aws_ecs_service",
+          "name": "api",
+          "provider_config_key": "aws",
+          "schema_version": 0,
+          "expressions": {
+            "cluster": {
+              "references": [
+                "aws_ecs_cluster.main.id",
+                "aws_ecs_cluster.main"
+              ]
+            },
+            "desired_count": {
+              "constant_value": 3
+            },
+            "launch_type": {
+              "constant_value": "FARGATE"
+            },
+            "load_balancer": [
+              {
+                "container_name": {
+                  "constant_value": "api"
+                },
+                "container_port": {
+                  "constant_value": 8080
+                },
+                "target_group_arn": {
+                  "references": [
+                    "aws_lb_target_group.api.arn",
+                    "aws_lb_target_group.api"
+                  ]
+                }
+              }
+            ],
+            "name": {
+              "constant_value": "api"
+            },
+            "network_configuration": [
+              {
+                "security_groups": {
+                  "references": [
+                    "aws_security_group.app.id",
+                    "aws_security_group.app"
+                  ]
+                },
+                "subnets": {
+                  "references": [
+                    "aws_subnet.private_a.id",
+                    "aws_subnet.private_a",
+                    "aws_subnet.private_c.id",
+                    "aws_subnet.private_c"
+                  ]
+                }
+              }
+            ],
+            "task_definition": {
+              "references": [
+                "aws_ecs_task_definition.api.arn",
+                "aws_ecs_task_definition.api"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_ecs_task_definition.api",
+          "mode": "managed",
+          "type": "aws_ecs_task_definition",
+          "name": "api",
+          "provider_config_key": "aws",
+          "schema_version": 1,
+          "expressions": {
+            "cpu": {
+              "constant_value": "512"
+            },
+            "family": {
+              "constant_value": "api"
+            },
+            "memory": {
+              "constant_value": "1024"
+            },
+            "network_mode": {
+              "constant_value": "awsvpc"
+            },
+            "requires_compatibilities": {
+              "constant_value": [
+                "FARGATE"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_instance.bastion",
+          "mode": "managed",
+          "type": "aws_instance",
+          "name": "bastion",
+          "provider_config_key": "aws",
+          "schema_version": 1,
+          "expressions": {
+            "ami": {
+              "constant_value": "ami-0d52744d6551d851e"
+            },
+            "instance_type": {
+              "constant_value": "t3.micro"
+            },
+            "subnet_id": {
+              "references": [
+                "aws_subnet.public_a.id",
+                "aws_subnet.public_a"
+              ]
+            },
+            "tags": {
+              "constant_value": {
+                "Name": "bastion"
+              }
+            },
+            "vpc_security_group_ids": {
+              "references": [
+                "aws_security_group.bastion.id",
+                "aws_security_group.bastion"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_lb.public",
+          "mode": "managed",
+          "type": "aws_lb",
+          "name": "public",
+          "provider_config_key": "aws",
+          "schema_version": 0,
+          "expressions": {
+            "internal": {
+              "constant_value": false
+            },
+            "load_balancer_type": {
+              "constant_value": "application"
+            },
+            "name": {
+              "constant_value": "public"
+            },
+            "security_groups": {
+              "references": [
+                "aws_security_group.alb.id",
+                "aws_security_group.alb"
+              ]
+            },
+            "subnets": {
+              "references": [
+                "aws_subnet.public_a.id",
+                "aws_subnet.public_a",
+                "aws_subnet.public_c.id",
+                "aws_subnet.public_c"
+              ]
+            },
+            "tags": {
+              "constant_value": {
+                "Name": "public"
+              }
+            }
+          }
+        },
+        {
+          "address": "aws_lb_listener.http",
+          "mode": "managed",
+          "type": "aws_lb_listener",
+          "name": "http",
+          "provider_config_key": "aws",
+          "schema_version": 0,
+          "expressions": {
+            "default_action": [
+              {
+                "target_group_arn": {
+                  "references": [
+                    "aws_lb_target_group.api.arn",
+                    "aws_lb_target_group.api"
+                  ]
+                },
+                "type": {
+                  "constant_value": "forward"
+                }
+              }
+            ],
+            "load_balancer_arn": {
+              "references": [
+                "aws_lb.public.arn",
+                "aws_lb.public"
+              ]
+            },
+            "port": {
+              "constant_value": 80
+            },
+            "protocol": {
+              "constant_value": "HTTP"
+            }
+          }
+        },
+        {
+          "address": "aws_lb_target_group.api",
+          "mode": "managed",
+          "type": "aws_lb_target_group",
+          "name": "api",
+          "provider_config_key": "aws",
+          "schema_version": 0,
+          "expressions": {
+            "name": {
+              "constant_value": "api"
+            },
+            "port": {
+              "constant_value": 8080
+            },
+            "protocol": {
+              "constant_value": "HTTP"
+            },
+            "target_type": {
+              "constant_value": "ip"
+            },
+            "vpc_id": {
+              "references": [
+                "aws_vpc.main.id",
+                "aws_vpc.main"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_security_group.alb",
+          "mode": "managed",
+          "type": "aws_security_group",
+          "name": "alb",
+          "provider_config_key": "aws",
+          "schema_version": 1,
+          "expressions": {
+            "description": {
+              "constant_value": "Public entrypoint"
+            },
+            "egress": [
+              {
+                "cidr_blocks": {
+                  "constant_value": [
+                    "0.0.0.0/0"
+                  ]
+                },
+                "from_port": {
+                  "constant_value": 0
+                },
+                "protocol": {
+                  "constant_value": "-1"
+                },
+                "to_port": {
+                  "constant_value": 0
+                }
+              }
+            ],
+            "ingress": [
+              {
+                "cidr_blocks": {
+                  "constant_value": [
+                    "0.0.0.0/0"
+                  ]
+                },
+                "description": {
+                  "constant_value": "HTTP from the internet"
+                },
+                "from_port": {
+                  "constant_value": 80
+                },
+                "protocol": {
+                  "constant_value": "tcp"
+                },
+                "to_port": {
+                  "constant_value": 80
+                }
+              }
+            ],
+            "name": {
+              "constant_value": "alb"
+            },
+            "tags": {
+              "constant_value": {
+                "Name": "alb"
+              }
+            },
+            "vpc_id": {
+              "references": [
+                "aws_vpc.main.id",
+                "aws_vpc.main"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_security_group.app",
+          "mode": "managed",
+          "type": "aws_security_group",
+          "name": "app",
+          "provider_config_key": "aws",
+          "schema_version": 1,
+          "expressions": {
+            "description": {
+              "constant_value": "ECS tasks"
+            },
+            "egress": [
+              {
+                "cidr_blocks": {
+                  "constant_value": [
+                    "0.0.0.0/0"
+                  ]
+                },
+                "from_port": {
+                  "constant_value": 0
+                },
+                "protocol": {
+                  "constant_value": "-1"
+                },
+                "to_port": {
+                  "constant_value": 0
+                }
+              }
+            ],
+            "ingress": [
+              {
+                "description": {
+                  "constant_value": "HTTP from the ALB"
+                },
+                "from_port": {
+                  "constant_value": 8080
+                },
+                "protocol": {
+                  "constant_value": "tcp"
+                },
+                "security_groups": {
+                  "references": [
+                    "aws_security_group.alb.id",
+                    "aws_security_group.alb"
+                  ]
+                },
+                "to_port": {
+                  "constant_value": 8080
+                }
+              }
+            ],
+            "name": {
+              "constant_value": "app"
+            },
+            "tags": {
+              "constant_value": {
+                "Name": "app"
+              }
+            },
+            "vpc_id": {
+              "references": [
+                "aws_vpc.main.id",
+                "aws_vpc.main"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_security_group.bastion",
+          "mode": "managed",
+          "type": "aws_security_group",
+          "name": "bastion",
+          "provider_config_key": "aws",
+          "schema_version": 1,
+          "expressions": {
+            "description": {
+              "constant_value": "Operator jump host"
+            },
+            "egress": [
+              {
+                "cidr_blocks": {
+                  "constant_value": [
+                    "0.0.0.0/0"
+                  ]
+                },
+                "from_port": {
+                  "constant_value": 0
+                },
+                "protocol": {
+                  "constant_value": "-1"
+                },
+                "to_port": {
+                  "constant_value": 0
+                }
+              }
+            ],
+            "ingress": [
+              {
+                "cidr_blocks": {
+                  "constant_value": [
+                    "203.0.113.0/24"
+                  ]
+                },
+                "description": {
+                  "constant_value": "SSH from the office"
+                },
+                "from_port": {
+                  "constant_value": 22
+                },
+                "protocol": {
+                  "constant_value": "tcp"
+                },
+                "to_port": {
+                  "constant_value": 22
+                }
+              }
+            ],
+            "name": {
+              "constant_value": "bastion"
+            },
+            "tags": {
+              "constant_value": {
+                "Name": "bastion"
+              }
+            },
+            "vpc_id": {
+              "references": [
+                "aws_vpc.main.id",
+                "aws_vpc.main"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_security_group.db",
+          "mode": "managed",
+          "type": "aws_security_group",
+          "name": "db",
+          "provider_config_key": "aws",
+          "schema_version": 1,
+          "expressions": {
+            "description": {
+              "constant_value": "PostgreSQL"
+            },
+            "ingress": [
+              {
+                "description": {
+                  "constant_value": "PostgreSQL from the app tier"
+                },
+                "from_port": {
+                  "constant_value": 5432
+                },
+                "protocol": {
+                  "constant_value": "tcp"
+                },
+                "security_groups": {
+                  "references": [
+                    "aws_security_group.app.id",
+                    "aws_security_group.app"
+                  ]
+                },
+                "to_port": {
+                  "constant_value": 5432
+                }
+              },
+              {
+                "description": {
+                  "constant_value": "PostgreSQL from the bastion"
+                },
+                "from_port": {
+                  "constant_value": 5432
+                },
+                "protocol": {
+                  "constant_value": "tcp"
+                },
+                "security_groups": {
+                  "references": [
+                    "aws_security_group.bastion.id",
+                    "aws_security_group.bastion"
+                  ]
+                },
+                "to_port": {
+                  "constant_value": 5432
+                }
+              }
+            ],
+            "name": {
+              "constant_value": "db"
+            },
+            "tags": {
+              "constant_value": {
+                "Name": "db"
+              }
+            },
+            "vpc_id": {
+              "references": [
+                "aws_vpc.main.id",
+                "aws_vpc.main"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_subnet.private_a",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "private_a",
+          "provider_config_key": "aws",
+          "schema_version": 0,
+          "expressions": {
+            "availability_zone": {
+              "constant_value": "ap-northeast-1a"
+            },
+            "cidr_block": {
+              "constant_value": "10.0.10.0/24"
+            },
+            "tags": {
+              "constant_value": {
+                "Name": "private-a",
+                "Tier": "private"
+              }
+            },
+            "vpc_id": {
+              "references": [
+                "aws_vpc.main.id",
+                "aws_vpc.main"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_subnet.private_c",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "private_c",
+          "provider_config_key": "aws",
+          "schema_version": 0,
+          "expressions": {
+            "availability_zone": {
+              "constant_value": "ap-northeast-1c"
+            },
+            "cidr_block": {
+              "constant_value": "10.0.11.0/24"
+            },
+            "tags": {
+              "constant_value": {
+                "Name": "private-c",
+                "Tier": "private"
+              }
+            },
+            "vpc_id": {
+              "references": [
+                "aws_vpc.main.id",
+                "aws_vpc.main"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_subnet.public_a",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "public_a",
+          "provider_config_key": "aws",
+          "schema_version": 0,
+          "expressions": {
+            "availability_zone": {
+              "constant_value": "ap-northeast-1a"
+            },
+            "cidr_block": {
+              "constant_value": "10.0.0.0/24"
+            },
+            "map_public_ip_on_launch": {
+              "constant_value": true
+            },
+            "tags": {
+              "constant_value": {
+                "Name": "public-a",
+                "Tier": "public"
+              }
+            },
+            "vpc_id": {
+              "references": [
+                "aws_vpc.main.id",
+                "aws_vpc.main"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_subnet.public_c",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "public_c",
+          "provider_config_key": "aws",
+          "schema_version": 0,
+          "expressions": {
+            "availability_zone": {
+              "constant_value": "ap-northeast-1c"
+            },
+            "cidr_block": {
+              "constant_value": "10.0.1.0/24"
+            },
+            "map_public_ip_on_launch": {
+              "constant_value": true
+            },
+            "tags": {
+              "constant_value": {
+                "Name": "public-c",
+                "Tier": "public"
+              }
+            },
+            "vpc_id": {
+              "references": [
+                "aws_vpc.main.id",
+                "aws_vpc.main"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_vpc.main",
+          "mode": "managed",
+          "type": "aws_vpc",
+          "name": "main",
+          "provider_config_key": "aws",
+          "schema_version": 1,
+          "expressions": {
+            "cidr_block": {
+              "constant_value": "10.0.0.0/16"
+            },
+            "enable_dns_hostnames": {
+              "constant_value": true
+            },
+            "enable_dns_support": {
+              "constant_value": true
+            },
+            "tags": {
+              "constant_value": {
+                "Name": "main"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

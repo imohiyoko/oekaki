@@ -1,0 +1,179 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.9.8",
+  "planned_values": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_instance.web",
+          "mode": "managed",
+          "type": "aws_instance",
+          "name": "web",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 1,
+          "values": {
+            "instance_type": "t3.micro",
+            "tags": {
+              "Name": "web"
+            }
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "aws_security_group.web",
+          "mode": "managed",
+          "type": "aws_security_group",
+          "name": "web",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 1,
+          "values": {
+            "name": "web"
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "aws_subnet.public[0]",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "public",
+          "index": 0,
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 0,
+          "values": {
+            "availability_zone": "ap-northeast-1a",
+            "cidr_block": "10.0.0.0/24",
+            "tags": {
+              "Name": "public-0"
+            }
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "aws_subnet.public[1]",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "public",
+          "index": 1,
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 0,
+          "values": {
+            "availability_zone": "ap-northeast-1c",
+            "cidr_block": "10.0.1.0/24",
+            "tags": {
+              "Name": "public-1"
+            }
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "aws_vpc.main",
+          "mode": "managed",
+          "type": "aws_vpc",
+          "name": "main",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "schema_version": 1,
+          "values": {
+            "cidr_block": "10.0.0.0/16",
+            "tags": {
+              "Name": "main"
+            }
+          },
+          "sensitive_values": {}
+        }
+      ]
+    }
+  },
+  "configuration": {
+    "provider_config": {
+      "aws": {
+        "name": "aws",
+        "full_name": "registry.terraform.io/hashicorp/aws"
+      }
+    },
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_instance.web",
+          "mode": "managed",
+          "type": "aws_instance",
+          "name": "web",
+          "provider_config_key": "aws",
+          "schema_version": 1,
+          "expressions": {
+            "instance_type": {
+              "constant_value": "t3.micro"
+            },
+            "subnet_id": {
+              "references": [
+                "aws_subnet.public[0].id",
+                "aws_subnet.public"
+              ]
+            },
+            "vpc_security_group_ids": {
+              "references": [
+                "aws_security_group.web.id",
+                "aws_security_group.web"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_security_group.web",
+          "mode": "managed",
+          "type": "aws_security_group",
+          "name": "web",
+          "provider_config_key": "aws",
+          "schema_version": 1,
+          "expressions": {
+            "name": {
+              "constant_value": "web"
+            },
+            "vpc_id": {
+              "references": [
+                "aws_vpc.main.id",
+                "aws_vpc.main"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_subnet.public",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "public",
+          "provider_config_key": "aws",
+          "schema_version": 0,
+          "count_expression": {
+            "constant_value": 2
+          },
+          "expressions": {
+            "cidr_block": {
+              "references": [
+                "count.index"
+              ]
+            },
+            "vpc_id": {
+              "references": [
+                "aws_vpc.main.id",
+                "aws_vpc.main"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_vpc.main",
+          "mode": "managed",
+          "type": "aws_vpc",
+          "name": "main",
+          "provider_config_key": "aws",
+          "schema_version": 1,
+          "expressions": {
+            "cidr_block": {
+              "constant_value": "10.0.0.0/16"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

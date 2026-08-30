@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/imohiyoko/oekaki/main/schema/overlay.schema.json",
+  "title": "oekaki overlay",
+  "description": "A list of assertions about a graph, each carrying provenance. Written by a human reading an operations console, or by a model reading one for them; never written by oekaki, which only consumes it. That boundary is what keeps the tool deterministic while allowing non-deterministic input: the overlay is a file, and identical files still produce identical bytes.\n\nDeliberately a separate document from the IR rather than a superset of it. A model asked to emit an IR has to get axes, groups, group paths and referential integrity right; a useful assertion here is six lines. Orthogonality is the single biggest lever on how often a generated overlay is valid.",
+  "type": "object",
+  "required": ["kind", "version", "assertions"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "description": "Identifies this as an overlay rather than a graph, so one command can accept both and tell the user which it got.",
+      "type": "string",
+      "const": "oekaki.overlay"
+    },
+    "version": {
+      "description": "Overlay vocabulary version, versioned independently of the IR. The IR freezes at 1.0; this vocabulary needs to keep moving well past that, and two things with different freeze dates should not share a version number.",
+      "type": "string",
+      "const": "0.1"
+    },
+    "metadata": {
+      "description": "Defaults and provenance for the whole document.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "origin": {
+          "description": "Who wrote this, used as the default for every assertion that does not say. Repeating \"origin\" on fifty assertions is fifty chances to typo it.",
+          "type": "string",
+          "enum": ["human", "ai"]
+        },
+        "author": { "type": "string" },
+        "note": { "type": "string" },
+        "window": {
+          "description": "The period this document's observations cover, in the author's own words, e.g. \"last-7d\". Echoed into the graph and drawn with the diagram: saying \"blind spot\" without saying over what period is a lie of omission. Never parsed, never compared to a clock.",
+          "type": "string"
+        }
+      }
+    },
+    "sinks": {
+      "description": "Log destinations this document refers to. A sink that corresponds to a resource already in the graph attaches to it; one that does not becomes a node of its own, so a destination nobody modelled still appears.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "Local handle, referenced by this document's assertions.",
+            "type": "string",
+            "minLength": 1
+          },
+          "type": {
+            "description": "What kind of destination, e.g. \"log_group\", \"search_index\", \"object_prefix\".",
+            "type": "string"
+          },
+          "name": {
+            "description": "What the destination is called where it lives.",
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "assertions": {
+      "description": "The claims. A flat array with a uniform envelope, nested no more than two levels deep, so that there is nowhere to put an object in the wrong place.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/assertion" }
+    }
+  },
+  "$defs": {
+    "selector": {
+      "description": "Names something in the graph without knowing its IR id. Keys are tried in a fixed precedence, and several identity keys given together must all match — a workload name in one namespace is not the same workload as that name in another.",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "node": { "description": "An exact node id. If given and not found, resolution stops: somebody who typed an id meant that id.", "type": "string" },
+        "id": { "description": "Alias for node.", "type": "string" },
+        "group": { "description": "An exact group id.", "type": "string" },
+        "type": { "description": "A resource type, used with name.", "type": "string" },
+        "name": { "description": "A resource's short name. The weakest key, and frequently ambiguous — which is reported rather than guessed at.", "type": "string" },
+        "log_group": { "type": "string" },
+        "search_index": { "type": "string" },
+        "service": { "type": "string" },
+        "function": { "type": "string" },
+        "workload": { "type": "string" },
+        "namespace": { "type": "string" },
+        "load_balancer": { "type": "string" },
+        "bucket": { "type": "string" }
+      }
+    },
+    "assertion": {
+      "type": "object",
+      "required": ["assert"],
+      "additionalProperties": false,
+      "properties": {
+        "assert": {
+          "description": "logs.declared: configuration promises this subject ships logs to a sink. logs.observed: logs from this subject were actually seen. logs.none: somebody looked and found no destination — a claim, not an absence, which is what makes a blind spot distinguishable from an unchecked resource. edge: a connection exists that no parser found. edge.suppress: a connection a parser found is not real. node: something exists, or is called something, that is in no input file. A type says what it is, a name says what to call it, and either alone is a claim worth making: renaming a resource the parser did find is the same act as adopting one it did not.",
+          "type": "string",
+          "enum": ["logs.declared", "logs.observed", "logs.none", "edge", "edge.suppress", "node"]
+        },
+        "subject": { "$ref": "#/$defs/selector" },
+        "from": { "$ref": "#/$defs/selector" },
+        "to": { "$ref": "#/$defs/selector" },
+        "sink": { "description": "Id of a sink declared in this document.", "type": "string" },
+        "stream": { "type": "string" },
+        "records": { "description": "How many were seen. Zero is a finding; omitting it means no count was available.", "type": "number" },
+        "kind": {
+          "description": "Edge kind, for edge and edge.suppress.",
+          "type": "string",
+          "enum": ["iac_ref", "reachable", "observed"]
+        },
+        "type": { "description": "Resource type, for a node assertion. Required unless a name is given.", "type": "string" },
+        "name": { "description": "Display name, for a node assertion. Required unless a type is given.", "type": "string" },
+        "via": { "description": "How the claimant knew, in their own words.", "type": "string" },
+        "origin": {
+          "description": "Overrides the document's origin for this assertion.",
+          "type": "string",
+          "enum": ["human", "ai"]
+        },
+        "author": { "type": "string" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "note": { "type": "string" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "assert": { "enum": ["logs.declared", "logs.observed", "logs.none", "node"] } } },
+          "then": { "required": ["subject"] }
+        },
+        {
+          "if": { "properties": { "assert": { "enum": ["edge", "edge.suppress"] } } },
+          "then": { "required": ["from", "to"] }
+        },
+        {
+          "if": { "properties": { "assert": { "const": "logs.declared" } } },
+          "then": { "required": ["sink"] }
+        },
+        {
+          "if": { "properties": { "assert": { "const": "logs.observed" } } },
+          "then": { "required": ["sink"] }
+        },
+        {
+          "if": { "properties": { "assert": { "const": "node" } } },
+          "then": { "anyOf": [{ "required": ["type"] }, { "required": ["name"] }] }
+        }
+      ]
+    }
+  }
+}

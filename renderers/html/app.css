@@ -1,0 +1,199 @@
+/* The page is chrome around a diagram, so it stays quiet: one accent, one
+   surface, and no colour that competes with the boxes. Everything expressive
+   belongs to the graph. */
+
+:root {
+  --ink: #1d2126;
+  --muted: #5b6570;
+  --line: #d7dce1;
+  --surface: #ffffff;
+  --page: #f4f6f8;
+  --accent: #3b6fd4;
+}
+
+* { box-sizing: border-box; }
+
+/* The icon sprite is markup the page defines and never draws directly. It
+   hides with a class rather than a style attribute because an inline style is
+   blocked by an ordinary Content-Security-Policy, and a blocked one puts the
+   whole glyph sheet on screen above the diagram. */
+.icon-sprite { display: none; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  font: 13px/1.5 Helvetica, Arial, sans-serif;
+  color: var(--ink);
+  background: var(--page);
+}
+
+body { display: flex; flex-direction: column; }
+
+#bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
+}
+
+#bar h1 { font-size: 14px; font-weight: 600; margin: 0; }
+#breadcrumbs { display: flex; gap: 5px; align-items: center; color: var(--muted); }
+#breadcrumbs button { padding: 2px 7px; }
+.spacer { flex: 1; }
+#status { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+button {
+  font: inherit;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+}
+button:hover { border-color: var(--accent); color: var(--accent); }
+
+#filters { display: flex; gap: 6px; flex-wrap: wrap; }
+.timeline { color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
+.timeline input { font: inherit; color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; }
+
+/* A filter chip carries its state's own colour, so the key and the control
+   are the same object: reading the legend and using it are one action. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+  user-select: none;
+  color: var(--muted);
+}
+.chip .dot { width: 8px; height: 8px; border-radius: 999px; }
+.chip.on { color: var(--ink); border-color: currentColor; background: #fff; }
+.chip.off { opacity: 0.45; }
+.chip .count { font-variant-numeric: tabular-nums; color: var(--muted); }
+
+main { flex: 1; display: flex; min-height: 0; }
+
+/* maxGraph draws into this container but never clips it: its SVG is the size
+   of the box, and a cell that ends up past the edge is simply painted there.
+   Without the clip the drawing runs out over the panel beside it. */
+#canvas { flex: 1; overflow: hidden; position: relative; min-width: 0; cursor: grab; }
+#canvas:active { cursor: grabbing; }
+#canvas svg { display: block; }
+.canvas-error { margin: 24px; color: #c74f63; }
+
+/* The canvas is positioned and the page around it is not, which would paint
+   the drawing over the panel, the header and the hint. They read the drawing;
+   they stay in front of it. */
+#bar, #detail, #hint { position: relative; }
+
+#detail {
+  width: 340px;
+  flex: 0 0 340px;
+  overflow: auto;
+  padding: 14px;
+  background: var(--surface);
+  border-left: 1px solid var(--line);
+}
+#detail h2 { font-size: 13px; margin: 0 0 2px; word-break: break-all; }
+#detail .sub { color: var(--muted); margin-bottom: 12px; }
+#detail section { margin-bottom: 14px; }
+#detail h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 0 0 4px;
+}
+#detail dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0; }
+#detail dt { color: var(--muted); }
+#detail dd { margin: 0; word-break: break-all; }
+#detail ul { margin: 0; padding-left: 16px; }
+#detail .state { font-weight: 600; }
+
+/* One row per end of the line: a label, then the sides to choose from. The
+   chosen one is the pressed button, which is what a reader of the markup gets
+   told too. */
+.anchor-row { display: flex; align-items: center; gap: 4px; margin-bottom: 4px; }
+.anchor-row > span { color: var(--muted); width: 3em; flex: 0 0 auto; }
+.anchor-row button { padding: 2px 7px; }
+.anchor-row button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+
+#hint {
+  flex: 0 0 auto;
+  padding: 7px 14px;
+  color: var(--muted);
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+}
+
+/* The mode switch says which mode is current, not which one a click would
+   reach: it is the one control that changes what every other gesture means,
+   and a reader who has to press it to find out has already moved a box. */
+#mode { display: inline-flex; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; }
+/* The editing controls, grouped the way a drawing tool groups them: what a
+   line looks like, what is selected, how the selected boxes line up, and then
+   the one that adds something. */
+#tools { display: flex; align-items: center; gap: 8px; }
+#tools[hidden] { display: none; }
+.tool-group { display: inline-flex; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; }
+.tool-group button { border: 0; border-radius: 0; padding: 3px 8px; }
+.tool-group button + button { border-left: 1px solid var(--line); }
+.tool-group button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.tool-group button:disabled { opacity: 0.35; cursor: default; }
+
+/* An author rule beats the `display: none` the browser gives [hidden], so a
+   group that is hidden while reading has to say it again. */
+#line-shape[hidden], .tool-group[hidden] { display: none; }
+#mode .mode-option { border: 0; border-radius: 0; padding: 4px 10px; color: var(--muted); }
+#mode .mode-option + .mode-option { border-left: 1px solid var(--line); }
+#mode .mode-option:hover { color: var(--ink); }
+#mode .mode-option[aria-pressed="true"] { background: var(--accent); color: var(--surface); }
+#mode .mode-option[aria-pressed="true"]:hover { color: var(--surface); }
+
+/* Both hints are in the markup and the mode picks one, rather than script
+   writing the text. An inline style is blocked by an ordinary
+   Content-Security-Policy, and the footer would then read as both modes at
+   once. */
+/* The field is a textarea because a name can be more than one line, so the
+   button commits and the two sit top-aligned rather than on one row. */
+.rename { display: flex; gap: 6px; margin-top: 2px; align-items: flex-start; }
+.rename textarea {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  line-height: 1.4;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--ink);
+  resize: vertical;
+}
+.rename textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+.hint-edit { display: none; }
+body[data-mode="edit"] .hint-read { display: none; }
+body[data-mode="edit"] .hint-edit { display: inline; }
+
+/* Diagram elements. Colours come from the graph, not from here: what a box
+   looks like says what is known about it, and that is decided where the graph
+   is read. This file only keeps the text out of the way of the pointer and
+   says that a container's title is something you can click. */
+#canvas text { pointer-events: none; user-select: none; }
+/* The title says it can be clicked, but it is not the target: the click is
+   caught on the container's top band, because text is only hit where a glyph
+   is and at a scale that fits a large diagram the title is a few pixels tall.
+   So the cursor is the affordance and the pointer goes through to the box. */
+#canvas text.group-label { cursor: pointer; }
+.sparkline { margin: 6px 0 10px; }
+.sparkline-title { color: var(--muted); font-size: 11px; margin-bottom: 2px; word-break: break-all; }
+.sparkline svg { display: block; width: 100%; max-width: 260px; height: 74px; overflow: visible; }
+
+.pending { stroke: var(--accent); stroke-dasharray: 5 3; }

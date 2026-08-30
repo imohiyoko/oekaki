@@ -1,0 +1,43 @@
+{
+  "enricher": "overlay",
+  "applied": 8,
+  "coverage": {
+    "blind": 1,
+    "flowing": 1,
+    "silent": 1,
+    "undeclared": 1,
+    "unknown": 3
+  },
+  "unmatched": [
+    {
+      "selector": {
+        "service": "reconciler"
+      },
+      "assert": "logs.observed",
+      "reason": "no resource in this graph answers to it",
+      "action": "adopted"
+    }
+  ],
+  "ambiguous": [
+    {
+      "selector": {
+        "name": "main"
+      },
+      "assert": "logs.none",
+      "candidates": [
+        "aws_db_instance.main",
+        "aws_db_subnet_group.main",
+        "aws_ecs_cluster.main",
+        "aws_vpc.main"
+      ]
+    }
+  ],
+  "adopted": [
+    "asserted:service=reconciler"
+  ],
+  "conflicts": 1,
+  "window": "last-7d",
+  "sources": [
+    "examples/log-coverage/overlay.json"
+  ]
+}

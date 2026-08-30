@@ -1,0 +1,42 @@
+{
+  "kind": "oekaki.overlay",
+  "version": "0.1",
+  "metadata": {
+    "origin": "human",
+    "author": "operator",
+    "note": "read off the operations console during a review",
+    "window": "last-7d"
+  },
+  "sinks": [
+    { "id": "sink.app", "type": "log_group", "name": "/platform/app" },
+    { "id": "sink.audit", "type": "search_index", "name": "audit" }
+  ],
+  "assertions": [
+    { "assert": "logs.declared", "subject": { "service": "api" }, "sink": "sink.app",
+      "via": "task definition log driver" },
+    { "assert": "logs.observed", "subject": { "service": "api" }, "sink": "sink.app",
+      "records": 128400 },
+
+    { "assert": "logs.declared", "subject": { "load_balancer": "public" }, "sink": "sink.app",
+      "via": "access_logs block" },
+    { "assert": "logs.observed", "subject": { "load_balancer": "public" }, "sink": "sink.app",
+      "records": 0, "note": "the destination is configured and empty" },
+
+    { "assert": "logs.none", "subject": { "service": "checkout" },
+      "via": "looked on the console and found nothing" },
+
+    { "assert": "logs.observed", "subject": { "service": "reconciler" }, "sink": "sink.audit",
+      "records": 91, "note": "nothing in this estate declares this" },
+
+    { "assert": "logs.none", "subject": { "name": "main" },
+      "note": "deliberately ambiguous: four things in this graph answer to this name" },
+
+    { "assert": "edge", "from": { "service": "checkout" }, "to": { "node": "aws_db_instance.main" },
+      "kind": "observed", "origin": "ai", "confidence": 0.6,
+      "note": "read off a service map; no configuration says so" },
+
+    { "assert": "edge.suppress", "from": { "node": "aws_db_instance.main" },
+      "to": { "node": "aws_db_subnet_group.main" }, "kind": "iac_ref",
+      "note": "deliberately wrong, to show what a disagreement looks like" }
+  ]
+}
