@@ -256,3 +256,64 @@ func has(nodes []core.Node, id string) bool {
 	}
 	return false
 }
+
+// A line's count is per kind, so a group's own references have to be counted
+// the same way. Adding them together lets a group joined to itself by one
+// declared and one observed reference outrank a pair of groups joined by
+// exactly the same two — and survive as a box with no lines while the pair it
+// should have tied with vanishes.
+func TestABoxAndALineAreHeldToTheThresholdTheSameWay(t *testing.T) {
+	g := core.New()
+	g.Axes = []core.Axis{{ID: "account", Label: "account"}}
+	for _, id := range []string{"solo", "x", "y"} {
+		g.Groups = append(g.Groups, core.Group{ID: id, Axis: "account", Type: "account", Label: id})
+	}
+	add := func(id, group string) {
+		g.Nodes = append(g.Nodes, core.Node{ID: id, Type: "thing", Name: id, Provider: "aws",
+			Groups: map[string]string{"account": group}})
+	}
+	add("s1", "solo")
+	add("s2", "solo")
+	add("x1", "x")
+	add("y1", "y")
+	// The same two references, once inside a group and once across a boundary.
+	for _, k := range []core.EdgeKind{core.EdgeIACRef, core.EdgeReachable} {
+		g.Edges = append(g.Edges, core.Edge{From: "s1", To: "s2", Kind: k})
+		g.Edges = append(g.Edges, core.Edge{From: "x1", To: "y1", Kind: k})
+	}
+	g.Normalize()
+
+	got, err := Collapse(g, "account", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if has(got.Nodes, "solo") {
+		t.Fatalf("one reference of each kind outranked the same two across a boundary: %#v", got.Nodes)
+	}
+	if len(got.Edges) != 0 {
+		t.Fatalf("a line under the threshold survived: %#v", got.Edges)
+	}
+}
+
+// A container somebody declared and put nothing in is still one they declared,
+// and an empty subnet is a normal thing for a parser to find.
+func TestAGroupWithNothingInItIsStillAGroupThatExists(t *testing.T) {
+	g := estate()
+	g.Groups = append(g.Groups, core.Group{ID: "empty", Axis: "account", Type: "account", Label: "empty"})
+	g.Normalize()
+
+	loose, err := Collapse(g, "account", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !has(loose.Nodes, "empty") {
+		t.Fatalf("nothing was filtered and a declared group went missing: %#v", loose.Nodes)
+	}
+	tight, err := Collapse(g, "account", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if has(tight.Nodes, "empty") {
+		t.Fatalf("an empty group survived a threshold: %#v", tight.Nodes)
+	}
+}

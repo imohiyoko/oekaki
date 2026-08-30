@@ -244,19 +244,38 @@ func (c *Conventions) account(text string) string {
 // A caller that keeps one file and a caller that keeps a directory should not
 // have to say which they are; the path itself already says. Making them
 // declare it again is a flag whose only job is repeating what os.Stat knows.
+//
+// This is the entry for a path somebody typed, so an empty directory is an
+// error. ReadConventionsDir treats one as "nothing configured yet", which is
+// right when the path was assumed and wrong when it was asked for: pointing at
+// a directory of .json, or one level too high, would otherwise scan the whole
+// estate with no account anywhere and no word about why.
 func Read(path string) (*Conventions, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil, err
 	}
-	if info.IsDir() {
-		return ReadConventionsDir(path)
+	if !info.IsDir() {
+		return ReadConventions(path)
 	}
-	return ReadConventions(path)
+	c, err := ReadConventionsDir(path)
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, fmt.Errorf("%s holds no conventions: they are YAML, named *.yaml or *.yml", path)
+	}
+	return c, nil
 }
 
 // ReadConventionsDir reads every conventions file in a directory and folds
-// them into one.
+// them into one, or returns nil when there are none.
+//
+// **A nil result and a nil error together mean "there are none here."** That
+// is the ordinary state of a directory nobody has written yet, and every
+// method on *Conventions takes a nil receiver, so a caller can carry it. A
+// caller acting on a path a person typed should use Read, which refuses the
+// same emptiness rather than passing the silence on.
 //
 // Files are read in filename order and the later one wins where they disagree,
 // which is how a personal file sitting beside the shared one adds a local

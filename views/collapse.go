@@ -50,7 +50,13 @@ func Collapse(g *core.Graph, axis string, least int) (*core.Graph, error) {
 		kind     core.EdgeKind
 	}
 	between := map[pair]int{}
-	inside := map[string]int{}
+	// Inside references are counted per kind too. Counting them together and
+	// then comparing the total against a threshold that lines are held to per
+	// kind makes the two mean different things: a group joined to itself by
+	// one declared and one observed reference would outrank a pair of groups
+	// joined by exactly the same two, and survive as a box with no lines while
+	// the pair vanishes. That is the drawing least exists to prevent.
+	inside := map[pair]int{}
 	examples := map[pair][]string{}
 	for _, e := range g.Edges {
 		from, okFrom := groupOf(g, axis, e.From)
@@ -61,7 +67,7 @@ func Collapse(g *core.Graph, axis string, least int) (*core.Graph, error) {
 			continue
 		}
 		if from == to {
-			inside[from]++
+			inside[pair{from, from, e.Kind}]++
 			continue
 		}
 		key := pair{from, to, e.Kind}
@@ -75,6 +81,31 @@ func Collapse(g *core.Graph, axis string, least int) (*core.Graph, error) {
 	for _, n := range g.Nodes {
 		if got, ok := n.Groups[axis]; ok && got != "" {
 			members[got]++
+		}
+	}
+	// A container somebody declared and put nothing in is still a container
+	// they declared — an empty subnet is a normal thing for a parser to find.
+	// Leaving it out would make "no filtering draws every group" untrue for
+	// exactly the groups whose emptiness is the interesting part.
+	for _, group := range g.Groups {
+		if group.Axis != axis {
+			continue
+		}
+		path, err := g.GroupPath(group.ID)
+		if err != nil {
+			continue
+		}
+		if _, known := members[path]; !known {
+			members[path] = 0
+		}
+	}
+
+	// The most any one kind of reference stays inside a group. Compared
+	// against least the same way a line's own count is.
+	busiest := map[string]int{}
+	for key, n := range inside {
+		if n > busiest[key.from] {
+			busiest[key.from] = n
 		}
 	}
 
@@ -110,7 +141,7 @@ func Collapse(g *core.Graph, axis string, least int) (*core.Graph, error) {
 	// escape. At zero it still means "draw what exists", so a group nothing
 	// touches is drawn when nothing was filtered.
 	for id := range members {
-		if inside[id] >= least {
+		if busiest[id] >= least {
 			kept[id] = true
 		}
 	}
@@ -140,7 +171,7 @@ func Collapse(g *core.Graph, axis string, least int) (*core.Graph, error) {
 		}
 		n := core.Node{ID: id, Type: kind, Name: label, Attrs: map[string]any{
 			"members":            members[id],
-			"internal_reference": inside[id],
+			"internal_reference": busiest[id],
 		}}
 		out.Nodes = append(out.Nodes, n)
 	}
