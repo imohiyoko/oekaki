@@ -20,7 +20,7 @@ func runScan(env Env, args []string) error {
 	fs.SetOutput(env.Stderr)
 	output := fs.String("o", "", "write to this file instead of standard output")
 	scope := fs.String("scope", "", "name this estate, so documents from several repositories can be combined")
-	conventions := fs.String("conventions", "", "a YAML file saying where this repository keeps facts Terraform does not standardise")
+	conventions := fs.String("conventions", "", "a YAML file, or a directory of them, saying where this repository keeps facts Terraform does not standardise")
 	if err := parse(fs, args); err != nil {
 		return err
 	}
@@ -31,7 +31,7 @@ func runScan(env Env, args []string) error {
 
 	var conv *tfsource.Conventions
 	if *conventions != "" {
-		if conv, err = tfsource.ReadConventions(*conventions); err != nil {
+		if conv, err = tfsource.Read(*conventions); err != nil {
 			return err
 		}
 	}

@@ -96,7 +96,8 @@ func runCollapse(env Env, args []string) error {
 	fs.SetOutput(env.Stderr)
 	output := fs.String("o", "", "write to this file instead of standard output")
 	axis := fs.String("axis", "", "which axis to fold onto; the graph's first if not said")
-	least := fs.Int("least", 0, "leave out lines standing for fewer references than this")
+	least := fs.Int("least", 0,
+		"leave out lines, and boxes, standing for fewer references than this")
 	if err := parse(fs, args); err != nil {
 		return err
 	}
