@@ -6,6 +6,7 @@ require (
 	github.com/goccy/go-graphviz v0.2.10
 	github.com/hashicorp/terraform-json v0.28.0
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

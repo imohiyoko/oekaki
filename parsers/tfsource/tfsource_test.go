@@ -37,7 +37,7 @@ func TestOnlyDirectoriesThatNameTheirStateAreRootModules(t *testing.T) {
 		"shared/main.tf":  "resource \"aws_vpc\" \"v\" {}\n",
 	})
 
-	mods, _, err := Scan(root)
+	mods, _, err := Scan(root, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestOnlyDirectoriesThatNameTheirStateAreRootModules(t *testing.T) {
 func TestTheBackendCanBeInAnyFile(t *testing.T) {
 	root := tree(t, map[string]string{"app/anything.tf": backend("states/app")})
 
-	mods, _, err := Scan(root)
+	mods, _, err := Scan(root, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestVendoredCopiesAreNotRootModules(t *testing.T) {
 		"app/.terraform/modules/dep/provider.tf": backend("states/somebody-else"),
 	})
 
-	mods, _, err := Scan(root)
+	mods, _, err := Scan(root, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestReadingAnotherModulesStateIsAnEdge(t *testing.T) {
 		"db/provider.tf":  backend("states/db"),
 	})
 
-	mods, _, err := Scan(root)
+	mods, _, err := Scan(root, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestReadingAnotherModulesStateIsAnEdge(t *testing.T) {
 func TestAReferenceToNothingIsKeptAndMarked(t *testing.T) {
 	root := tree(t, map[string]string{"app/provider.tf": backend("states/app") + remote("states/gone")})
 
-	mods, _, err := Scan(root)
+	mods, _, err := Scan(root, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestAnAccountIsTakenFromTheRoleItAssumes(t *testing.T) {
 		"quiet/provider.tf": backend("states/quiet"),
 	})
 
-	mods, _, err := Scan(root)
+	mods, _, err := Scan(root, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +158,7 @@ func TestAKeyIsFoundOnOneLineToo(t *testing.T) {
 		"db/provider.tf": backend("states/db"),
 	})
 
-	mods, _, err := Scan(root)
+	mods, _, err := Scan(root, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +176,7 @@ func TestAnAttributeEndingInKeyIsNotTheKey(t *testing.T) {
 		"app/provider.tf": "terraform {\n  backend \"s3\" {\n    workspace_key_prefix = \"nope\"\n    key    = \"states/app\"\n  }\n}\n",
 	})
 
-	mods, _, err := Scan(root)
+	mods, _, err := Scan(root, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +192,7 @@ func TestTerraformCloudNamesAWorkspace(t *testing.T) {
 		"app/provider.tf": "terraform {\n  cloud {\n    organization = \"acme\"\n    workspaces {\n      name = \"app-prod\"\n    }\n  }\n}\n",
 	})
 
-	mods, _, err := Scan(root)
+	mods, _, err := Scan(root, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +209,7 @@ func TestEachBackendNamesItsStateItsOwnWay(t *testing.T) {
 		"a/provider.tf": "terraform {\n  backend \"azurerm\" {\n    key = \"states/a\"\n  }\n}\n",
 	})
 
-	mods, _, err := Scan(root)
+	mods, _, err := Scan(root, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +229,7 @@ func TestABackendItCannotReadIsReported(t *testing.T) {
 		"odd/provider.tf": "terraform {\n  backend \"cos\" {\n    key = \"states/odd\"\n  }\n}\n",
 	})
 
-	mods, unknown, err := Scan(root)
+	mods, unknown, err := Scan(root, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +249,7 @@ func TestAReferenceSaysWhichBackendItReads(t *testing.T) {
 			"data \"terraform_remote_state\" \"g\" {\n  backend = \"gcs\"\n  config = {\n    prefix = \"states/g\"\n  }\n}\n",
 	})
 
-	mods, _, err := Scan(root)
+	mods, _, err := Scan(root, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +268,7 @@ func TestCommentedOutReferencesAreNotRead(t *testing.T) {
 			"// data \"terraform_remote_state\" \"older\" {\n//   config = { key = \"states/older\" }\n// }\n",
 	})
 
-	mods, _, err := Scan(root)
+	mods, _, err := Scan(root, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +288,7 @@ func TestACommentedOutBackendIsNotAModule(t *testing.T) {
 		"live/provider.tf": backend("states/live"),
 	})
 
-	mods, _, err := Scan(root)
+	mods, _, err := Scan(root, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,7 +304,7 @@ func TestABackendInsideAHeredocIsNotAModule(t *testing.T) {
 			"    terraform { backend \"s3\" { key = \"states/example\" } }\n  EOT\n}\n",
 	})
 
-	mods, _, err := Scan(root)
+	mods, _, err := Scan(root, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,7 +325,7 @@ func TestOnlyTheRoleTheProviderAssumesNamesTheAccount(t *testing.T) {
 			"resource \"aws_iam_role_policy_attachment\" \"b\" {\n  role = \"arn:aws:iam::999999999999:role/other2\"\n}\n",
 	})
 
-	mods, _, err := Scan(root)
+	mods, _, err := Scan(root, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

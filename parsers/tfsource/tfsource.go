@@ -254,7 +254,7 @@ var skipped = []string{".terraform", ".git", "node_modules"}
 
 // Scan walks dir and returns the root modules it finds, ordered by key, along
 // with the ones whose backend this package cannot read.
-func Scan(dir string) ([]Module, []Unknown, error) {
+func Scan(dir string, conv *Conventions) ([]Module, []Unknown, error) {
 	var out []Module
 	var unknown []Unknown
 
@@ -270,7 +270,7 @@ func Scan(dir string) ([]Module, []Unknown, error) {
 				return filepath.SkipDir
 			}
 		}
-		m, err := readModule(dir, path)
+		m, err := readModule(dir, path, conv)
 		if err != nil {
 			return err
 		}
@@ -296,7 +296,7 @@ func Scan(dir string) ([]Module, []Unknown, error) {
 // Every .tf file in the directory is read, not only provider.tf: where the
 // backend block lives is a matter of taste, and a scanner that guesses wrong
 // silently reports a smaller estate than exists.
-func readModule(root, path string) (*Module, error) {
+func readModule(root, path string, conv *Conventions) (*Module, error) {
 	entries, err := os.ReadDir(path)
 	if err != nil {
 		return nil, err
@@ -372,7 +372,7 @@ func readModule(root, path string) (*Module, error) {
 		m.Requires = append(m.Requires, got)
 	}
 	sort.Strings(m.Requires)
-	m.Account = accountOf(text)
+	m.Account = accountOf(text, conv)
 	return m, nil
 }
 
@@ -386,7 +386,7 @@ func readModule(root, path string) (*Module, error) {
 //
 // Estates that record the account some other way get nothing here rather than
 // a guess. Saying where to look is a separate input.
-func accountOf(text string) string {
+func accountOf(text string, conv *Conventions) string {
 	for _, prov := range blocks(text, providerHead) {
 		for _, role := range blocks(prov, assumeRoleHead) {
 			arn, ok := attr(role, "role_arn")
@@ -398,7 +398,10 @@ func accountOf(text string) string {
 			}
 		}
 	}
-	return ""
+	// Nothing in the provider block names an account outright. Whether
+	// anything else in this repository does is not something to guess at, so
+	// it is only read when somebody has said where to look.
+	return conv.account(text)
 }
 
 // Graph turns scanned modules into the IR.
