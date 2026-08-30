@@ -288,6 +288,20 @@ func Scan(dir string, conv *Conventions) ([]Module, []Unknown, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
 	sort.Slice(unknown, func(i, j int) bool { return unknown[i].Dir < unknown[j].Dir })
+
+	// Trimming a shared prefix can bring two keys together — states/vpc and
+	// vpc become the same one. Downstream they would be one node, silently,
+	// with one module's references attributed to the other. Say it here, where
+	// both directories can still be named.
+	seen := map[string]string{}
+	for _, m := range out {
+		if was, clash := seen[m.Key]; clash {
+			return nil, nil, fmt.Errorf(
+				"%s and %s both name their state %q once the shared prefix is removed; "+
+					"they would be drawn as one module", was, m.Dir, m.Key)
+		}
+		seen[m.Key] = m.Dir
+	}
 	return out, unknown, nil
 }
 

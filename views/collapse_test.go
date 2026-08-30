@@ -178,3 +178,26 @@ func TestWhatComesOutOfCollapseIsAValidGraph(t *testing.T) {
 		t.Fatalf("the folded graph does not validate: %v", err)
 	}
 }
+
+// Folding the kind away would report a reachability finding or an observation
+// as a declared reference, which is the one distinction this program exists to
+// keep.
+func TestFoldingKeepsWhatKindOfLineItWas(t *testing.T) {
+	g := estate()
+	g.Edges = append(g.Edges, core.Edge{From: "a1", To: "b1", Kind: core.EdgeReachable})
+	g.Normalize()
+
+	got, err := Collapse(g, "account", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := map[core.EdgeKind]bool{}
+	for _, e := range got.Edges {
+		if e.From == "one" && e.To == "two" {
+			kinds[e.Kind] = true
+		}
+	}
+	if !kinds[core.EdgeIACRef] || !kinds[core.EdgeReachable] {
+		t.Fatalf("the two kinds were folded into one: %#v", got.Edges)
+	}
+}

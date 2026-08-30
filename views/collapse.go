@@ -7,9 +7,15 @@ import (
 	"github.com/imohiyoko/oekaki/core"
 )
 
-// Collapse folds a whole graph up onto one axis: every group becomes one box,
-// and the references between two groups become one line carrying how many
-// there were.
+// Collapse folds a whole graph up onto one axis: a group becomes one box, and
+// the references between two groups become one line carrying how many there
+// were.
+//
+// A group that nothing reaches and that holds no references of its own is left
+// out. That is what least is for — raising it is asking for the part of the
+// estate that is heavily connected, and a page of isolated boxes is what the
+// question was trying to get away from. It does mean the threshold changes
+// which boxes exist, not only which lines are drawn.
 //
 // This is the drawing you make when the fine-grained one has stopped being
 // readable. The question it answers is not "what talks to what" but "which of
@@ -34,9 +40,16 @@ func Collapse(g *core.Graph, axis string, least int) (*core.Graph, error) {
 
 	// How many references run between each ordered pair, and how many stay
 	// inside one group.
-	between := map[[2]string]int{}
+	// The kind is part of the key. Folding it away would report a reachability
+	// finding or an observation as a declared reference, which is the one
+	// distinction this whole program is built to keep.
+	type pair struct {
+		from, to string
+		kind     core.EdgeKind
+	}
+	between := map[pair]int{}
 	inside := map[string]int{}
-	examples := map[[2]string][]string{}
+	examples := map[pair][]string{}
 	for _, e := range g.Edges {
 		from, okFrom := groupOf(g, axis, e.From)
 		to, okTo := groupOf(g, axis, e.To)
@@ -49,7 +62,7 @@ func Collapse(g *core.Graph, axis string, least int) (*core.Graph, error) {
 			inside[from]++
 			continue
 		}
-		key := [2]string{from, to}
+		key := pair{from, to, e.Kind}
 		between[key]++
 		if len(examples[key]) < 3 {
 			examples[key] = append(examples[key], e.From+" -> "+e.To)
@@ -64,14 +77,14 @@ func Collapse(g *core.Graph, axis string, least int) (*core.Graph, error) {
 	}
 
 	kept := map[string]bool{}
-	pairs := make([][2]string, 0, len(between))
+	pairs := make([]pair, 0, len(between))
 	for key, n := range between {
 		if n < least {
 			continue
 		}
 		pairs = append(pairs, key)
-		kept[key[0]] = true
-		kept[key[1]] = true
+		kept[key.from] = true
+		kept[key.to] = true
 	}
 	sort.Slice(pairs, func(i, j int) bool {
 		// Heaviest first, then by name, so that the same graph folds to the
@@ -79,10 +92,13 @@ func Collapse(g *core.Graph, axis string, least int) (*core.Graph, error) {
 		if between[pairs[i]] != between[pairs[j]] {
 			return between[pairs[i]] > between[pairs[j]]
 		}
-		if pairs[i][0] != pairs[j][0] {
-			return pairs[i][0] < pairs[j][0]
+		if pairs[i].from != pairs[j].from {
+			return pairs[i].from < pairs[j].from
 		}
-		return pairs[i][1] < pairs[j][1]
+		if pairs[i].to != pairs[j].to {
+			return pairs[i].to < pairs[j].to
+		}
+		return pairs[i].kind < pairs[j].kind
 	})
 	for id, n := range inside {
 		if n > 0 {
@@ -121,7 +137,7 @@ func Collapse(g *core.Graph, axis string, least int) (*core.Graph, error) {
 	}
 
 	for _, key := range pairs {
-		e := core.Edge{From: key[0], To: key[1], Kind: core.EdgeIACRef, Attrs: map[string]any{
+		e := core.Edge{From: key.from, To: key.to, Kind: key.kind, Attrs: map[string]any{
 			"references": between[key],
 		}}
 		if len(examples[key]) > 0 {

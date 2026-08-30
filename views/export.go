@@ -80,7 +80,7 @@ func writeNodes(out *csv.Writer, g *core.Graph) error {
 			strconv.Itoa(inward[n.ID]),
 			claimOrigin(n.Claim),
 			flatten(n.Attrs))
-		if err := out.Write(row); err != nil {
+		if err := out.Write(neutralise(row)); err != nil {
 			return err
 		}
 	}
@@ -113,11 +113,43 @@ func writeEdges(out *csv.Writer, g *core.Graph) error {
 			row = append(row, from, to, crosses)
 		}
 		row = append(row, strconv.FormatBool(e.Suppressed), claimOrigin(e.Claim), flatten(e.Attrs))
-		if err := out.Write(row); err != nil {
+		if err := out.Write(neutralise(row)); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// cell neutralises a value a spreadsheet would read as a formula.
+//
+// Everything written here came out of somebody's infrastructure — a resource
+// name, an attribute, a label somebody typed. csv.Writer quotes what CSV needs
+// quoting and stops there, which is correct and is not the same question:
+// Excel, Numbers and Sheets all evaluate a cell that opens with =, +, - or @,
+// and the file this writes is opened in one of them roughly always.
+//
+// A leading apostrophe is the usual answer and changes the value. Prefixing a
+// single quote character is preferred here over dropping the character,
+// because the value is evidence about somebody's estate and losing a leading
+// minus sign would quietly change what it says.
+func cell(v string) string {
+	trimmed := strings.TrimLeft(v, " \t\r\n")
+	if trimmed == "" {
+		return v
+	}
+	switch trimmed[0] {
+	case '=', '+', '-', '@':
+		return "'" + v
+	}
+	return v
+}
+
+// neutralise cleans every value in a row.
+func neutralise(in []string) []string {
+	for i, v := range in {
+		in[i] = cell(v)
+	}
+	return in
 }
 
 func axisIDs(g *core.Graph) []string {

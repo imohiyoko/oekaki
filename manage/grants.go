@@ -31,6 +31,9 @@ func (s *Store) Grants() (map[string][]string, error) {
 // exactly like the grant having worked and the person having no access for
 // some other reason.
 func (s *Store) Grant(subject string, roles []string, who Actor, known []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if !strings.Contains(subject, ":") {
 		return refuse("%q needs the provider that named it, as provider:name", subject)
 	}
@@ -54,7 +57,7 @@ func (s *Store) Grant(subject string, roles []string, who Actor, known []string)
 		return err
 	}
 	if len(roles) == 0 {
-		return s.Revoke(subject, who)
+		return s.revoke(subject, who)
 	}
 	sorted := append([]string(nil), roles...)
 	sort.Strings(sorted)
@@ -74,6 +77,12 @@ func (s *Store) Grant(subject string, roles []string, who Actor, known []string)
 // Revoke takes every role away from a subject. Revoking from somebody who had
 // none is not a change and is not recorded.
 func (s *Store) Revoke(subject string, who Actor) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.revoke(subject, who)
+}
+
+func (s *Store) revoke(subject string, who Actor) error {
 	all, err := s.Grants()
 	if err != nil {
 		return err

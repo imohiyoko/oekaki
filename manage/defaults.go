@@ -48,6 +48,12 @@ func (s *Store) DefaultFor(page string) (Default, bool, error) {
 // default pointing at nothing draws the page without any human layout at all
 // and looks, from the outside, exactly like nobody having promoted anything.
 func (s *Store) Promote(page, name string, who Actor) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.promote(page, name, who)
+}
+
+func (s *Store) promote(page, name string, who Actor) error {
 	path, err := serve.Path(s.root, page, name)
 	if err != nil {
 		return refuse("%v", err)
@@ -79,6 +85,14 @@ func (s *Store) Promote(page, name string, who Actor) error {
 // somebody undid a thing nobody had done would be an entry about no change,
 // and the journal is only worth reading if everything in it is a change.
 func (s *Store) Demote(page string, who Actor) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.demote(page, who)
+}
+
+// demote is Demote with the lock already held. Forget needs it, and taking the
+// lock twice in one goroutine would stop there and never come back.
+func (s *Store) demote(page string, who Actor) (bool, error) {
 	all, err := s.Defaults()
 	if err != nil {
 		return false, err
@@ -106,6 +120,9 @@ func (s *Store) Demote(page string, who Actor) (bool, error) {
 // pointer behind would mean the next drawing quietly comes out without the
 // layout somebody had chosen, with nothing anywhere saying why.
 func (s *Store) Forget(page, name string, who Actor) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	path, err := serve.Path(s.root, page, name)
 	if err != nil {
 		return refuse("%v", err)
@@ -125,7 +142,7 @@ func (s *Store) Forget(page, name string, who Actor) error {
 		return err
 	}
 	if ok && current.Version == name {
-		if _, err := s.Demote(page, who); err != nil {
+		if _, err := s.demote(page, who); err != nil {
 			return err
 		}
 	}

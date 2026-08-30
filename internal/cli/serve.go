@@ -180,7 +180,17 @@ func (s *site) roleNames() []string {
 func (s *site) may(r *http.Request, permission, item string) authz.Decision {
 	req := authz.Request{Subject: s.actor(r).Name, Permission: permission}
 	if item != "" {
-		if m, err := s.store.Meta(item); err == nil && len(m.ReadRoles) > 0 {
+		m, err := s.store.Meta(item)
+		if err != nil {
+			// An item nobody annotated reads back blank, so reaching here
+			// means the file is there and cannot be read — and the limit
+			// somebody wrote in it is exactly what cannot be seen. Carrying on
+			// would treat it as unlimited, which is the one reading of a
+			// damaged restriction that must not be the default.
+			return authz.Decision{Allowed: false,
+				Because: "what may be seen of this cannot be read: " + err.Error()}
+		}
+		if len(m.ReadRoles) > 0 {
 			req.Item = &authz.Item{ReadRoles: m.ReadRoles}
 		}
 	}
@@ -220,11 +230,15 @@ func sameOrigin(r *http.Request) bool {
 // be the same one. A mistyped name coming back as 500 tells the person nothing
 // they can act on and tells whoever reads the logs something untrue.
 func refused(w http.ResponseWriter, err error) {
-	if errors.Is(err, manage.ErrRefused) {
+	if errors.Is(err, manage.ErrRefused) || errors.Is(err, serve.ErrDocument) {
 		http.Error(w, strings.TrimPrefix(err.Error(), "refused: "), http.StatusConflict)
 		return
 	}
-	http.Error(w, err.Error(), http.StatusConflict)
+	// Everything else is this end's problem — a disk that will not take the
+	// write, a directory somebody made unreadable. Answering 409 would tell
+	// the caller to change what they sent, which will not help, and would tell
+	// whoever reads the log that a person made a mistake when a machine did.
+	http.Error(w, err.Error(), http.StatusInternalServerError)
 }
 
 func (s *site) api(w http.ResponseWriter, r *http.Request) {

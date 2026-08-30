@@ -117,3 +117,53 @@ func index(head []string) map[string]int {
 	}
 	return out
 }
+
+// Everything written here came out of somebody's infrastructure — a resource
+// name, an attribute, a label somebody typed. csv.Writer quotes what CSV needs
+// quoting and stops there, which is a different question from what a
+// spreadsheet will evaluate when the file is opened in one, which is roughly
+// always.
+func TestAValueASpreadsheetWouldRunIsNeutralised(t *testing.T) {
+	g := estate()
+	g.Nodes[0].Name = `=1+1`
+	g.Nodes[1].Name = `@SUM(A1:A9)`
+	g.Nodes[2].Name = `  +danger`
+	var b strings.Builder
+	if err := WriteCSV(&b, g, TableNodes); err != nil {
+		t.Fatal(err)
+	}
+	got, err := csv.NewReader(strings.NewReader(b.String())).ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := index(got[0])["name"]
+	for _, r := range got[1:] {
+		v := strings.TrimLeft(r[at], " ")
+		if v == "" {
+			continue
+		}
+		switch v[0] {
+		case '=', '+', '-', '@':
+			t.Fatalf("a formula reached the file: %q", r[at])
+		}
+	}
+	// The value is evidence about somebody's estate, so it is prefixed rather
+	// than having the character dropped.
+	if !strings.Contains(b.String(), "'=1+1") {
+		t.Fatalf("the value was changed rather than quoted:\n%s", b.String())
+	}
+}
+
+// A minus sign at the front of an ordinary number is not an attack, and losing
+// it would change what the row says.
+func TestANegativeNumberKeepsItsSign(t *testing.T) {
+	g := estate()
+	g.Nodes[0].Attrs = map[string]any{"delta": -3}
+	var b strings.Builder
+	if err := WriteCSV(&b, g, TableNodes); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(b.String(), "delta=-3") {
+		t.Fatalf("%s", b.String())
+	}
+}

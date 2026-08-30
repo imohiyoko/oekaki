@@ -32,6 +32,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sync"
 	"time"
 )
 
@@ -64,7 +65,21 @@ func CheckName(name string) error {
 // It is a value rather than a set of functions taking a root, because there
 // are four separate files under it and passing the same string to all of them
 // invites one call site to point at a different directory than the rest.
-type Store struct{ root string }
+type Store struct {
+	root string
+
+	// Every file under here is read whole, changed, and written whole. The
+	// replace is atomic; the gap between the read and it is not, and net/http
+	// runs a goroutine per request, so two people promoting different pages at
+	// the same time is an ordinary Tuesday rather than a race worth ignoring.
+	// The later write would otherwise carry a map that never saw the earlier
+	// one, and one of the two changes would vanish with nothing reporting it.
+	//
+	// This serializes one process. Several processes sharing a state directory
+	// would need a lock in the filesystem, which is not built and is not the
+	// shape anybody runs this in yet.
+	mu sync.Mutex
+}
 
 // At opens the store rooted at dir. The directory is created as needed by the
 // first write; opening does not create it, so that a read-only caller pointed

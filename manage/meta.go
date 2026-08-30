@@ -105,6 +105,9 @@ func (s *Store) AllMeta() (map[string]Meta, error) {
 // Emptying every field deletes the annotation rather than leaving a document
 // containing only this package's own stamp.
 func (s *Store) Annotate(item string, in Meta, who Actor, known []string) (Meta, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	path, err := s.metaPath(item)
 	if err != nil {
 		return Meta{}, err
@@ -126,7 +129,7 @@ func (s *Store) Annotate(item string, in Meta, who Actor, known []string) (Meta,
 	}
 
 	if in.blank() {
-		if err := s.Erase(item, who); err != nil {
+		if err := s.erase(item, who); err != nil {
 			return Meta{}, err
 		}
 		return Meta{}, nil
@@ -149,6 +152,12 @@ func (s *Store) Annotate(item string, in Meta, who Actor, known []string) (Meta,
 // Erase removes what was written about an item. Erasing nothing is not an
 // error and is not recorded.
 func (s *Store) Erase(item string, who Actor) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.erase(item, who)
+}
+
+func (s *Store) erase(item string, who Actor) error {
 	path, err := s.metaPath(item)
 	if err != nil {
 		return err

@@ -253,3 +253,26 @@ func TestTheSameGraphFoldsTheSameWayEveryTime(t *testing.T) {
 		}
 	}
 }
+
+// Folding on the endpoints alone keeps whichever edge the input listed first
+// and throws the rest away, so a pair joined by both a declared reference and
+// an observed one comes out as one of the two, chosen by file order.
+func TestFoldingAPairKeepsEachKindOfLineBetweenThem(t *testing.T) {
+	g := estate()
+	g.Edges = append(g.Edges, core.Edge{From: "a1", To: "b1", Kind: core.EdgeReachable})
+	g.Normalize()
+
+	got, err := Focus(g, "account", "one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := map[core.EdgeKind]bool{}
+	for _, e := range got.Edges {
+		if e.From == "a1" && e.To == "two" {
+			kinds[e.Kind] = true
+		}
+	}
+	if !kinds[core.EdgeIACRef] || !kinds[core.EdgeReachable] {
+		t.Fatalf("one of the two kinds was lost: %#v", got.Edges)
+	}
+}

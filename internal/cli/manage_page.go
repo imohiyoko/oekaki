@@ -311,10 +311,18 @@ func (s *site) rolesPage(w http.ResponseWriter, r *http.Request) {
 		`two different people the moment there are two providers.</p>`)
 
 	items := map[string]authz.Item{}
-	if all, err := s.store.AllMeta(); err == nil {
-		for name, m := range all {
-			items[name] = authz.Item{ReadRoles: m.ReadRoles}
-		}
+	all, metaErr := s.store.AllMeta()
+	if metaErr != nil {
+		// The whole point of this page is showing what would be hidden before
+		// anybody switches enforcement on. Swallowing this shows an empty set
+		// of limits, which reads as "nobody loses anything" — the exact
+		// conclusion the paragraph at the bottom exists to prevent.
+		b.WriteString(`<p class=warn>What people wrote down could not be read, so ` +
+			`the limits below are incomplete and the table after them is not to be ` +
+			`trusted: ` + html.EscapeString(metaErr.Error()) + `</p>`)
+	}
+	for name, m := range all {
+		items[name] = authz.Item{ReadRoles: m.ReadRoles}
 	}
 	if len(items) > 0 {
 		b.WriteString(`<h2>items somebody limited</h2><table><tr><th>item<th>only for`)

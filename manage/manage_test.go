@@ -3,9 +3,11 @@ package manage
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -557,5 +559,70 @@ func TestChangingWhoHoldsARoleIsRecorded(t *testing.T) {
 	got, _ := s.History("github:someone", 0)
 	if len(got) != 2 || got[0].Action != ActionRevoke || got[1].Action != ActionGrant {
 		t.Fatalf("%#v", got)
+	}
+}
+
+// Everything under the store is read whole, changed, and written whole. The
+// replace is atomic; the gap between the read and it is not, and net/http runs
+// a goroutine per request — so two people promoting different pages at the
+// same moment is ordinary rather than a race worth ignoring. Without the lock
+// the later write carries a map that never saw the earlier one, and one of the
+// two changes vanishes with nothing reporting it.
+func TestTwoChangesAtOnceDoNotEatEachOther(t *testing.T) {
+	s := store(t)
+	const n = 12
+	pages := make([]string, 0, n)
+	for i := range n {
+		page := fmt.Sprintf("page%d", i)
+		pages = append(pages, page)
+		save(t, s, page, "wide")
+	}
+
+	var wg sync.WaitGroup
+	errs := make(chan error, n)
+	for _, page := range pages {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := s.Promote(page, "wide", actor()); err != nil {
+				errs <- err
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatal(err)
+	}
+
+	got, err := s.Defaults()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != n {
+		t.Fatalf("%d of %d promotions survived: %#v", len(got), n, got)
+	}
+}
+
+// The same for grants, which have the same shape and the same failure.
+func TestTwoGrantsAtOnceDoNotEatEachOther(t *testing.T) {
+	s := store(t)
+	const n = 12
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = s.Grant(fmt.Sprintf("github:person%d", i), []string{"viewer"}, actor(), []string{"viewer"})
+		}()
+	}
+	wg.Wait()
+
+	got, err := s.Grants()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != n {
+		t.Fatalf("%d of %d grants survived: %#v", len(got), n, got)
 	}
 }

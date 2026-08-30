@@ -97,7 +97,13 @@ func Focus(g *core.Graph, axis, group string) (*core.Graph, error) {
 	// the same two boxes become one arrow. The count of what was folded goes
 	// on the collapsed box, because losing it would make a heavily-used
 	// neighbour look like a passing one.
-	seen := map[[2]string]bool{}
+	// Folding on the endpoints alone would keep whichever edge the input
+	// happened to list first and throw the rest away, so a pair joined by both
+	// a declared reference and an observed one would come out as one of the
+	// two, chosen by file order. The kind and the relation are part of what
+	// makes two lines the same line.
+	type fold struct{ from, to, kind, relation string }
+	seen := map[fold]bool{}
 	var edges []core.Edge
 	for _, e := range g.Edges {
 		from, to := e.From, e.To
@@ -119,7 +125,7 @@ func Focus(g *core.Graph, axis, group string) (*core.Graph, error) {
 			}
 			to = standIn(owner)
 		}
-		key := [2]string{from, to}
+		key := fold{from, to, string(e.Kind), e.Relation}
 		if seen[key] {
 			continue
 		}

@@ -236,3 +236,46 @@ func TestAConfigurationFileCannotSayWhoHoldsARole(t *testing.T) {
 		t.Fatal("a roles file was allowed to name a holder")
 	}
 }
+
+// A plain slice and a plain bool cannot say the difference between "I did not
+// mention this" and "I am turning this off", and the second is how a personal
+// file revokes what a shared file granted. Reading them the same way means the
+// only direction configuration can move is looser.
+func TestALaterFileCanTakeSomethingBackAndNotOnlyAddToIt(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, RolesDir, "10-shared.yaml", rolesHead+
+		"roles:\n  viewer:\n    - {permission: read, effect: allow}\n"+
+		"anonymous: [viewer]\nallowWithoutRepoRead: true\n")
+	write(t, dir, RolesDir, "90-mine.yaml", rolesHead+
+		"roles:\n  viewer:\n    - {permission: read, effect: allow}\n"+
+		"anonymous: []\nallowWithoutRepoRead: false\n")
+
+	got, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Roles.Anonymous) != 0 {
+		t.Fatalf("anonymous could not be emptied: %#v", got.Roles.Anonymous)
+	}
+	if got.Roles.AllowWithoutRepoRead {
+		t.Fatal("the repository floor could not be put back")
+	}
+}
+
+// Saying nothing still has to leave what came before alone.
+func TestAFileThatSaysNothingAboutSomethingLeavesItAlone(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, RolesDir, "10-shared.yaml", rolesHead+
+		"roles:\n  viewer:\n    - {permission: read, effect: allow}\n"+
+		"anonymous: [viewer]\nallowWithoutRepoRead: true\n")
+	write(t, dir, RolesDir, "90-mine.yaml", rolesHead+
+		"roles:\n  editor:\n    - {permission: read, effect: allow}\n")
+
+	got, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Roles.Anonymous) != 1 || !got.Roles.AllowWithoutRepoRead {
+		t.Fatalf("%#v", got.Roles)
+	}
+}

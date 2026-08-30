@@ -304,3 +304,59 @@ func TestATitleOutOfTheCatalogIsShownAsText(t *testing.T) {
 func catalogRule() catalog.Rule {
 	return catalog.Rule{Match: "core.html", Kind: "drawing", Title: "<b>bold</b>"}
 }
+
+// An item nobody annotated reads back blank, so a read error means the file is
+// there and cannot be read — and the limit somebody wrote in it is exactly
+// what cannot be seen. Treating that as unlimited is the one reading of a
+// damaged restriction that must not be the default.
+func TestARestrictionThatCannotBeReadDoesNotBecomeNoRestriction(t *testing.T) {
+	s := testSite(t)
+	path := filepath.Join(s.state, "meta", "core.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{ this is not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := ask(t, s, http.MethodGet, "/core.html", "", nil)
+	if got.Code != http.StatusForbidden {
+		t.Fatalf("a damaged restriction was read as none: %d", got.Code)
+	}
+	if !strings.Contains(got.Body.String(), "cannot be read") {
+		t.Fatalf("%q", got.Body.String())
+	}
+}
+
+// A disk that will not take the write is not something the caller can fix.
+// Answering 409 tells them to change what they sent, which will not help, and
+// tells whoever reads the log that a person made a mistake when a machine did.
+func TestAFailureAtThisEndIsNotReportedAsTheCallersMistake(t *testing.T) {
+	s := testSite(t)
+	// A file where the layouts directory has to go: the write cannot succeed
+	// and nothing about the request is wrong.
+	if err := os.WriteFile(filepath.Join(s.state, "layouts"), []byte("in the way"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := ask(t, s, http.MethodPost, "/api/layouts/core/wide", servedLayout, nil)
+	if got.Code != http.StatusInternalServerError {
+		t.Fatalf("came back %d, expected 500: %s", got.Code, got.Body.String())
+	}
+}
+
+// The page exists to show what would be hidden before anybody switches
+// enforcement on. Swallowing this shows an empty set of limits, which reads as
+// "nobody loses anything" — the exact conclusion the page is there to prevent.
+func TestTheRolesPageSaysWhenItCouldNotReadWhatPeopleWroteDown(t *testing.T) {
+	s := testSite(t)
+	// A file where the meta directory has to go.
+	if err := os.WriteFile(filepath.Join(s.state, "meta"), []byte("in the way"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := ask(t, s, http.MethodGet, "/roles", "", nil)
+	if got.Code != http.StatusOK {
+		t.Fatalf("%d", got.Code)
+	}
+	if !strings.Contains(got.Body.String(), "could not be read") {
+		t.Fatalf("it showed an empty set of limits without saying so:\n%s", got.Body.String())
+	}
+}

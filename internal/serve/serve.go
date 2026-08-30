@@ -19,6 +19,7 @@ package serve
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -59,6 +60,16 @@ var (
 	graphTag  = regexp.MustCompile(`(?s)<script type="application/json" id="oekaki-graph">(.*?)</script>`)
 	safeName  = regexp.MustCompile(`\A[A-Za-z0-9][A-Za-z0-9._-]{0,63}\z`)
 )
+
+// ErrDocument marks a document the caller sent that this package will not
+// store, as opposed to everything else that can go wrong in here.
+//
+// A server has to answer the person who sent a broken file differently from
+// the person who has to go and fix a disk, and without a way to tell them
+// apart it answers both the same — which tells the first one to change
+// something that was fine and tells whoever reads the log that a person made a
+// mistake when a machine did.
+var ErrDocument = errors.New("not a document this can store")
 
 // Page is a rendered page found under the served root.
 type Page struct {
@@ -115,7 +126,7 @@ func Pages(root string) ([]Page, error) {
 // CheckName rejects anything that would escape the layout folder.
 func CheckName(name string) error {
 	if !safeName.MatchString(name) {
-		return fmt.Errorf("%q cannot be a layout name: letters, digits, dot, underscore and dash, up to 64", name)
+		return fmt.Errorf("%w: %q cannot be a layout name: letters, digits, dot, underscore and dash, up to 64", ErrDocument, name)
 	}
 	return nil
 }
@@ -161,7 +172,7 @@ func SaveOverlay(root, page, name string, body []byte) error {
 		return err
 	}
 	if _, err := overlay.Parse(body, name); err != nil {
-		return err
+		return fmt.Errorf("%w: %w", ErrDocument, err)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
@@ -399,7 +410,7 @@ func Save(root, page, name string, body []byte) error {
 		return err
 	}
 	if _, err := layoutdoc.Parse(body, name); err != nil {
-		return err
+		return fmt.Errorf("%w: %w", ErrDocument, err)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err

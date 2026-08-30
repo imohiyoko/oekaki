@@ -173,12 +173,18 @@ func asJSON(path string) ([]byte, error) {
 // rolesDoc is one roles file. It deliberately has no place to say who holds a
 // role: that is state, and a file that could carry it would let one be shipped.
 type rolesDoc struct {
-	Kind                 string                  `json:"kind"`
-	Version              string                  `json:"version"`
-	Note                 string                  `json:"note,omitempty"`
-	Roles                map[string][]authz.Rule `json:"roles"`
-	Anonymous            []string                `json:"anonymous,omitempty"`
-	AllowWithoutRepoRead bool                    `json:"allowWithoutRepoRead,omitempty"`
+	Kind    string                  `json:"kind"`
+	Version string                  `json:"version"`
+	Note    string                  `json:"note,omitempty"`
+	Roles   map[string][]authz.Rule `json:"roles"`
+
+	// Pointers, so that a later file can take something back. A plain slice
+	// and a plain bool cannot say the difference between "I did not mention
+	// this" and "I am turning this off", and the second one is how a personal
+	// file revokes what a shared file granted. Reading them the same way means
+	// the only direction configuration can move is looser.
+	Anonymous            *[]string `json:"anonymous,omitempty"`
+	AllowWithoutRepoRead *bool     `json:"allowWithoutRepoRead,omitempty"`
 }
 
 func loadRoles(dir string) (authz.Policy, error) {
@@ -205,11 +211,11 @@ func loadRoles(dir string) (authz.Policy, error) {
 		for name, rules := range doc.Roles {
 			out.Roles[name] = rules
 		}
-		if len(doc.Anonymous) > 0 {
-			out.Anonymous = doc.Anonymous
+		if doc.Anonymous != nil {
+			out.Anonymous = *doc.Anonymous
 		}
-		if doc.AllowWithoutRepoRead {
-			out.AllowWithoutRepoRead = true
+		if doc.AllowWithoutRepoRead != nil {
+			out.AllowWithoutRepoRead = *doc.AllowWithoutRepoRead
 		}
 	}
 

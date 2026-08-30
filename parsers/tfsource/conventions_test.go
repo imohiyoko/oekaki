@@ -3,6 +3,7 @@ package tfsource
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -323,5 +324,24 @@ func TestAPatternThatWillNotCompileIsRefusedWhenTheFileIsRead(t *testing.T) {
 	}
 	if _, err := ReadConventions(path); err == nil {
 		t.Fatal("a broken pattern was accepted")
+	}
+}
+
+// Trimming a shared prefix can bring two keys together. Downstream they would
+// be one node, silently, with one module's references attributed to the other.
+func TestTwoKeysThatCollideAfterTrimmingAreRefused(t *testing.T) {
+	root := tree(t, map[string]string{
+		"a/provider.tf": backend("states/vpc"),
+		"b/provider.tf": backend("vpc"),
+	})
+	c := conventions(t, head+"stateKeyPrefix: states/\n")
+	_, _, err := Scan(root, c)
+	if err == nil {
+		t.Fatal("two modules were allowed to become one")
+	}
+	for _, want := range []string{"a", "b", "vpc"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("the complaint does not name %q: %v", want, err)
+		}
 	}
 }
