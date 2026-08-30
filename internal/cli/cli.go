@@ -845,6 +845,7 @@ func runSchema(env Env, args []string) error {
 	wantReachability := fs.Bool("reachability", false, "print the reachability schema instead of the IR schema")
 	wantObservations := fs.Bool("observations", false, "print the observations schema instead of the IR schema")
 	wantLayout := fs.Bool("layout", false, "print the layout schema instead of the IR schema")
+	wantConventions := fs.Bool("conventions", false, "print the conventions schema instead of the IR schema")
 	if err := parse(fs, args); err != nil {
 		return err
 	}
@@ -859,6 +860,9 @@ func runSchema(env Env, args []string) error {
 	}
 	if *wantObservations {
 		return write(env, *output, schema.ObservationsSchema)
+	}
+	if *wantConventions {
+		return write(env, *output, schema.ConventionsSchema)
 	}
 	if *wantLayout {
 		return write(env, *output, schema.LayoutSchema)
