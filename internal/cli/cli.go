@@ -100,6 +100,8 @@ func Run(ctx context.Context, env Env, args []string) int {
 		err = runServe(ctx, env, args[1:])
 	case "focus":
 		err = runFocus(env, args[1:])
+	case "collapse":
+		err = runCollapse(env, args[1:])
 	case "export":
 		err = runExport(env, args[1:])
 	case "validate":
@@ -135,6 +137,7 @@ Usage:
   oekaki scan   <dir>   [flags]     read committed Terraform source, no init or credentials
   oekaki probe  <graph> [flags]     probe explicitly named network targets
   oekaki focus  <graph> [flags]     keep one group whole, fold the rest to a box each
+  oekaki collapse <graph> [flags]   fold every group to one box, lines carry their weight
   oekaki export <graph> [flags]     write the graph out as a table
   oekaki serve  [dir]               hand out rendered pages, their layouts and what was decided
   oekaki validate <graph.json>      check a graph against the IR schema
@@ -233,38 +236,39 @@ func runProbe(ctx context.Context, env Env, args []string) error {
 }
 
 type renderFlags struct {
-	output         string
-	format         string
-	rankdir        string
-	lines          string
-	axis           string
-	scope          string
-	kinds          string
-	sourceDir      string
-	title          string
-	legend         bool
-	fenced         bool
-	data           bool
-	unknownSource  bool
-	iconDir        string
-	externalAssets bool
-	assetBase      string
-	view           string
-	root           string
-	file           string
-	depth          int
-	observations   stringList
-	exposure       stringList
-	aiCandidates   stringList
-	aiCommand      string
-	aiArgs         stringList
-	reachable      bool
-	reachability   stringList
-	logInventories stringList
-	traceFiles     stringList
-	repositories   stringList
-	overlay        overlayFlags
-	layout         string
+	output          string
+	format          string
+	rankdir         string
+	lines           string
+	axis            string
+	scope           string
+	kinds           string
+	sourceDir       string
+	title           string
+	legend          bool
+	fenced          bool
+	data            bool
+	unknownSource   bool
+	iconDir         string
+	externalAssets  bool
+	assetBase       string
+	view            string
+	root            string
+	file            string
+	depth           int
+	observations    stringList
+	exposure        stringList
+	aiCandidates    stringList
+	aiCommand       string
+	aiArgs          stringList
+	reachable       bool
+	reachability    stringList
+	logInventories  stringList
+	traceFiles      stringList
+	repositories    stringList
+	overlay         overlayFlags
+	layout          string
+	layoutUnmatched string
 }
 
 func runRender(ctx context.Context, env Env, args []string) error {
@@ -287,8 +291,10 @@ func runRender(ctx context.Context, env Env, args []string) error {
 	fs.BoolVar(&f.unknownSource, "include-unknown-source", false, "include text files with unrecognized source extensions")
 	fs.StringVar(&f.iconDir, "icon-dir", "", "directory of .svg icons to use in HTML output instead of the built-in glyphs")
 	fs.StringVar(&f.layout, "layout", "", "apply a human-authored HTML layout document")
+	fs.StringVar(&f.layoutUnmatched, "layout-unmatched", "report",
+		"what to do about positions naming nothing in this graph: report or error")
 	fs.BoolVar(&f.externalAssets, "external-assets", false, "in HTML output, write the graph and the shared runtime as separate files the page loads, instead of one self-contained file; needs -o and a server, because a fetch from file:// is blocked")
-	fs.StringVar(&f.assetBase, "asset-base", "", "url prefix the shared HTML runtime is served from, such as /shell/v1; empty writes it beside the page")
+	fs.StringVar(&f.assetBase, "asset-base", "", "url prefix the shared HTML runtime is served from, such as /shell/v1; a path segment `auto` becomes the runtime's fingerprint; empty writes it beside the page")
 	fs.StringVar(&f.view, "view", "architecture", "diagram view: architecture, network, er, workflow, request-path, security-exposure, code-dependency, service-dependency or reachability")
 	fs.StringVar(&f.root, "root", "", "root node id for request-path or reachability view")
 	fs.StringVar(&f.file, "file", "", "source file to focus and expand related entities")
@@ -387,7 +393,9 @@ func runRender(ctx context.Context, env Env, args []string) error {
 	}
 	// The graph is settled here: views and suppression have run, so this is
 	// what the page will carry and what the layout will be applied to.
-	reportLayout(env, g, layoutDoc, f.layout)
+	if err := reportLayout(env, g, layoutDoc, f.layout, f.layoutUnmatched); err != nil {
+		return err
+	}
 
 	kinds, err := parseKinds(f.kinds)
 	if err != nil {
@@ -433,7 +441,7 @@ func runRender(ctx context.Context, env Env, args []string) error {
 				return errors.New("--external-assets writes files beside the page, so it needs -o")
 			}
 			hopts.ExternalAssets = true
-			hopts.AssetBase = f.assetBase
+			hopts.AssetBase = resolveAssetBase(f.assetBase)
 			hopts.GraphSrc = filepath.Base(graphDocument(f.output))
 		}
 		out, err = htmlrender.Render(g, hopts)
@@ -450,7 +458,7 @@ func runRender(ctx context.Context, env Env, args []string) error {
 		return err
 	}
 	if format == "html" && f.externalAssets {
-		return writeHTMLAssets(env, f.output, f.assetBase, g)
+		return writeHTMLAssets(env, f.output, resolveAssetBase(f.assetBase), g)
 	}
 	return nil
 }
@@ -470,6 +478,29 @@ func graphDocument(page string) string {
 // rather than where files live. Writing there would be a guess about somebody
 // else's layout, and a wrong guess would put a stale runtime next to a fresh
 // graph.
+// resolveAssetBase turns a path segment spelled "auto" into the runtime's
+// fingerprint.
+//
+// A directory named after the bytes in it can be shared by every page of every
+// generation and never has to be invalidated: a build that changed the runtime
+// writes somewhere else, and pages rendered against the old one go on reading
+// the old one. Overwriting a fixed directory instead hands a fresh runtime to
+// pages that were drawn against an older one, and the query fingerprint cannot
+// help with that — it changes what the browser caches, not what the server
+// has on disk.
+func resolveAssetBase(base string) string {
+	if base == "" {
+		return ""
+	}
+	parts := strings.Split(base, "/")
+	for i, p := range parts {
+		if p == "auto" {
+			parts[i] = htmlrender.RuntimeStamp()
+		}
+	}
+	return strings.Join(parts, "/")
+}
+
 func writeHTMLAssets(env Env, page, base string, g *core.Graph) error {
 	graphJSON, err := g.MarshalIndent()
 	if err != nil {

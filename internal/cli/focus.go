@@ -89,3 +89,43 @@ func plural(n int) string {
 	}
 	return "s"
 }
+
+// runCollapse folds a whole graph up onto one axis.
+func runCollapse(env Env, args []string) error {
+	fs := flag.NewFlagSet("collapse", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	output := fs.String("o", "", "write to this file instead of standard output")
+	axis := fs.String("axis", "", "which axis to fold onto; the graph's first if not said")
+	least := fs.Int("least", 0, "leave out lines standing for fewer references than this")
+	if err := parse(fs, args); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return fmt.Errorf("collapse takes one graph")
+	}
+
+	g, err := loadGraph(env, fs.Arg(0), terraform.Options{}, sourceparser.Options{})
+	if err != nil {
+		return err
+	}
+	folded, err := views.Collapse(g, *axis, *least)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(env.Stderr, "%d nodes and %d lines folded to %d box%s and %d line%s\n",
+		len(g.Nodes), len(g.Edges), len(folded.Nodes), boxes(len(folded.Nodes)),
+		len(folded.Edges), plural(len(folded.Edges)))
+
+	out, err := folded.MarshalIndent()
+	if err != nil {
+		return err
+	}
+	return write(env, *output, out)
+}
+
+func boxes(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "es"
+}
