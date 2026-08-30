@@ -145,3 +145,66 @@ func TestALongerRunOfDigitsIsNotAnAccountInATableEither(t *testing.T) {
 		t.Errorf("read %q as an account from a table row", got)
 	}
 }
+
+// Naming another place an account id might be is adding to the search rather
+// than replacing it, so locals from several files accumulate.
+func TestConventionsFromSeveralFilesAccumulate(t *testing.T) {
+	dir := t.TempDir()
+	for name, body := range map[string]string{
+		"10-shared.yaml": head + "accountFromLocal: [deploy_account]\n",
+		"90-mine.yaml":   head + "accountFromLocal: [target_account]\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c, err := ReadConventionsDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Both have to be searched for, which only happens if the merged document
+	// was compiled again. Carrying the names without the rules would leave the
+	// second file present in the document and absent from the search.
+	for _, local := range []string{"deploy_account", "target_account"} {
+		src := "locals {\n  " + local + " = \"210987654321\"\n}\n"
+		if got := c.account(src); got != "210987654321" {
+			t.Fatalf("%s was not searched for: %q", local, got)
+		}
+	}
+}
+
+// One table is one table, so naming a second replaces the first rather than
+// leaving two ways to resolve the same module.
+func TestALaterTableReplacesAnEarlierOne(t *testing.T) {
+	dir := t.TempDir()
+	for name, body := range map[string]string{
+		"10-a.yaml": head + "accountTable:\n  variable: accounts\n",
+		"20-b.yaml": head + "accountTable:\n  variable: ledger\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c, err := ReadConventionsDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.AccountTable == nil || c.AccountTable.Variable != "ledger" {
+		t.Fatalf("%#v", c.AccountTable)
+	}
+	if got := c.account("locals {\n  ledger = {\n    only = \"210987654321\"\n  }\n}\n"); got != "210987654321" {
+		t.Fatalf("the replacing table was not compiled: %q", got)
+	}
+}
+
+// Having no conventions at all is the ordinary case: an estate whose providers
+// name their account outright is read without any of this.
+func TestADirectoryWithNoConventionsIsNotAnError(t *testing.T) {
+	c, err := ReadConventionsDir(filepath.Join(t.TempDir(), "never-created"))
+	if err != nil || c != nil {
+		t.Fatalf("%#v %v", c, err)
+	}
+	if c.account("locals { deploy_account = \"210987654321\" }") != "" {
+		t.Fatal("a nil conventions resolved something")
+	}
+}

@@ -24,6 +24,8 @@ const (
 	ActionForget   = "forget"
 	ActionAnnotate = "annotate"
 	ActionErase    = "erase"
+	ActionGrant    = "grant"
+	ActionRevoke   = "revoke"
 )
 
 // Record appends one entry.

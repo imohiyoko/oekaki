@@ -481,3 +481,81 @@ func TestErasingAnAnnotationNobodyWroteIsQuiet(t *testing.T) {
 		t.Fatalf("%#v", got)
 	}
 }
+
+// Which roles exist is written by hand and shipped; who holds one changes
+// while the thing is running. Keeping the two apart is what removes the need
+// for a rule about stripping a field before saving.
+func TestWhoHoldsARoleIsStateAndComesBack(t *testing.T) {
+	s := store(t)
+	if err := s.Grant("github:someone", []string{"editor"}, actor(), []string{"viewer", "editor"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Grants()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got["github:someone"]) != 1 || got["github:someone"][0] != "editor" {
+		t.Fatalf("%#v", got)
+	}
+}
+
+// At evaluation time a grant naming a role that is not there is simply no
+// permissions, which looks exactly like the grant having worked.
+func TestAGrantCannotNameARoleThatDoesNotExist(t *testing.T) {
+	s := store(t)
+	err := s.Grant("github:someone", []string{"viewr"}, actor(), []string{"viewer"})
+	if !errors.Is(err, ErrRefused) {
+		t.Fatalf("expected a refusal, got %v", err)
+	}
+	if got, _ := s.Grants(); len(got) != 0 {
+		t.Fatalf("it was written anyway: %#v", got)
+	}
+}
+
+func TestAGrantHasToSayWhichProviderNamedTheSubject(t *testing.T) {
+	s := store(t)
+	if err := s.Grant("plainlogin", []string{"viewer"}, actor(), []string{"viewer"}); !errors.Is(err, ErrRefused) {
+		t.Fatalf("expected a refusal, got %v", err)
+	}
+}
+
+// Granting nothing is how somebody is taken off the list, and it must not
+// leave an entry holding an empty set of roles.
+func TestGrantingNoRolesTakesTheSubjectOffTheList(t *testing.T) {
+	s := store(t)
+	if err := s.Grant("github:someone", []string{"viewer"}, actor(), []string{"viewer"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Grant("github:someone", nil, actor(), []string{"viewer"}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.Grants()
+	if _, still := got["github:someone"]; still {
+		t.Fatalf("%#v", got)
+	}
+}
+
+func TestRevokingFromSomebodyWhoHadNothingIsQuiet(t *testing.T) {
+	s := store(t)
+	if err := s.Revoke("github:nobody", actor()); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.History("", 0); len(got) != 0 {
+		t.Fatalf("a non-event was recorded: %#v", got)
+	}
+}
+
+// Changing who can see what is exactly the kind of change other people notice.
+func TestChangingWhoHoldsARoleIsRecorded(t *testing.T) {
+	s := store(t)
+	if err := s.Grant("github:someone", []string{"viewer"}, actor(), []string{"viewer"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Revoke("github:someone", actor()); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.History("github:someone", 0)
+	if len(got) != 2 || got[0].Action != ActionRevoke || got[1].Action != ActionGrant {
+		t.Fatalf("%#v", got)
+	}
+}

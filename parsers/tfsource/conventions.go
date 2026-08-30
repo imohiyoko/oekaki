@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
+	"sort"
 
 	"github.com/imohiyoko/oekaki/schema"
 	"gopkg.in/yaml.v3"
@@ -154,4 +156,54 @@ func (c *Conventions) account(text string) string {
 		}
 	}
 	return ""
+}
+
+// ReadConventionsDir reads every conventions file in a directory and folds
+// them into one.
+//
+// Files are read in filename order and the later one wins where they disagree,
+// which is how a personal file sitting beside the shared one adds a local
+// naming habit without restating the rest. A directory that is not there
+// yields no conventions rather than an error: having none is the ordinary
+// case, and the parser reads an estate that needs none without any of this.
+func ReadConventionsDir(dir string) (*Conventions, error) {
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if ext := filepath.Ext(e.Name()); ext == ".yaml" || ext == ".yml" {
+			names = append(names, e.Name())
+		}
+	}
+	if len(names) == 0 {
+		return nil, nil
+	}
+	sort.Strings(names)
+
+	out := &Conventions{Kind: "oekaki.conventions"}
+	for _, name := range names {
+		one, err := ReadConventions(filepath.Join(dir, name))
+		if err != nil {
+			return nil, err
+		}
+		out.Version = one.Version
+		// Locals accumulate, most trusted first, because listing another place
+		// an id might be is adding to the search rather than replacing it. The
+		// table is one table, so naming a second one replaces the first.
+		out.AccountFromLocal = append(out.AccountFromLocal, one.AccountFromLocal...)
+		if one.AccountTable != nil {
+			out.AccountTable = one.AccountTable
+		}
+	}
+	out.rules = nil
+	out.compile()
+	return out, nil
 }

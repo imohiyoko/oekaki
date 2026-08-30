@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/imohiyoko/oekaki/main/schema/catalog.schema.json",
+  "title": "oekaki catalog",
+  "description": "What the generated files are called in the language of the place that generated them. This program knows a directory holds files; it does not know that one of them is the estate overview and another is a table of accounts. Everything a reader would call the output by belongs here rather than in the program.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "version"],
+  "properties": {
+    "kind": { "const": "oekaki.catalog" },
+    "version": { "type": "string" },
+    "note": { "type": "string" },
+    "title": {
+      "description": "What this collection is called.",
+      "type": "string"
+    },
+    "kinds": {
+      "description": "The groups items fall into, in the order they should be shown.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" },
+          "label": { "type": "string" }
+        }
+      }
+    },
+    "items": {
+      "description": "How to describe a file. The first rule whose pattern matches wins, and a rule's position is also the item's place in the listing, so the order here is the order on screen.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["match"],
+        "properties": {
+          "match": {
+            "description": "A shell-style pattern matched against the file name.",
+            "type": "string"
+          },
+          "kind": { "type": "string" },
+          "title": { "type": "string" },
+          "about": { "type": "string" },
+          "hidden": {
+            "description": "Leave matching files out of the listing entirely.",
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "theme": {
+      "description": "CSS custom properties applied to the pages this program serves. Names without the leading dashes.",
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z0-9-]{1,64}$" },
+      "additionalProperties": { "type": "string" }
+    }
+  }
+}
