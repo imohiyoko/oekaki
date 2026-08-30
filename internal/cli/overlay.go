@@ -149,9 +149,20 @@ func displayName(path string) string {
 // a message that appears only on failure teaches people to read its absence as
 // success, and "40 of 60 positions no longer match anything" is not a failure.
 // It is the number you want before you keep building on that layout.
-func reportLayout(env Env, g *core.Graph, doc *layout.Document, path string) {
+func reportLayout(env Env, g *core.Graph, doc *layout.Document, path, unmatched string) error {
+	// The value is checked before anything looks at whether there is a layout,
+	// so that a misspelt policy is a message rather than a flag that quietly
+	// did nothing on the run where it happened not to matter.
+	switch unmatched {
+	case string(overlay.PolicyReport), string(overlay.PolicyError):
+	default:
+		// Adopt is an overlay's answer: an assertion naming nothing can become
+		// a node, because an assertion is a statement that something exists. A
+		// position is not, so there is nothing here to adopt it into.
+		return fmt.Errorf("unknown -layout-unmatched %q: want report or error", unmatched)
+	}
 	if doc == nil {
-		return
+		return nil
 	}
 	known := make(map[string]struct{}, len(g.Nodes)+len(g.Groups))
 	for _, n := range g.Nodes {
@@ -175,4 +186,13 @@ func reportLayout(env Env, g *core.Graph, doc *layout.Document, path string) {
 		}
 		fmt.Fprintf(env.Stderr, "  not placed: %s\n", id)
 	}
+
+	// Drift that is only ever printed is drift nobody acts on. An overlay can
+	// be made to fail the build over it and a layout could not, which meant
+	// the two halves of the same idea had different teeth.
+	if unmatched == string(overlay.PolicyError) && len(at.Missing) > 0 {
+		return fmt.Errorf("layout %s: %d position%s name nothing in this graph",
+			filepath.Base(path), len(at.Missing), plural(len(at.Missing)))
+	}
+	return nil
 }

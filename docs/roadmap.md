@@ -81,6 +81,14 @@ enricher is an obvious next step rather than a fork.
 comparing two graphs is only meaningful if identical infrastructure produces
 identical output.
 
+`oekaki serve` grew a state directory, a roles model and a management page in
+v0.5. The authorization it can express is deliberately small — three permission
+names, one line of descent, roles and holders written down rather than derived
+— because the thing it is waiting on is an identity provider, and building a
+richer model before anything can say who is asking would be guessing at which
+parts of it matter. Until then every mode that wants authentication refuses to
+start.
+
 ## v1.0 — a frozen boundary
 
 - Schema v1, with the parser and renderer boundaries frozen

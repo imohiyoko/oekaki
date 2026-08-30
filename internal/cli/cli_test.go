@@ -728,3 +728,133 @@ func TestScanBuildsAGraphFromCommittedSource(t *testing.T) {
 		t.Fatalf("nothing said what was found:\n%s", r.stderr)
 	}
 }
+
+// An overlay can be made to fail the build when it names nothing in the graph
+// and a layout could not, which meant the two halves of the same idea had
+// different teeth. Drift that is only ever printed is drift nobody acts on.
+func TestALayoutNamingNothingCanBeMadeToFail(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "stale.layout.json")
+	doc := `{"kind":"oekaki.layout","version":"0.2","nodes":[` +
+		`{"id":"gone.away","x":1,"y":2}],"claim":{"origin":"human"}}`
+	if err := os.WriteFile(path, []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "page.html")
+
+	// The default says so and carries on, because a stale position is a worse
+	// picture and no picture is worse than that.
+	got := mustRun(t, "", "render", plan, "--layout", path, "-o", out)
+	if !strings.Contains(got.stderr, "not placed: gone.away") {
+		t.Fatalf("the drift was not named: %q", got.stderr)
+	}
+
+	// Asked to, it refuses.
+	strict := run(t, "", "render", plan, "--layout", path, "--layout-unmatched", "error", "-o", out)
+	if strict.code == 0 {
+		t.Fatalf("it carried on: %q", strict.stderr)
+	}
+	if !strings.Contains(strict.stderr, "name nothing in this graph") {
+		t.Fatalf("%q", strict.stderr)
+	}
+}
+
+// Adopt is an overlay's answer, because an assertion naming nothing can become
+// a node. A position is not a statement that something exists, so there is
+// nothing for it to be adopted into.
+func TestALayoutHasNoAdoptToOffer(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.layout.json")
+	doc := `{"kind":"oekaki.layout","version":"0.2","nodes":[],"claim":{"origin":"human"}}`
+	if err := os.WriteFile(path, []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := run(t, "", "render", plan, "--layout", path, "--layout-unmatched", "adopt",
+		"-o", filepath.Join(dir, "page.html"))
+	if got.code == 0 {
+		t.Fatal("adopt was accepted")
+	}
+	if !strings.Contains(got.stderr, "report or error") {
+		t.Fatalf("%q", got.stderr)
+	}
+}
+
+// A directory named after the bytes in it can be shared by every page of every
+// generation and never has to be invalidated. Overwriting a fixed directory
+// hands a fresh runtime to pages drawn against an older one, and the query
+// fingerprint cannot help with that: it changes what the browser caches, not
+// what the server has on disk.
+func TestTheRuntimeCanBeWrittenToADirectoryNamedAfterItsBytes(t *testing.T) {
+	dir := t.TempDir()
+	page := filepath.Join(dir, "runs", "r1", "core.html")
+	mustRun(t, "", "render", plan, "-f", "html", "--external-assets",
+		"--asset-base", "../../shell/auto", "-o", page)
+
+	entries, err := os.ReadDir(filepath.Join(dir, "shell"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected one fingerprinted directory: %#v", entries)
+	}
+	stamp := entries[0].Name()
+	if stamp == "auto" {
+		t.Fatal("the word was taken literally")
+	}
+
+	body, err := os.ReadFile(page)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The page has to point at the directory that was written, and the query
+	// fingerprint has to agree with it.
+	if !strings.Contains(string(body), "../../shell/"+stamp+"/") {
+		t.Fatalf("the page does not name the directory %q", stamp)
+	}
+	if !strings.Contains(string(body), "?v="+stamp) {
+		t.Fatalf("the two fingerprints disagree: %q", stamp)
+	}
+}
+
+// Rendering twice from one build has to land in the same place, or every run
+// leaves another copy of an identical runtime behind.
+func TestTheSameRuntimeLandsInTheSameDirectory(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"one", "two"} {
+		mustRun(t, "", "render", plan, "-f", "html", "--external-assets",
+			"--asset-base", "../../shell/auto",
+			"-o", filepath.Join(dir, "runs", name, "core.html"))
+	}
+	entries, err := os.ReadDir(filepath.Join(dir, "shell"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("two runs of one build left %d directories: %#v", len(entries), entries)
+	}
+}
+
+// A base that says nothing about fingerprints has to keep working exactly as
+// it did.
+func TestAPlainAssetBaseIsLeftAlone(t *testing.T) {
+	dir := t.TempDir()
+	page := filepath.Join(dir, "core.html")
+	mustRun(t, "", "render", plan, "-f", "html", "--external-assets",
+		"--asset-base", "shell/v1", "-o", page)
+	if _, err := os.Stat(filepath.Join(dir, "shell", "v1", "oekaki.app.js")); err != nil {
+		t.Fatalf("the runtime did not go where it was asked: %v", err)
+	}
+}
+
+// A misspelt policy has to be a message rather than a flag that quietly did
+// nothing on the run where it happened not to matter.
+func TestAMisspeltLayoutPolicyIsCaughtWithoutALayoutToApplyIt(t *testing.T) {
+	got := run(t, "", "render", plan, "--layout-unmatched", "adopt",
+		"-o", filepath.Join(t.TempDir(), "page.html"))
+	if got.code == 0 {
+		t.Fatalf("it was accepted when no layout was given: %q", got.stderr)
+	}
+	if !strings.Contains(got.stderr, "report or error") {
+		t.Fatalf("%q", got.stderr)
+	}
+}

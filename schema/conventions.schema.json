@@ -4,11 +4,20 @@
   "title": "oekaki conventions",
   "description": "Where to look in a Terraform repository for facts the language does not standardise. Values are names, not data: which local holds an account id, which variable holds a table of them.",
   "type": "object",
-  "required": ["kind", "version"],
+  "required": [
+    "kind",
+    "version"
+  ],
   "additionalProperties": false,
   "properties": {
-    "kind": {"const": "oekaki.conventions"},
-    "version": {"enum": ["0.1"]},
+    "kind": {
+      "const": "oekaki.conventions"
+    },
+    "version": {
+      "enum": [
+        "0.1"
+      ]
+    },
     "note": {
       "type": "string",
       "description": "Why this repository is read the way it is. For the person who finds the file later."
@@ -16,19 +25,71 @@
     "accountFromLocal": {
       "type": "array",
       "description": "Locals that hold an AWS account id outright, most trusted first.",
-      "items": {"type": "string", "minLength": 1},
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
       "uniqueItems": true
     },
     "accountTable": {
       "type": "object",
       "description": "A table of name to account id, and the name a module uses to pick its row.",
-      "required": ["variable"],
+      "required": [
+        "variable"
+      ],
       "additionalProperties": false,
       "properties": {
         "variable": {
           "type": "string",
           "minLength": 1,
           "description": "The variable holding the table. The same name is looked for as variable.key or variable[\"key\"] to see which row a module takes."
+        }
+      }
+    },
+    "rootModule": {
+      "type": "object",
+      "description": "What makes a directory one of this estate's own root modules. Without this, any directory holding a backend block is one, which is the right default and the wrong answer for a repository that also keeps examples or vendored copies.",
+      "additionalProperties": false,
+      "properties": {
+        "requires": {
+          "type": "array",
+          "description": "File names a directory must contain to count. Any one of them is enough.",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "stateKeyPrefix": {
+      "type": "string",
+      "description": "A prefix every state key shares, removed from the identifiers so they read as the estate names them rather than as the bucket lays them out.",
+      "minLength": 1
+    },
+    "accountNames": {
+      "type": "array",
+      "description": "Where the names of accounts are written down. Terraform has no idea what an account is called; somewhere in the repository a person did.",
+      "items": {
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "file": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A path, relative to the scanned directory, or a shell-style pattern."
+          },
+          "variable": {
+            "type": "string",
+            "description": "A block assigned to this name holds the table. Without it the whole file is read."
+          },
+          "pattern": {
+            "type": "string",
+            "description": "A regular expression with two capture groups, name then id, for a file that is not a table. The first group that is not empty is taken as the name."
+          }
         }
       }
     }

@@ -84,7 +84,16 @@ func runScan(env Env, args []string) error {
 		fmt.Fprintf(env.Stderr, "  %d references point at a key nothing here declares\n", len(dangling))
 	}
 
-	out, err := tfsource.Graph(mods, *scope).MarshalIndent()
+	var names map[string]string
+	if conv != nil {
+		if names, err = conv.Names(fs.Arg(0)); err != nil {
+			return err
+		}
+		if len(names) > 0 {
+			fmt.Fprintf(env.Stderr, "  %d accounts named\n", len(names))
+		}
+	}
+	out, err := tfsource.GraphNamed(mods, *scope, names).MarshalIndent()
 	if err != nil {
 		return err
 	}

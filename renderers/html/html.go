@@ -121,6 +121,16 @@ func assetURL(base, name string) string {
 	}
 }
 
+// RuntimeStamp is the fingerprint of the shared runtime files.
+//
+// It is exported so that a caller can put it in the path the runtime is
+// served from, not just in the query string. The query string stops a browser
+// serving a stale runtime to a new page; a fingerprinted directory stops the
+// opposite, which is a fresh runtime being served to a page rendered against
+// an older one. Pages outlive builds when they are kept per generation, so
+// both directions happen.
+func RuntimeStamp() string { return runtimeStamp() }
+
 // runtimeStamp fingerprints the shared files. It is the same for every page a
 // given build renders, so a server still holds one copy of each file.
 var runtimeStamp = sync.OnceValue(func() string {

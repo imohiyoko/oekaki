@@ -19,6 +19,7 @@ package serve
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -60,7 +61,26 @@ var (
 	safeName  = regexp.MustCompile(`\A[A-Za-z0-9][A-Za-z0-9._-]{0,63}\z`)
 )
 
+// ErrDocument marks a document the caller sent that this package will not
+// store, as opposed to everything else that can go wrong in here.
+//
+// A server has to answer the person who sent a broken file differently from
+// the person who has to go and fix a disk, and without a way to tell them
+// apart it answers both the same — which tells the first one to change
+// something that was fine and tells whoever reads the log that a person made a
+// mistake when a machine did.
+var ErrDocument = errors.New("not a document this can store")
+
 // Page is a rendered page found under the served root.
+//
+// Name is the stem, and it is what everything saved for the page is filed
+// under — not Rel. Two generations of the same drawing, runs/a/core.html and
+// runs/b/core.html, therefore share one set of layouts and one default, which
+// is the point: a position somebody chose outlives the run it was chosen on,
+// and re-running the pipeline is not supposed to lose it.
+//
+// The cost is that two unrelated diagrams that happen to share a stem share
+// each other's layouts. A directory holding both wants them named apart.
 type Page struct {
 	Rel  string // path relative to the root, e.g. "runs/abc/core.html"
 	Name string // the stem, which names the folder its layouts live in
@@ -115,7 +135,7 @@ func Pages(root string) ([]Page, error) {
 // CheckName rejects anything that would escape the layout folder.
 func CheckName(name string) error {
 	if !safeName.MatchString(name) {
-		return fmt.Errorf("%q cannot be a layout name: letters, digits, dot, underscore and dash, up to 64", name)
+		return fmt.Errorf("%w: %q cannot be a layout name: letters, digits, dot, underscore and dash, up to 64", ErrDocument, name)
 	}
 	return nil
 }
@@ -161,7 +181,7 @@ func SaveOverlay(root, page, name string, body []byte) error {
 		return err
 	}
 	if _, err := overlay.Parse(body, name); err != nil {
-		return err
+		return fmt.Errorf("%w: %w", ErrDocument, err)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
@@ -221,15 +241,20 @@ func Path(root, page, name string) (string, error) {
 
 // Layouts lists what has been saved for a page, each measured against the
 // graph that page carries.
-func Layouts(root string, page Page) ([]Layout, error) {
-	entries, err := os.ReadDir(folder(root, page.Name))
+//
+// It is the one place that needs both directories at once. What was saved is
+// state and outlives any generation; the graph to measure it against is in the
+// page, which is regenerated. Handing the same path to both is fine and is
+// what a caller keeping them together does.
+func Layouts(pages, state string, page Page) ([]Layout, error) {
+	entries, err := os.ReadDir(folder(state, page.Name))
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	base, err := GraphIDs(root, page, nil)
+	base, err := GraphIDs(pages, page, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -240,7 +265,7 @@ func Layouts(root string, page Page) ([]Layout, error) {
 			continue
 		}
 		name := strings.TrimSuffix(e.Name(), suffix)
-		path, err := Path(root, page.Name, name)
+		path, err := Path(state, page.Name, name)
 		if err != nil {
 			continue
 		}
@@ -259,14 +284,14 @@ func Layouts(root string, page Page) ([]Layout, error) {
 		// that overlay makes. Counting against the bare graph would report a
 		// box the page will draw as landing nowhere.
 		known := base
-		if claims, err := ReadOverlay(root, page.Name, name); err == nil {
-			if with, err := GraphIDs(root, page, claims); err == nil {
+		if claims, err := ReadOverlay(state, page.Name, name); err == nil {
+			if with, err := GraphIDs(pages, page, claims); err == nil {
 				known = with
 			}
 		}
 		at := doc.Against(known)
 		out = append(out, Layout{Name: name, Nodes: at.Total(),
-			Placed: at.Placed, Missing: at.Missing, Paired: hasOverlay(root, page.Name, name)})
+			Placed: at.Placed, Missing: at.Missing, Paired: hasOverlay(state, page.Name, name)})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
@@ -394,7 +419,7 @@ func Save(root, page, name string, body []byte) error {
 		return err
 	}
 	if _, err := layoutdoc.Parse(body, name); err != nil {
-		return err
+		return fmt.Errorf("%w: %w", ErrDocument, err)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err

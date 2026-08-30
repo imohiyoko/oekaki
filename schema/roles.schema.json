@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/imohiyoko/oekaki/main/schema/roles.schema.json",
+  "title": "oekaki roles",
+  "description": "What roles exist here and what each one may do. Who holds a role is not in this file: that changes while the system runs and is kept with the rest of the state.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "version", "roles"],
+  "properties": {
+    "kind": { "const": "oekaki.roles" },
+    "version": { "type": "string" },
+    "note": { "type": "string" },
+    "roles": {
+      "description": "Role name to what it says about each permission.",
+      "type": "object",
+      "propertyNames": { "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" },
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["permission", "effect"],
+          "properties": {
+            "permission": { "type": "string" },
+            "effect": { "enum": ["allow", "deny"] }
+          }
+        }
+      }
+    },
+    "anonymous": {
+      "description": "The roles a caller who has not signed in holds.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "allowWithoutRepoRead": {
+      "description": "Whether to show a drawing to someone the identity provider says cannot read the repository it came from. Doing so is a way around that repository's own access control, so it has to be asked for.",
+      "type": "boolean"
+    }
+  }
+}
