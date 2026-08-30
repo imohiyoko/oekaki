@@ -135,6 +135,11 @@ renderers do not change.
 ```
 oekaki render <input> [flags]     draw a diagram
 oekaki graph  <input> [flags]     emit the intermediate representation
+oekaki scan   <dir>   [flags]     read committed Terraform source
+oekaki focus  <graph> [flags]     keep one group whole, fold the rest to a box each
+oekaki collapse <graph> [flags]   fold every group to one box, lines carry their weight
+oekaki export <graph> [flags]     write the graph out as a table
+oekaki serve  [dir]   [flags]     hand out pages, their layouts, and what was decided
 oekaki validate <graph.json>      check a graph against the IR schema
 oekaki schema                     print the IR JSON Schema
 ```
@@ -451,6 +456,81 @@ $ oekaki render plan.json -f mermaid --fenced > docs/architecture.md
 - A resource that spans several subnets is drawn in the smallest container
   holding all of them, which is usually the VPC. A multi-AZ load balancer is not
   in one subnet, and pretending otherwise would be a lie.
+
+## Serving what has been drawn
+
+`oekaki serve <dir>` hands out a directory of rendered pages. On top of the
+files it adds the parts that outlive any one of them: which saved layout a page
+is drawn with from now on, what people wrote down about an item, who may see
+what, and what was changed.
+
+```
+oekaki serve --mode local site/
+```
+
+The mode has to be said. `local` binds loopback, asks nobody who they are and
+refuses nothing; every other mode wants an identity provider, there is not one
+yet, and those modes refuse to start rather than pretending. Defaulting to
+`local` would put whoever did not think about it on the side without
+authentication, and not thinking about it is the common case.
+
+### Three directories, three kinds of thing
+
+Rendered pages are disposable — run the pipeline again and they are written
+from scratch. What people decided about them is not, so it does not live inside
+them:
+
+| | |
+| --- | --- |
+| the pages | wherever the renderer wrote them |
+| what outlives them | `--state`, or `$OEKAKI_STATE` |
+| how to read this place | `--config`, or `$OEKAKI_CONFIG` |
+
+Credentials are in neither. They are read from the environment when they are
+needed and never written anywhere, which is the promise the rest of this
+program makes about the cloud.
+
+### The vocabulary is not in the program
+
+oekaki knows a directory holds files. It does not know that one of them is an
+estate overview and another a table of accounts — that is one organisation's
+language, and a program carrying it would show everybody else somebody else's
+words. So the configuration directory holds three of its own:
+
+```
+<config>/conventions/   where to find facts Terraform does not standardise
+<config>/roles/         what roles exist and what each one may do
+<config>/catalog/       what the generated files are called, and the colours
+```
+
+Every `*.yaml` in a directory is read in filename order and folded together. A
+directory rather than a file so that a shared description and a personal one
+can sit side by side: name yours so it sorts last and it wins, without having
+to restate the parts you agree with.
+
+### Who may see what
+
+Roles are configured; who holds one is not. Which roles exist is written by
+hand and shipped with the deployment, and who holds one changes while the thing
+is running, by somebody clicking — so the first is configuration and the second
+is state.
+
+Permission *names* are fixed in the program. A permission nothing checks for
+would be a word in a file promising a protection that does not exist. There are
+three, each needing the one above it, so revoking `read` revokes everything:
+
+```
+read    see a diagram and what is saved for it
+write   save a layout and make one the default      (needs read)
+admin   change roles and delete generations         (needs write)
+```
+
+Every decision comes back with a sentence saying why, because "why can't I see
+this?" is asked every time and a bare no can only be answered by someone
+willing to read the source. `/roles` shows what would happen if enforcement
+were switched on, before it is: turning it on unseen either hides everything
+from everyone or protects nothing, and both are discovered by the people
+affected rather than by whoever turned it on.
 
 ## Plans and state
 
