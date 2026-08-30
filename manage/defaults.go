@@ -1,0 +1,175 @@
+package manage
+
+import (
+	"os"
+	"path/filepath"
+
+	"github.com/imohiyoko/oekaki/internal/serve"
+)
+
+// Default is which saved layout a page is drawn with from now on, and who
+// decided that.
+//
+// Promoting one is the moment a private edit becomes everybody's, so the
+// decision is recorded next to the choice rather than only in the journal —
+// the question "why does this look like this" is asked of the page, not of the
+// audit trail.
+type Default struct {
+	Version string `json:"version"`
+	By      string `json:"by"`
+	Origin  string `json:"origin"`
+	At      string `json:"at"`
+}
+
+func (s *Store) defaultsPath() string { return filepath.Join(s.root, defaultsFile) }
+
+// Defaults is every page that has one.
+func (s *Store) Defaults() (map[string]Default, error) {
+	out := map[string]Default{}
+	if err := readJSON(s.defaultsPath(), &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// DefaultFor is the default for one page, if it has one.
+func (s *Store) DefaultFor(page string) (Default, bool, error) {
+	all, err := s.Defaults()
+	if err != nil {
+		return Default{}, false, err
+	}
+	d, ok := all[page]
+	return d, ok, nil
+}
+
+// Promote makes a saved version the one this page is drawn with.
+//
+// A version that is not there is refused rather than recorded, because a
+// default pointing at nothing draws the page without any human layout at all
+// and looks, from the outside, exactly like nobody having promoted anything.
+func (s *Store) Promote(page, name string, who Actor) error {
+	path, err := serve.Path(s.root, page, name)
+	if err != nil {
+		return refuse("%v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		return refuse("there is no version %q saved for %q", name, page)
+	}
+
+	all, err := s.Defaults()
+	if err != nil {
+		return err
+	}
+	all[page] = Default{Version: name, By: who.who(), Origin: who.origin(), At: stamp()}
+	body, err := marshal(all)
+	if err != nil {
+		return err
+	}
+	if err := writeAtomic(s.defaultsPath(), body); err != nil {
+		return err
+	}
+	_, err = s.Record(who, ActionPromote, page, map[string]any{"version": name})
+	return err
+}
+
+// Demote takes a page back to being drawn the way it is generated.
+//
+// It reports whether there was anything to take back. A page that had no
+// default is left alone and nothing is written to the journal: recording that
+// somebody undid a thing nobody had done would be an entry about no change,
+// and the journal is only worth reading if everything in it is a change.
+func (s *Store) Demote(page string, who Actor) (bool, error) {
+	all, err := s.Defaults()
+	if err != nil {
+		return false, err
+	}
+	if _, ok := all[page]; !ok {
+		return false, nil
+	}
+	delete(all, page)
+	body, err := marshal(all)
+	if err != nil {
+		return false, err
+	}
+	if err := writeAtomic(s.defaultsPath(), body); err != nil {
+		return false, err
+	}
+	if _, err := s.Record(who, ActionDemote, page, nil); err != nil {
+		return true, err
+	}
+	return true, nil
+}
+
+// Forget deletes a saved version.
+//
+// If it was the default, the page is demoted in the same breath. Leaving the
+// pointer behind would mean the next drawing quietly comes out without the
+// layout somebody had chosen, with nothing anywhere saying why.
+func (s *Store) Forget(page, name string, who Actor) error {
+	path, err := serve.Path(s.root, page, name)
+	if err != nil {
+		return refuse("%v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		return refuse("there is no version %q saved for %q", name, page)
+	}
+	if err := serve.Remove(s.root, page, name); err != nil {
+		return err
+	}
+	if _, err := s.Record(who, ActionForget, page, map[string]any{"version": name}); err != nil {
+		return err
+	}
+
+	current, ok, err := s.DefaultFor(page)
+	if err != nil {
+		return err
+	}
+	if ok && current.Version == name {
+		if _, err := s.Demote(page, who); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// LayoutFor is the file a page should be drawn with, or empty if none.
+//
+// A default naming a version that is no longer there returns empty rather than
+// an error. Drawing the page without the human layout is a worse picture;
+// refusing to draw it is no picture, and no picture is worse than a worse
+// picture. StaleDefault is how the same situation gets said out loud.
+func (s *Store) LayoutFor(page string) (string, error) {
+	d, ok, err := s.DefaultFor(page)
+	if err != nil || !ok {
+		return "", err
+	}
+	path, err := serve.Path(s.root, page, d.Version)
+	if err != nil {
+		return "", nil
+	}
+	if _, err := os.Stat(path); err != nil {
+		return "", nil
+	}
+	return path, nil
+}
+
+// StaleDefault is the name of a promoted version whose file has gone, or
+// empty.
+//
+// This is the loud half of the pair with LayoutFor. Something has to say that
+// a choice somebody made is no longer being honoured, or the page simply comes
+// out plain and everyone assumes that is what was asked for.
+func (s *Store) StaleDefault(page string) (string, error) {
+	d, ok, err := s.DefaultFor(page)
+	if err != nil || !ok {
+		return "", err
+	}
+	path, err := serve.Path(s.root, page, d.Version)
+	if err != nil {
+		return d.Version, nil
+	}
+	if _, err := os.Stat(path); err != nil {
+		return d.Version, nil
+	}
+	return "", nil
+}
