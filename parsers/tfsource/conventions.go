@@ -256,6 +256,13 @@ func Read(path string) (*Conventions, error) {
 		return nil, err
 	}
 	if !info.IsDir() {
+		// Anything that is neither a directory nor an ordinary file is refused
+		// rather than read. A named pipe is the one that matters: os.ReadFile
+		// on one waits for a writer that may never come, and a scan that hangs
+		// with no output looks like a scan that is working.
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("%s is not a file this can read: %s", path, info.Mode().Type())
+		}
 		return ReadConventions(path)
 	}
 	c, err := ReadConventionsDir(path)
