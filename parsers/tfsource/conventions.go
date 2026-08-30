@@ -85,7 +85,7 @@ func (c *Conventions) compile() {
 	for _, name := range c.AccountFromLocal {
 		q := regexp.QuoteMeta(name)
 		c.rules = append(c.rules, rule{
-			direct: regexp.MustCompile(`(?m)(?:^|[\s{])` + q + `\s*=\s*"?(\d{12})"?`),
+			direct: regexp.MustCompile(`(?m)(?:^|[\s{])` + q + `\s*=\s*"?(\d{12,})"?`),
 		})
 	}
 	if c.AccountTable != nil && c.AccountTable.Variable != "" {
@@ -97,7 +97,12 @@ func (c *Conventions) compile() {
 	}
 }
 
-var tablePair = regexp.MustCompile(`(?m)^\s*"?([A-Za-z0-9_-]+)"?\s*=\s*"?(\d{12})"?`)
+var tablePair = regexp.MustCompile(`(?m)^\s*"?([A-Za-z0-9_-]+)"?\s*=\s*"?(\d{12,})"?`)
+
+// An account id is twelve digits exactly. A longer run of digits is a
+// different value, not an account with something on the end, and its first
+// twelve name an estate somebody else owns.
+func isAccount(digits string) bool { return len(digits) == 12 }
 
 // account applies the conventions to one module's source, in the order they
 // were written.
@@ -112,8 +117,10 @@ func (c *Conventions) account(text string) string {
 	}
 	for _, r := range c.rules {
 		if r.direct != nil {
-			if m := r.direct.FindStringSubmatch(text); m != nil {
-				return m[1]
+			for _, m := range r.direct.FindAllStringSubmatch(text, -1) {
+				if isAccount(m[1]) {
+					return m[1]
+				}
 			}
 			continue
 		}
@@ -124,7 +131,9 @@ func (c *Conventions) account(text string) string {
 		body, _ := block(text, loc[1]-1)
 		rows := map[string]string{}
 		for _, m := range tablePair.FindAllStringSubmatch(body, -1) {
-			rows[m[1]] = m[2]
+			if isAccount(m[2]) {
+				rows[m[1]] = m[2]
+			}
 		}
 		if len(rows) == 0 {
 			continue

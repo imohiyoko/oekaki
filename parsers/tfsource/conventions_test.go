@@ -121,3 +121,27 @@ func TestNoConventionsIsFine(t *testing.T) {
 		t.Fatalf("something was read without being asked for: %q", got)
 	}
 }
+
+// An account id is exactly twelve digits. A longer run of digits is not an
+// account with something appended to it — it is a different value entirely,
+// and returning its first twelve puts the module in an estate that does not
+// exist.
+func TestALongerRunOfDigitsIsNotAnAccount(t *testing.T) {
+	c := conventions(t, head+"accountFromLocal: [deploy_account]\n")
+	for _, body := range []string{
+		"locals {\n  deploy_account = \"1234567890123\"\n}\n",
+		"locals {\n  deploy_account = 1234567890123\n}\n",
+	} {
+		if got := c.account(body); got != "" {
+			t.Errorf("read %q as an account from %q", got, body)
+		}
+	}
+}
+
+func TestALongerRunOfDigitsIsNotAnAccountInATableEither(t *testing.T) {
+	c := conventions(t, head+"accountTable:\n  variable: accounts\n")
+	body := "locals {\n  accounts = {\n    only = \"1234567890123\"\n  }\n}\n"
+	if got := c.account(body); got != "" {
+		t.Errorf("read %q as an account from a table row", got)
+	}
+}

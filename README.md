@@ -87,6 +87,11 @@ v0.5 prototype. The graph is intentionally a stable intermediate
 representation so collectors, parsers, enrichers, and renderers can evolve
 independently.
 
+The stable surface is the **CLI and the graph JSON**. The Go packages are
+exported so the parts can be read and tested separately, not as a library
+contract: before v1.0 an exported signature can change in any release, and
+this repository will not carry a compatibility shim for one.
+
 - **Works:** Terraform and multi-language source parsing, `iac_ref`,
   `reachable`, and observed edges, observations with thresholds, log inventory
   polling/classification, trace and metrics adapters, exposure findings,
