@@ -90,3 +90,43 @@ func TestAPictureWithoutAStylesheetIsUnchanged(t *testing.T) {
 		t.Error("a picture nobody themed came out with a stylesheet in it")
 	}
 }
+
+// CDATA settles what the characters mean, not whether they are characters.
+// XML 1.0 admits no control character but tab, newline and carriage return,
+// and no byte sequence that is not UTF-8 — so these produce a picture that no
+// parser will open, which is worse than a rule that fails to apply.
+func TestBytesXmlCannotCarryAreRefused(t *testing.T) {
+	for _, c := range []struct {
+		about string
+		css   []byte
+		says  string
+	}{
+		{"a stray NUL", []byte("a{}\x00b{}"), "U+0000"},
+		{"a form feed", []byte("a{}\x0cb{}"), "U+000C"},
+		{"a sheet saved in Latin-1", []byte("a{}/* caf\xe9 */"), "UTF-8"},
+	} {
+		out, err := Render(context.Background(), fitFixture(), Options{CSS: c.css})
+		if err == nil {
+			t.Errorf("%s was accepted; the picture it made %s", c.about,
+				map[bool]string{true: "does not open", false: "opens"}[parses(t, out) != nil])
+			continue
+		}
+		if !strings.Contains(err.Error(), c.says) {
+			t.Errorf("%s: the error does not say what is wrong: %v", c.about, err)
+		}
+	}
+}
+
+// Tab, newline and carriage return are the control characters XML does allow,
+// and CSS is full of the first two. Refusing them would refuse every file.
+func TestWhitespaceIsStillAllowed(t *testing.T) {
+	out, err := Render(context.Background(), fitFixture(), Options{
+		CSS: []byte("g.edge path {\n\tstroke: red;\r\n}"),
+	})
+	if err != nil {
+		t.Fatalf("ordinary whitespace was refused: %v", err)
+	}
+	if err := parses(t, out); err != nil {
+		t.Errorf("the picture is no longer well-formed XML: %v", err)
+	}
+}

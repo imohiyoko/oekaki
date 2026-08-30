@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"unicode/utf8"
 
 	gv "github.com/goccy/go-graphviz"
 
@@ -86,6 +87,9 @@ func withStyle(svg, css []byte) ([]byte, error) {
 	if at := bytes.Index(css, []byte("]]>")); at >= 0 {
 		return nil, fmt.Errorf("this stylesheet writes \"]]>\" at byte %d, which would end the SVG's CDATA section early", at)
 	}
+	if err := xmlText(css); err != nil {
+		return nil, err
+	}
 	root := svgRoot.FindIndex(svg)
 	if root == nil {
 		return nil, errors.New("graphviz produced no <svg> element to put a stylesheet in")
@@ -97,6 +101,31 @@ func withStyle(svg, css []byte) ([]byte, error) {
 	out.WriteString("\n]]></style>")
 	out.Write(svg[root[1]:])
 	return out.Bytes(), nil
+}
+
+// xmlText reports whether the bytes can appear in an XML document at all.
+//
+// CDATA settles what the characters mean, not whether they are characters.
+// XML 1.0 admits no control character but tab, newline and carriage return,
+// and no byte sequence that is not UTF-8 — so a stylesheet saved in Latin-1,
+// or one carrying a stray NUL, produces a picture that every parser refuses
+// to open rather than a rule that fails to apply.
+//
+// An HTML page takes both without complaint: its parser substitutes the
+// replacement character and carries on. This check therefore belongs here and
+// not in the HTML renderer, where it would refuse files that work.
+func xmlText(css []byte) error {
+	for at := 0; at < len(css); {
+		r, size := utf8.DecodeRune(css[at:])
+		if r == utf8.RuneError && size == 1 {
+			return fmt.Errorf("this stylesheet is not UTF-8 at byte %d, and an SVG carrying it will not open", at)
+		}
+		if (r < 0x20 && r != '\t' && r != '\n' && r != '\r') || r == 0xFFFE || r == 0xFFFF {
+			return fmt.Errorf("this stylesheet has the character %U at byte %d, which XML does not allow anywhere", r, at)
+		}
+		at += size
+	}
+	return nil
 }
 
 // RenderDOT lays out DOT source produced elsewhere. Splitting this out keeps
