@@ -250,6 +250,7 @@ type renderFlags struct {
 	data            bool
 	unknownSource   bool
 	iconDir         string
+	css             string
 	externalAssets  bool
 	assetBase       string
 	view            string
@@ -290,6 +291,7 @@ func runRender(ctx context.Context, env Env, args []string) error {
 	fs.BoolVar(&f.data, "include-data-sources", false, "draw data.* lookups as nodes too")
 	fs.BoolVar(&f.unknownSource, "include-unknown-source", false, "include text files with unrecognized source extensions")
 	fs.StringVar(&f.iconDir, "icon-dir", "", "directory of .svg icons to use in HTML output instead of the built-in glyphs")
+	fs.StringVar(&f.css, "css", "", "stylesheet to add to HTML or SVG output; the two formats need different selectors, because their markup differs")
 	fs.StringVar(&f.layout, "layout", "", "apply a human-authored HTML layout document")
 	fs.StringVar(&f.layoutUnmatched, "layout-unmatched", "report",
 		"what to do about positions naming nothing in this graph: report or error")
@@ -335,6 +337,16 @@ func runRender(ctx context.Context, env Env, args []string) error {
 	if err != nil {
 		return err
 	}
+	var extraCSS []byte
+	if f.css != "" {
+		if format != "html" && format != "svg" {
+			return fmt.Errorf("--css has nowhere to go in %s output: only html and svg carry a stylesheet", format)
+		}
+		if extraCSS, err = os.ReadFile(f.css); err != nil {
+			return fmt.Errorf("reading stylesheet: %w", err)
+		}
+	}
+
 	var layoutRaw []byte
 	var layoutDoc *layoutdoc.Document
 	if f.layout != "" {
@@ -411,6 +423,7 @@ func runRender(ctx context.Context, env Env, args []string) error {
 			Axis:    f.axis,
 			Kinds:   kinds,
 			Legend:  f.legend,
+			CSS:     extraCSS,
 		})
 	case "dot":
 		var s string
@@ -434,14 +447,14 @@ func runRender(ctx context.Context, env Env, args []string) error {
 	case "html":
 		hopts := htmlrender.Options{
 			Title: f.title, Axis: f.axis, RankDir: f.rankdir, Lines: f.lines, Kinds: kinds,
-			IconDir: f.iconDir, Layout: layoutRaw,
+			IconDir: f.iconDir, Layout: layoutRaw, CSS: extraCSS,
 		}
 		if f.externalAssets {
 			if f.output == "" {
 				return errors.New("--external-assets writes files beside the page, so it needs -o")
 			}
 			hopts.ExternalAssets = true
-			hopts.AssetBase = resolveAssetBase(f.assetBase)
+			hopts.AssetBase = resolveAssetBase(f.assetBase, extraCSS)
 			hopts.GraphSrc = filepath.Base(graphDocument(f.output))
 		}
 		out, err = htmlrender.Render(g, hopts)
@@ -458,7 +471,7 @@ func runRender(ctx context.Context, env Env, args []string) error {
 		return err
 	}
 	if format == "html" && f.externalAssets {
-		return writeHTMLAssets(env, f.output, resolveAssetBase(f.assetBase), g)
+		return writeHTMLAssets(env, f.output, resolveAssetBase(f.assetBase, extraCSS), extraCSS, g)
 	}
 	return nil
 }
@@ -480,14 +493,14 @@ func graphDocument(page string) string {
 // pages that were drawn against an older one, and the query fingerprint cannot
 // help with that — it changes what the browser caches, not what the server
 // has on disk.
-func resolveAssetBase(base string) string {
+func resolveAssetBase(base string, extraCSS []byte) string {
 	if base == "" {
 		return ""
 	}
 	parts := strings.Split(base, "/")
 	for i, p := range parts {
 		if p == "auto" {
-			parts[i] = htmlrender.RuntimeStamp()
+			parts[i] = htmlrender.RuntimeStamp(extraCSS)
 		}
 	}
 	return strings.Join(parts, "/")
@@ -501,7 +514,7 @@ func resolveAssetBase(base string) string {
 // rather than where files live. Writing there would be a guess about somebody
 // else's layout, and a wrong guess would put a stale runtime next to a fresh
 // graph.
-func writeHTMLAssets(env Env, page, base string, g *core.Graph) error {
+func writeHTMLAssets(env Env, page, base string, extraCSS []byte, g *core.Graph) error {
 	graphJSON, err := g.MarshalIndent()
 	if err != nil {
 		return err
@@ -513,7 +526,7 @@ func writeHTMLAssets(env Env, page, base string, g *core.Graph) error {
 		return nil
 	}
 	dir := filepath.Join(filepath.Dir(page), filepath.FromSlash(base))
-	for name, data := range htmlrender.Assets() {
+	for name, data := range htmlrender.Assets(extraCSS) {
 		if err := write(env, filepath.Join(dir, name), data); err != nil {
 			return err
 		}

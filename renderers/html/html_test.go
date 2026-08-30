@@ -85,7 +85,7 @@ func TestMaxGraphIsEmbedded(t *testing.T) {
 		t.Error("the canvas library is not in the page, so nothing will be drawn")
 	}
 
-	assets := Assets()
+	assets := Assets(nil)
 	bundle, ok := assets[AssetMax]
 	if !ok || len(bundle) < 200_000 {
 		t.Errorf("the shared runtime carries %d bytes of maxGraph, which is too small to be the library", len(bundle))
@@ -160,7 +160,7 @@ func TestNodeConflictLookupKeepsTheTargetKind(t *testing.T) {
 	if len(back.Conflicts) != 1 || back.Conflicts[0].TargetKind != core.ConflictTargetEdge || back.Conflicts[0].Target != edgeTarget {
 		t.Fatalf("typed conflict was not preserved in the page: %#v", back.Conflicts)
 	}
-	app := string(Assets()[AssetApp])
+	app := string(Assets(nil)[AssetApp])
 	if !strings.Contains(app, "filter((c) => c.target_kind === 'entity')") {
 		t.Fatal("HTML runtime does not discriminate entity conflicts before node highlighting")
 	}
@@ -262,7 +262,7 @@ func TestPageOpensInReadMode(t *testing.T) {
 // drag that pans the canvas are the same gesture, and only the mode tells them
 // apart.
 func TestAuthoringGesturesAreGatedOnEditMode(t *testing.T) {
-	app := string(Assets()[AssetApp])
+	app := string(Assets(nil)[AssetApp])
 
 	// Moving a box is maxGraph's gesture, so the gate is on the library rather
 	// than in a handler of this page's own.
@@ -302,7 +302,7 @@ func TestAuthoringGesturesAreGatedOnEditMode(t *testing.T) {
 // they have to carry that themselves — without it the boxes shrink to fit and
 // their labels stay behind at full size, off to the side of the diagram.
 func TestHandDrawnPartsCarryTheViewScale(t *testing.T) {
-	app := string(Assets()[AssetApp])
+	app := string(Assets(nil)[AssetApp])
 	if !strings.Contains(app, "const screen = (c) => {") {
 		t.Error("the viewer does not convert its own drawing into view coordinates")
 	}
@@ -315,7 +315,7 @@ func TestHandDrawnPartsCarryTheViewScale(t *testing.T) {
 // change the whole port exists for: the viewer it replaced answered a click on
 // a box by laying the graph out again and rebuilding every element.
 func TestSelectingDoesNotLayOutAgain(t *testing.T) {
-	app := string(Assets()[AssetApp])
+	app := string(Assets(nil)[AssetApp])
 	if !strings.Contains(app, "function highlight(cell) {") {
 		t.Fatal("there is no way to mark a selection without repainting")
 	}
@@ -341,7 +341,7 @@ func TestSelectingDoesNotLayOutAgain(t *testing.T) {
 // canvas is also the only positioned element in the page, so anything that
 // leaves it is painted over the panel a reader is reading.
 func TestTheDrawingStaysInsideItsBox(t *testing.T) {
-	css := string(Assets()[AssetCSS])
+	css := string(Assets(nil)[AssetCSS])
 	if !strings.Contains(css, "#canvas { flex: 1; overflow: hidden; position: relative; min-width: 0; cursor: grab; }") {
 		t.Error("the canvas does not clip what it draws")
 	}
@@ -357,7 +357,7 @@ func TestTheDrawingStaysInsideItsBox(t *testing.T) {
 // asserted. Reading, ignoring cells is right — there is nothing else a drag
 // can mean, and a dense diagram leaves little empty canvas to grab.
 func TestADragOnABoxReachesTheBox(t *testing.T) {
-	app := string(Assets()[AssetApp])
+	app := string(Assets(nil)[AssetApp])
 	if strings.Contains(app, "panning.ignoreCell") {
 		t.Error("panning is still told to swallow every press, whatever it lands on")
 	}
@@ -374,7 +374,7 @@ func TestADragOnABoxReachesTheBox(t *testing.T) {
 // container is placed by the layout, never by hand, so nothing records where
 // one was dropped and the next repaint would undo it.
 func TestOnlyABoxIsPickedUp(t *testing.T) {
-	app := string(Assets()[AssetApp])
+	app := string(Assets(nil)[AssetApp])
 	if !strings.Contains(app, "selectionHandler.getInitialCellForEvent = (me) => me.getCell();") {
 		t.Error("a press on a box inside a container is answered by the container")
 	}
@@ -394,7 +394,7 @@ func TestOnlyABoxIsPickedUp(t *testing.T) {
 // straight diagonal maxGraph falls back to reads as a different kind of
 // drawing on a page made of curves.
 func TestAPlacedBoxKeepsTheDrawingsOwnKindOfLine(t *testing.T) {
-	app := string(Assets()[AssetApp])
+	app := string(Assets(nil)[AssetApp])
 	if !strings.Contains(app, "function curveBetween(a, b, fromSide, toSide, channel, bypass) {") {
 		t.Fatal("there is no route for a line whose ELK one no longer applies")
 	}
@@ -413,7 +413,7 @@ func TestAPlacedBoxKeepsTheDrawingsOwnKindOfLine(t *testing.T) {
 // used: measured, it runs after the click has been answered and takes the box
 // straight back off, leaving nothing selected.
 func TestSeveralBoxesCanBePickedUpAtOnce(t *testing.T) {
-	app := string(Assets()[AssetApp])
+	app := string(Assets(nil)[AssetApp])
 	if !strings.Contains(app, "board.isToggleEvent = () => false;") {
 		t.Error("maxGraph's toggle still undoes the page's own selection")
 	}
@@ -439,7 +439,7 @@ func TestSeveralBoxesCanBePickedUpAtOnce(t *testing.T) {
 // two points — measured at thirty lines on two points — and nothing could say
 // otherwise.
 func TestALineIsGivenASideOfEachBox(t *testing.T) {
-	app := string(Assets()[AssetApp])
+	app := string(Assets(nil)[AssetApp])
 
 	// maxGraph honours a fixed anchor over its own perimeter guess, which is
 	// what makes "chosen" and "worked out" the same mechanism.
@@ -483,7 +483,7 @@ func TestALineIsGivenASideOfEachBox(t *testing.T) {
 // runs down the same column. Measured after moving one box, 54% of the drawn
 // line lay on another line, seven deep at the worst place.
 func TestLinesDoNotRunOnTopOfEachOther(t *testing.T) {
-	app := string(Assets()[AssetApp])
+	app := string(Assets(nil)[AssetApp])
 	if !strings.Contains(app, "const channelOf = (r) => 1 - 2 * ((r.targetLane || 1) >= (r.sourceLane || 1) ? r.targetAt : r.sourceAt);") {
 		t.Fatal("lines drawn between the same two boxes have nothing to tell them apart")
 	}
@@ -509,7 +509,7 @@ func TestLinesDoNotRunOnTopOfEachOther(t *testing.T) {
 // Curves or right angles. The diagram's answer goes to ELK, so it reaches
 // every line rather than only the ones this file draws.
 func TestTheShapeOfALineCanBeChosen(t *testing.T) {
-	app := string(Assets()[AssetApp])
+	app := string(Assets(nil)[AssetApp])
 	if !strings.Contains(app, "'elk.edgeRouting': lineShape === 'orthogonal' ? 'ORTHOGONAL' : 'SPLINES',") {
 		t.Error("choosing right angles leaves the laid-out lines curved")
 	}
@@ -522,7 +522,7 @@ func TestTheShapeOfALineCanBeChosen(t *testing.T) {
 
 	// An author rule beats the display:none a browser gives [hidden], so the
 	// switch has to say it again or read mode shows a control it does not offer.
-	css := string(Assets()[AssetCSS])
+	css := string(Assets(nil)[AssetCSS])
 	if !strings.Contains(css, "#line-shape[hidden], .tool-group[hidden] { display: none; }") {
 		t.Error("the editing controls stay on screen in read mode")
 	}
@@ -532,7 +532,7 @@ func TestTheShapeOfALineCanBeChosen(t *testing.T) {
 // clicked the diagram never said which ones, or which of the three questions
 // an edge kind answers.
 func TestALineCanBeAskedWhatItIs(t *testing.T) {
-	app := string(Assets()[AssetApp])
+	app := string(Assets(nil)[AssetApp])
 	if !strings.Contains(app, "if (cell.infra && cell.infra.edge) selectEdge(edgeKey(cell.infra.edge));") {
 		t.Error("clicking a line opens nothing")
 	}
@@ -558,7 +558,7 @@ func TestALineCanBeAskedWhatItIs(t *testing.T) {
 // A line's tooltip is the only place a reader sees who claimed it, or that
 // somebody asserted it does not exist, without selecting one of its ends.
 func TestALineStillSaysWhoClaimedIt(t *testing.T) {
-	app := string(Assets()[AssetApp])
+	app := string(Assets(nil)[AssetApp])
 	if !strings.Contains(app, "board.getTooltipForCell = (cell) => {") {
 		t.Error("edges no longer carry their provenance")
 	}
@@ -579,7 +579,7 @@ func TestAuthoringWritesTheAssertionsTheSchemaAccepts(t *testing.T) {
 		t.Error("the page offers no way to add a box")
 	}
 
-	app := string(Assets()[AssetApp])
+	app := string(Assets(nil)[AssetApp])
 	if !strings.Contains(app, "pending.push({assertion: {assert: 'node', subject: {node: id}, name}});") {
 		t.Error("a rename does not assert a name against the node it renames")
 	}
@@ -635,7 +635,7 @@ func between(t *testing.T, s, open, close string) string {
 func TestExternalPageReferencesTheRuntimeInsteadOfCarryingIt(t *testing.T) {
 	out := render(t, fixture(), Options{ExternalAssets: true, GraphSrc: "a.graph.json"})
 
-	stamp := "?v=" + runtimeStamp()
+	stamp := "?v=" + RuntimeStamp(nil)
 	for _, want := range []string{
 		`href="` + AssetCSS + stamp + `"`,
 		`src="` + AssetELK + stamp + `"`,
@@ -673,7 +673,7 @@ func TestExternalPageNeedsAGraphURL(t *testing.T) {
 func TestAssetsAreTheBytesTheSelfContainedPageInlines(t *testing.T) {
 	inline := render(t, fixture(), Options{})
 
-	assets := Assets()
+	assets := Assets(nil)
 	if len(assets) != 5 {
 		t.Fatalf("Assets() returned %d files, want 5", len(assets))
 	}
@@ -720,14 +720,14 @@ func TestExternalPageRunsNoInlineScript(t *testing.T) {
 }
 
 func TestAssetBaseJoinsWithExactlyOneSlash(t *testing.T) {
-	stamped := AssetELK + "?v=" + runtimeStamp()
+	stamped := AssetELK + "?v=" + RuntimeStamp(nil)
 	for _, c := range []struct{ base, want string }{
 		{"", stamped},
 		{"/shell/v1", "/shell/v1/" + stamped},
 		{"/shell/v1/", "/shell/v1/" + stamped},
 		{"https://cdn.example/v1", "https://cdn.example/v1/" + stamped},
 	} {
-		if got := assetURL(c.base, AssetELK); got != c.want {
+		if got := assetURL(c.base, AssetELK, RuntimeStamp(nil)); got != c.want {
 			t.Errorf("assetURL(%q, %q) = %q, want %q", c.base, AssetELK, got, c.want)
 		}
 	}
@@ -742,18 +742,18 @@ func TestAssetBaseJoinsWithExactlyOneSlash(t *testing.T) {
 // reload does not fix it, because the bootstrap creates the script element
 // rather than the document declaring it.
 func TestTheRuntimeUrlChangesWhenTheRuntimeDoes(t *testing.T) {
-	first := runtimeStamp()
+	first := RuntimeStamp(nil)
 	if len(first) != 12 {
 		t.Fatalf("the fingerprint is %q, which is not a name a cache can key on", first)
 	}
 	// Same build, same stamp: a server still holds one copy of each file.
-	if second := runtimeStamp(); second != first {
+	if second := RuntimeStamp(nil); second != first {
 		t.Errorf("the fingerprint moved without the runtime moving: %q then %q", first, second)
 	}
 
 	// It is taken from the bytes that are actually served, so changing any of
 	// them changes it.
-	assets := Assets()
+	assets := Assets(nil)
 	sum := sha256.New()
 	names := make([]string, 0, len(assets))
 	for name := range assets {
@@ -822,7 +822,7 @@ func TestTheLineShapeCanBeSetWhenThePageIsMade(t *testing.T) {
 		t.Error("an unknown line shape was accepted")
 	}
 
-	app := string(Assets()[AssetApp])
+	app := string(Assets(nil)[AssetApp])
 	if !strings.Contains(app, "(savedLayout && savedLayout.lines) || document.body.dataset.lines") {
 		t.Error("a layout document does not override the shape the page was made with")
 	}
@@ -833,7 +833,7 @@ func TestTheLineShapeCanBeSetWhenThePageIsMade(t *testing.T) {
 // the box under the pointer, and a box drawn round several ends on empty
 // canvas, which reads as "clicked nothing" and clears the lot.
 func TestTheClickThatEndsADragIsNotAnswered(t *testing.T) {
-	app := string(Assets()[AssetApp])
+	app := string(Assets(nil)[AssetApp])
 	if !strings.Contains(app, "if (pressedAt && Math.hypot(me.getX() - pressedAt.x, me.getY() - pressedAt.y) > 3) dragged = true;") {
 		t.Error("a gesture that travelled is still taken for a click")
 	}
@@ -848,7 +848,7 @@ func TestTheClickThatEndsADragIsNotAnswered(t *testing.T) {
 // left button belongs to the drawing while editing, so the view moves on the
 // right button — which works in either mode and needs no explaining.
 func TestABoxCanBeDrawnRoundSeveralBoxes(t *testing.T) {
-	app := string(Assets()[AssetApp])
+	app := string(Assets(nil)[AssetApp])
 	if !strings.Contains(app, "const rubberBand = new RubberBandHandler(board);") {
 		t.Fatal("there is no way to draw a box round several boxes")
 	}
@@ -879,7 +879,7 @@ func TestABoxCanBeDrawnRoundSeveralBoxes(t *testing.T) {
 // thing telling them apart. Zooming on every wheel took the whole of a trackpad
 // away: two fingers scaled the diagram instead of moving it.
 func TestATrackpadMovesTheViewAndPinchesToScaleIt(t *testing.T) {
-	app := string(Assets()[AssetApp])
+	app := string(Assets(nil)[AssetApp])
 	if !strings.Contains(app, "if (!e.ctrlKey && !e.metaKey) {") {
 		t.Fatal("every wheel still scales the diagram, which leaves no way to scroll it")
 	}
@@ -897,7 +897,7 @@ func TestATrackpadMovesTheViewAndPinchesToScaleIt(t *testing.T) {
 // them ragged and said something that was not true — a two-line name is not a
 // bigger thing than a one-line one.
 func TestEveryBoxIsTheSameHeightUntilAHandSaysOtherwise(t *testing.T) {
-	app := string(Assets()[AssetApp])
+	app := string(Assets(nil)[AssetApp])
 	if !strings.Contains(app, "const BOX_HEIGHT = 46;") {
 		t.Fatal("there is no height a box has by default")
 	}
@@ -923,7 +923,7 @@ func TestTheEditingControlsAreGrouped(t *testing.T) {
 		}
 	}
 
-	app := string(Assets()[AssetApp])
+	app := string(Assets(nil)[AssetApp])
 	if !strings.Contains(app, "function arrange(place) {") {
 		t.Error("the picked boxes cannot be lined up")
 	}
@@ -937,11 +937,71 @@ func TestTheEditingControlsAreGrouped(t *testing.T) {
 // doing that between the boxes runs it through everything else crossing the
 // same gap.
 func TestALineThatDoublesBackGoesRoundTheOutside(t *testing.T) {
-	app := string(Assets()[AssetApp])
+	app := string(Assets(nil)[AssetApp])
 	if !strings.Contains(app, "function bypassLine(from, to, a, b, sideways, channel) {") {
 		t.Fatal("a line that doubles back still cuts between the boxes")
 	}
 	if !strings.Contains(app, "const my = bypass !== undefined ? bypass : (a.y + b.y) / 2 + lane(b.y - a.y);") {
 		t.Error("the way round is worked out and then not used")
+	}
+}
+
+// A theme is added to the built-in styles rather than put in place of them,
+// so a caller who wants their colours does not also have to restate the
+// layout rules that make the page work at all. Later in the sheet is the only
+// thing that makes their rules win, so the order is the feature.
+func TestAThemeIsAddedAfterTheBuiltInStyles(t *testing.T) {
+	theme := []byte(":root { --accent: rebeccapurple; }")
+
+	inline := render(t, fixture(), Options{CSS: theme})
+	built, mine := strings.Index(inline, appCSS), strings.Index(inline, string(theme))
+	if mine < 0 {
+		t.Fatal("the page does not carry the theme it was given")
+	}
+	if built < 0 || built > mine {
+		t.Error("the theme is not after the built-in styles, so the built-in rules win")
+	}
+
+	// An external page links one stylesheet, so the theme has to be in it —
+	// and be the same bytes, or the two kinds of page look different.
+	shared := string(Assets(theme)[AssetCSS])
+	if !strings.HasPrefix(shared, appCSS) || !strings.HasSuffix(shared, string(theme)) {
+		t.Error("the shared stylesheet is not the built-in styles followed by the theme")
+	}
+}
+
+// The shared stylesheet is served from one URL for every diagram and every
+// generation of them, and a browser caches it. A theme that changed without
+// moving the fingerprint would keep being served from that cache, so the
+// person who edited it would be among the last to see it — and would edit it
+// again, because nothing happened.
+func TestAChangedThemeIsServedFromASeparateUrl(t *testing.T) {
+	plain := RuntimeStamp(nil)
+	first := RuntimeStamp([]byte(".edge { stroke: red; }"))
+	second := RuntimeStamp([]byte(".edge { stroke: blue; }"))
+
+	if first == plain {
+		t.Error("a page with a theme is served from the same url as one without")
+	}
+	if first == second {
+		t.Error("editing the theme did not change the url it is served from")
+	}
+	if again := RuntimeStamp([]byte(".edge { stroke: red; }")); again != first {
+		t.Errorf("the same theme gave two urls, %q then %q, so nothing is shared", first, again)
+	}
+}
+
+// A self-contained page carries the sheet inside a style element. A sheet
+// that closes it would put the rest of itself in the document as markup —
+// while an external page, where the sheet is its own file, would take the
+// same bytes and look fine. Refusing keeps the two kinds of page honest
+// about a file that is wrong in both.
+func TestAStylesheetCannotEndThePagesStyleElement(t *testing.T) {
+	_, err := Render(fixture(), Options{CSS: []byte("a{}</style><script>alert(1)</script>")})
+	if err == nil {
+		t.Fatal("a stylesheet that closes the style element was accepted")
+	}
+	if !strings.Contains(err.Error(), "</style") {
+		t.Errorf("the error does not say what is wrong with the file: %v", err)
 	}
 }
