@@ -103,6 +103,26 @@ func Known(name string) bool {
 	return false
 }
 
+// under reports whether a permission is the named one or descends from it.
+//
+// Read is the root of the chain, so anything that implies read has to be held
+// to whatever holds read back. Checking only the literal name lets somebody
+// refused a drawing save a layout onto it, which is a stranger thing to be
+// allowed than simply reading it.
+func under(name, ancestor string) bool {
+	seen := map[string]bool{}
+	for at := name; at != ""; at = parentOf(at) {
+		if at == ancestor {
+			return true
+		}
+		if seen[at] {
+			return false
+		}
+		seen[at] = true
+	}
+	return false
+}
+
 func parentOf(name string) string {
 	for _, p := range catalog {
 		if p.Name == name {
@@ -335,11 +355,13 @@ func Can(p Policy, req Request) Decision {
 		return Decision{true, "this deployment does not authorize anyone"}
 	}
 
-	if req.Permission == Read && req.RepoRead != nil && !*req.RepoRead && !p.AllowWithoutRepoRead {
+	reading := under(req.Permission, Read)
+
+	if reading && req.RepoRead != nil && !*req.RepoRead && !p.AllowWithoutRepoRead {
 		return Decision{false, who + " cannot read the repository this was drawn from"}
 	}
 
-	if req.Permission == Read && req.Item != nil && len(req.Item.ReadRoles) > 0 {
+	if reading && req.Item != nil && len(req.Item.ReadRoles) > 0 {
 		if !overlap(req.Item.ReadRoles, roles) {
 			want := strings.Join(req.Item.ReadRoles, ", ")
 			// An admin can delete whole generations and read the files off

@@ -470,14 +470,6 @@ func graphDocument(page string) string {
 	return strings.TrimSuffix(page, filepath.Ext(page)) + ".graph.json"
 }
 
-// writeHTMLAssets writes what an external page loads: its graph document
-// always, and the shared runtime only when --asset-base names somewhere this
-// command can reach.
-//
-// A base with a scheme, or an absolute path, describes what a server exposes
-// rather than where files live. Writing there would be a guess about somebody
-// else's layout, and a wrong guess would put a stale runtime next to a fresh
-// graph.
 // resolveAssetBase turns a path segment spelled "auto" into the runtime's
 // fingerprint.
 //
@@ -501,6 +493,14 @@ func resolveAssetBase(base string) string {
 	return strings.Join(parts, "/")
 }
 
+// writeHTMLAssets writes what an external page loads: its graph document
+// always, and the shared runtime only when --asset-base names somewhere this
+// command can reach.
+//
+// A base with a scheme, or an absolute path, describes what a server exposes
+// rather than where files live. Writing there would be a guess about somebody
+// else's layout, and a wrong guess would put a stale runtime next to a fresh
+// graph.
 func writeHTMLAssets(env Env, page, base string, g *core.Graph) error {
 	graphJSON, err := g.MarshalIndent()
 	if err != nil {

@@ -150,9 +150,9 @@ func displayName(path string) string {
 // success, and "40 of 60 positions no longer match anything" is not a failure.
 // It is the number you want before you keep building on that layout.
 func reportLayout(env Env, g *core.Graph, doc *layout.Document, path, unmatched string) error {
-	if doc == nil {
-		return nil
-	}
+	// The value is checked before anything looks at whether there is a layout,
+	// so that a misspelt policy is a message rather than a flag that quietly
+	// did nothing on the run where it happened not to matter.
 	switch unmatched {
 	case string(overlay.PolicyReport), string(overlay.PolicyError):
 	default:
@@ -160,6 +160,9 @@ func reportLayout(env Env, g *core.Graph, doc *layout.Document, path, unmatched 
 		// a node, because an assertion is a statement that something exists. A
 		// position is not, so there is nothing here to adopt it into.
 		return fmt.Errorf("unknown -layout-unmatched %q: want report or error", unmatched)
+	}
+	if doc == nil {
+		return nil
 	}
 	known := make(map[string]struct{}, len(g.Nodes)+len(g.Groups))
 	for _, n := range g.Nodes {

@@ -377,3 +377,29 @@ func TestAPermissionNameThisProgramDoesNotHaveIsNotAPass(t *testing.T) {
 		}
 	}
 }
+
+// Read is the root of the chain, so anything that implies read has to be held
+// to whatever holds read back. Checking only the literal name lets somebody
+// refused a drawing save a layout onto it, which is a stranger thing to be
+// allowed than simply reading it.
+func TestWhatStopsAReadStopsEverythingThatImpliesOne(t *testing.T) {
+	p := policy()
+	for _, permission := range []string{Read, Write, Admin} {
+		got := Can(p, Request{Subject: "github:chief", Permission: permission, RepoRead: no()})
+		if got.Allowed {
+			t.Fatalf("%s was allowed past a repository refusal: %q", permission, got.Because)
+		}
+	}
+}
+
+func TestAnItemLimitHoldsForWritingAsWellAsReading(t *testing.T) {
+	p := policy()
+	p.Grants["github:outsider"] = []string{"editor"}
+	item := &Item{ReadRoles: []string{"boss"}}
+	for _, permission := range []string{Read, Write} {
+		got := Can(p, Request{Subject: "github:outsider", Permission: permission, Item: item})
+		if got.Allowed {
+			t.Fatalf("%s got past a limit that excludes this caller: %q", permission, got.Because)
+		}
+	}
+}

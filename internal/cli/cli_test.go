@@ -845,3 +845,16 @@ func TestAPlainAssetBaseIsLeftAlone(t *testing.T) {
 		t.Fatalf("the runtime did not go where it was asked: %v", err)
 	}
 }
+
+// A misspelt policy has to be a message rather than a flag that quietly did
+// nothing on the run where it happened not to matter.
+func TestAMisspeltLayoutPolicyIsCaughtWithoutALayoutToApplyIt(t *testing.T) {
+	got := run(t, "", "render", plan, "--layout-unmatched", "adopt",
+		"-o", filepath.Join(t.TempDir(), "page.html"))
+	if got.code == 0 {
+		t.Fatalf("it was accepted when no layout was given: %q", got.stderr)
+	}
+	if !strings.Contains(got.stderr, "report or error") {
+		t.Fatalf("%q", got.stderr)
+	}
+}

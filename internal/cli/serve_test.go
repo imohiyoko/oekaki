@@ -3,6 +3,7 @@ package cli
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -460,5 +461,74 @@ func TestThePreviewAndTheRealAnswerDoNotDisagree(t *testing.T) {
 	page := ask(t, s, http.MethodGet, "/roles", "", asReader)
 	if !strings.Contains(page.Body.String(), "could not be read") {
 		t.Fatalf("the preview said nothing about the file it could not read:\n%s", page.Body.String())
+	}
+}
+
+// The state directory sits beside the pages by default, which puts it inside
+// the tree being handed out. Who holds which role, what was done, and what
+// people wrote down — including who may see what — would otherwise be a plain
+// GET away.
+func TestWhatIsSavedIsNotHandedOutAsAPage(t *testing.T) {
+	s := testSite(t)
+	s.state = filepath.Join(s.pages, ".oekaki-state")
+	s.store = manage.At(s.state)
+	if err := s.store.Grant("github:someone", []string{"viewer"}, manage.Actor{}, []string{"viewer"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.store.Annotate("core", manage.Meta{Note: "a secret"}, manage.Actor{}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, path := range []string{
+		"/.oekaki-state/grants.json",
+		"/.oekaki-state/journal.jsonl",
+		"/.oekaki-state/meta/core.json",
+	} {
+		got := ask(t, s, http.MethodGet, path, "", nil)
+		if got.Code == http.StatusOK {
+			t.Fatalf("%s was served: %s", path, got.Body.String())
+		}
+	}
+}
+
+// A name the store will not take is a name no annotation can ever have been
+// filed under, so there is no restriction to have failed to read. Refusing
+// there turns a file with a space in its name into a 403 on a machine that
+// authorizes nobody.
+func TestAFileNameTheStoreWouldNotTakeIsStillServed(t *testing.T) {
+	s := testSite(t)
+	for _, name := range []string{"my file.html", strings.Repeat("a", 70) + ".html"} {
+		if err := os.WriteFile(filepath.Join(s.pages, name), []byte(servedPage), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		got := ask(t, s, http.MethodGet, "/"+url.PathEscape(name), "", nil)
+		if got.Code != http.StatusOK {
+			t.Fatalf("%q came back %d on a server that authorizes nobody: %s",
+				name, got.Code, got.Body.String())
+		}
+	}
+}
+
+// Showing a page's name, its saved versions and how much of each lands tells
+// somebody refused that page most of what the limit was written to keep from
+// them.
+func TestAListingLeavesOutWhatTheReaderMayNotOpen(t *testing.T) {
+	s := enforcing(t)
+	if _, err := s.store.Annotate("core", manage.Meta{ReadRoles: []string{"editor"}},
+		manage.Actor{}, []string{"viewer", "editor"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := serve.Save(s.state, "core", "wide", []byte(servedLayout)); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/manage", "/layouts"} {
+		got := ask(t, s, http.MethodGet, path, "", asReader)
+		if got.Code != http.StatusOK {
+			t.Fatalf("%s came back %d", path, got.Code)
+		}
+		if strings.Contains(got.Body.String(), "wide") {
+			t.Fatalf("%s listed a saved version of a page the reader cannot open:\n%s",
+				path, got.Body.String())
+		}
 	}
 }

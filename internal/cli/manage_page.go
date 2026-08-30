@@ -111,8 +111,15 @@ func (s *site) manage(w http.ResponseWriter, r *http.Request) {
 	var b strings.Builder
 	s.chrome(&b, "what is saved")
 
+	// A list of what exists is itself something to be allowed to see. Showing
+	// a page's name, its saved versions and how much of each one lands tells
+	// somebody refused that page most of what the limit was written to keep
+	// from them.
 	names := make([]string, 0, len(pages))
 	for _, p := range pages {
+		if d := s.may(r, authz.Read, p.Name); !d.Allowed {
+			continue
+		}
 		names = append(names, p.Rel)
 	}
 	described := s.cfg.Catalog.List(names)

@@ -340,9 +340,19 @@ func (c *Conventions) Names(root string) (map[string]string, error) {
 				}
 				text, _ = block(text, loc[1]-1)
 			}
-			for name, id := range readNames(text, r.pattern) {
-				if _, taken := out[id]; !taken {
-					out[id] = name
+			// Two names for one id is a thing estates do — an account
+			// renamed in one file and not another. Which one wins has to be
+			// the same on every run, so the names are settled in order rather
+			// than by whichever the map hands over first.
+			found := readNames(text, r.pattern)
+			names := make([]string, 0, len(found))
+			for name := range found {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			for _, name := range names {
+				if _, taken := out[found[name]]; !taken {
+					out[found[name]] = name
 				}
 			}
 		}

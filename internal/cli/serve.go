@@ -181,12 +181,17 @@ func (s *site) may(r *http.Request, permission, item string) authz.Decision {
 	req := authz.Request{Subject: s.actor(r).Name, Permission: permission}
 	if item != "" {
 		m, err := s.store.Meta(item)
-		if err != nil {
-			// An item nobody annotated reads back blank, so reaching here
-			// means the file is there and cannot be read — and the limit
-			// somebody wrote in it is exactly what cannot be seen. Carrying on
-			// would treat it as unlimited, which is the one reading of a
-			// damaged restriction that must not be the default.
+		switch {
+		case errors.Is(err, manage.ErrRefused):
+			// A name the store will not take is a name no annotation can ever
+			// have been filed under, so there is no restriction to have failed
+			// to read. Refusing here would turn a file with a space in its
+			// name into a 403 on a machine that authorizes nobody.
+		case err != nil:
+			// Anything else means the file is there and cannot be read — and
+			// the limit somebody wrote in it is exactly what cannot be seen.
+			// Carrying on would treat it as unlimited, which is the one
+			// reading of a damaged restriction that must not be the default.
 			return authz.Decision{Allowed: false,
 				Because: "what may be seen of this cannot be read: " + err.Error()}
 		}
@@ -210,6 +215,23 @@ func (s *site) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		s.page(w, r)
 	}
+}
+
+// inside reports whether path is at or below dir.
+func inside(path, dir string) bool {
+	a, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	b, err := filepath.Abs(dir)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(b, a)
+	if err != nil {
+		return false
+	}
+	return rel == "." || !strings.HasPrefix(rel, "..")
 }
 
 // sameOrigin keeps another page open in the same browser from driving this
@@ -441,6 +463,17 @@ func (s *site) page(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	full := filepath.Join(s.pages, clean)
+
+	// The state directory sits beside the pages by default, which puts it
+	// inside the tree being handed out. Everything in it — who holds which
+	// role, what was done, what people wrote down including who may see what —
+	// would otherwise be a plain GET away, and the guard on the pages would be
+	// answering questions about a file the caller never had to ask for.
+	if inside(full, s.state) {
+		http.NotFound(w, r)
+		return
+	}
+
 	if info, err := os.Stat(full); err == nil && info.IsDir() {
 		full = filepath.Join(full, "index.html")
 	}
@@ -573,6 +606,11 @@ func (s *site) index(w http.ResponseWriter, r *http.Request) {
 		b.WriteString(`<p class=m>No rendered pages under this directory.</p>`)
 	}
 	for _, p := range pages {
+		// The same rule as /manage: a page somebody may not open is not one
+		// whose saved versions they should be reading the names of.
+		if d := s.may(r, authz.Read, p.Name); !d.Allowed {
+			continue
+		}
 		b.WriteString(`<h2><a href="/` + html.EscapeString(p.Rel) + `">` + html.EscapeString(p.Rel) + `</a></h2>`)
 		saved, err := serve.Layouts(s.pages, s.state, p)
 		if err != nil {

@@ -296,9 +296,17 @@ func Scan(dir string, conv *Conventions) ([]Module, []Unknown, error) {
 	seen := map[string]string{}
 	for _, m := range out {
 		if was, clash := seen[m.Key]; clash {
+			// Only blame the prefix when there is one. Two modules can name
+			// the same state without any help, and sending somebody to look at
+			// a setting they never wrote wastes the time this message exists
+			// to save.
+			why := ""
+			if conv != nil && conv.StateKeyPrefix != "" {
+				why = " once the shared prefix is removed"
+			}
 			return nil, nil, fmt.Errorf(
-				"%s and %s both name their state %q once the shared prefix is removed; "+
-					"they would be drawn as one module", was, m.Dir, m.Key)
+				"%s and %s both name their state %q%s; they would be drawn as one module",
+				was, m.Dir, m.Key, why)
 		}
 		seen[m.Key] = m.Dir
 	}
@@ -307,9 +315,14 @@ func Scan(dir string, conv *Conventions) ([]Module, []Unknown, error) {
 
 // readModule returns the module rooted at path, or nil when there is not one.
 //
-// Every .tf file in the directory is read, not only provider.tf: where the
-// backend block lives is a matter of taste, and a scanner that guesses wrong
-// silently reports a smaller estate than exists.
+// Every .tf file in the directory is read, not only the one whose name sounds
+// like it should hold the backend: where that block lives is a matter of
+// taste, and a scanner that guesses wrong silently reports a smaller estate
+// than exists.
+//
+// A repository can still say which directories are its own, through
+// rootModule.requires — but that is a deliberate narrowing somebody wrote
+// down, not this function guessing.
 func readModule(root, path string, conv *Conventions) (*Module, error) {
 	entries, err := os.ReadDir(path)
 	if err != nil {

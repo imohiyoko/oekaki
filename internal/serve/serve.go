@@ -72,6 +72,15 @@ var (
 var ErrDocument = errors.New("not a document this can store")
 
 // Page is a rendered page found under the served root.
+//
+// Name is the stem, and it is what everything saved for the page is filed
+// under — not Rel. Two generations of the same drawing, runs/a/core.html and
+// runs/b/core.html, therefore share one set of layouts and one default, which
+// is the point: a position somebody chose outlives the run it was chosen on,
+// and re-running the pipeline is not supposed to lose it.
+//
+// The cost is that two unrelated diagrams that happen to share a stem share
+// each other's layouts. A directory holding both wants them named apart.
 type Page struct {
 	Rel  string // path relative to the root, e.g. "runs/abc/core.html"
 	Name string // the stem, which names the folder its layouts live in

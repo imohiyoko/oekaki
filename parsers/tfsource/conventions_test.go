@@ -345,3 +345,45 @@ func TestTwoKeysThatCollideAfterTrimmingAreRefused(t *testing.T) {
 		}
 	}
 }
+
+// Two names for one id is a thing estates do — an account renamed in one file
+// and not another. Which one wins has to be the same on every run, or the
+// drawing changes label between two runs over identical input.
+func TestWhichNameWinsIsTheSameEveryRun(t *testing.T) {
+	root := tree(t, map[string]string{
+		"org/locals.tf": "locals {\n  known = {\n    alpha = \"210987654321\"\n" +
+			"    bravo = \"210987654321\"\n    charlie = \"210987654321\"\n  }\n}\n",
+	})
+	c := conventions(t, head+"accountNames:\n  - file: org/locals.tf\n    variable: known\n")
+	first, err := c.Names(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range 10 {
+		again, err := c.Names(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if again["210987654321"] != first["210987654321"] {
+			t.Fatalf("run %d picked %q where the first picked %q",
+				i, again["210987654321"], first["210987654321"])
+		}
+	}
+}
+
+// Two modules can name the same state without any prefix being configured, and
+// sending somebody to look at a setting they never wrote wastes the time the
+// message exists to save.
+func TestTheCollisionMessageOnlyBlamesThePrefixWhenThereIsOne(t *testing.T) {
+	root := tree(t, map[string]string{
+		"a/provider.tf": backend("states/vpc"),
+		"b/provider.tf": backend("states/vpc"),
+	})
+	_, _, err := Scan(root, nil)
+	if err == nil {
+		t.Fatal("two modules naming one state were accepted")
+	}
+	if strings.Contains(err.Error(), "prefix") {
+		t.Fatalf("it blamed a setting nobody wrote: %v", err)
+	}
+}
