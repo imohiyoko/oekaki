@@ -208,3 +208,120 @@ func TestADirectoryWithNoConventionsIsNotAnError(t *testing.T) {
 		t.Fatal("a nil conventions resolved something")
 	}
 }
+
+// A repository that keeps examples or vendored copies alongside its own
+// modules reports an estate larger than the one that exists, and every extra
+// entry looks like real infrastructure.
+func TestARepositoryCanSayWhichModulesAreItsOwn(t *testing.T) {
+	root := tree(t, map[string]string{
+		"ours/provider.tf":  backend("states/ours"),
+		"ours/main.tf":      "resource \"aws_vpc\" \"a\" {}\n",
+		"example/README.tf": backend("states/example"),
+	})
+
+	// Without the convention, both count.
+	loose, _, err := Scan(root, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loose) != 2 {
+		t.Fatalf("expected both, got %#v", loose)
+	}
+
+	c := conventions(t, head+"rootModule:\n  requires: [provider.tf]\n")
+	got, _, err := Scan(root, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Dir != "ours" {
+		t.Fatalf("%#v", got)
+	}
+}
+
+// The prefix a bucket is laid out with is not what the estate calls its
+// modules, and reading it on every box is noise.
+func TestASharedStateKeyPrefixCanBeDroppedFromTheIdentifiers(t *testing.T) {
+	root := tree(t, map[string]string{
+		"app/provider.tf": backend("terraform-states/app"),
+		"db/provider.tf": backend("terraform-states/db") +
+			"data \"terraform_remote_state\" \"app\" {\n  backend = \"s3\"\n" +
+			"  config = {\n    key = \"terraform-states/app\"\n  }\n}\n",
+	})
+	c := conventions(t, head+"stateKeyPrefix: terraform-states/\n")
+	got, _, err := Scan(root, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := map[string]Module{}
+	for _, m := range got {
+		keys[m.Key] = m
+	}
+	if _, ok := keys["app"]; !ok {
+		t.Fatalf("the prefix was not dropped: %#v", got)
+	}
+	// Both halves of the join have to be trimmed, or every edge dangles.
+	db, ok := keys["db"]
+	if !ok {
+		t.Fatalf("%#v", got)
+	}
+	if len(db.Requires) != 1 || db.Requires[0] != "app" {
+		t.Fatalf("the reference was not trimmed with the key: %#v", db.Requires)
+	}
+}
+
+// Every box being twelve digits is a drawing nobody recognises anything on.
+func TestAccountNamesAreReadFromWhereTheEstateWroteThemDown(t *testing.T) {
+	root := tree(t, map[string]string{
+		"org/locals.tf": "locals {\n  known = {\n    payments = \"210987654321\"\n" +
+			"    ledger   = \"310987654321\"\n  }\n}\n",
+	})
+	c := conventions(t, head+"accountNames:\n  - file: org/locals.tf\n    variable: known\n")
+	got, err := c.Names(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["210987654321"] != "payments" || got["310987654321"] != "ledger" {
+		t.Fatalf("%#v", got)
+	}
+}
+
+// Not every place a name is written down is a table. An import comment is one
+// of the commonest, and it is a line rather than a block.
+func TestAccountNamesCanComeFromAPatternRatherThanATable(t *testing.T) {
+	root := tree(t, map[string]string{
+		"org/imports.tf": "# import aws_organizations_account.payments 210987654321\n" +
+			"# import aws_organizations_account.ledger 310987654321\n",
+	})
+	c := conventions(t, head+"accountNames:\n  - file: org/*.tf\n"+
+		"    pattern: 'aws_organizations_account\\.([A-Za-z0-9_-]+)\\s+(\\d{12,})'\n")
+	got, err := c.Names(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["210987654321"] != "payments" || got["310987654321"] != "ledger" {
+		t.Fatalf("%#v", got)
+	}
+}
+
+// Conventions are shared across an estate and one repository may hold only
+// part of it, so a named file that is not there is ordinary.
+func TestANamedFileThatIsNotThereIsNotAnError(t *testing.T) {
+	c := conventions(t, head+"accountNames:\n  - file: nowhere/locals.tf\n")
+	got, err := c.Names(t.TempDir())
+	if err != nil || len(got) != 0 {
+		t.Fatalf("%#v %v", got, err)
+	}
+}
+
+// A pattern that will not compile is found where the file it came from can
+// still be named, rather than at the first directory that happens to match.
+func TestAPatternThatWillNotCompileIsRefusedWhenTheFileIsRead(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "c.yaml")
+	body := head + "accountNames:\n  - file: a.tf\n    pattern: '([unclosed'\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadConventions(path); err == nil {
+		t.Fatal("a broken pattern was accepted")
+	}
+}

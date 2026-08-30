@@ -310,6 +310,13 @@ func readModule(root, path string, conv *Conventions) (*Module, error) {
 	if len(names) == 0 {
 		return nil, nil
 	}
+	// A repository that keeps examples or vendored copies alongside its own
+	// modules can say what distinguishes its own. Counting the others reports
+	// an estate larger than the one that exists, and every extra entry looks
+	// like real infrastructure.
+	if !conv.Owned(fileNames(entries)) {
+		return nil, nil
+	}
 	sort.Strings(names)
 
 	var whole strings.Builder
@@ -353,7 +360,7 @@ func readModule(root, path string, conv *Conventions) (*Module, error) {
 	if err != nil {
 		return nil, err
 	}
-	m := &Module{Dir: filepath.ToSlash(rel), Backend: kind, Key: name}
+	m := &Module{Dir: filepath.ToSlash(rel), Backend: kind, Key: conv.TrimKey(name)}
 
 	seen := map[string]bool{}
 	for _, body := range blocks(text, remoteHead) {
@@ -365,6 +372,10 @@ func readModule(root, path string, conv *Conventions) (*Module, error) {
 			want = b
 		}
 		got, ok := stateOf(want, body)
+		// A reference is trimmed the same way the key it points at is, or the
+		// two halves of the join stop being the same string and every edge
+		// becomes a dangling one.
+		got = conv.TrimKey(got)
 		if !ok || got == "" || seen[got] {
 			continue
 		}
@@ -409,7 +420,14 @@ func accountOf(text string, conv *Conventions) string {
 // A reference to a key nothing declares is kept as an edge to a node marked
 // unresolved rather than dropped. Terraform would fail on it too, and a
 // dependency that points nowhere is worth seeing.
-func Graph(mods []Module, scope string) *core.Graph {
+func Graph(mods []Module, scope string) *core.Graph { return GraphNamed(mods, scope, nil) }
+
+// GraphNamed is Graph with the account names this estate wrote down.
+//
+// A group labelled with twelve digits is one nobody recognises, and every
+// reader has to go and look each of them up. The names change nothing about
+// what was found; they are what it is called.
+func GraphNamed(mods []Module, scope string, names map[string]string) *core.Graph {
 	byKey := make(map[string]Module, len(mods))
 	for _, m := range mods {
 		byKey[m.Key] = m
@@ -451,7 +469,14 @@ func Graph(mods []Module, scope string) *core.Graph {
 	}
 
 	for _, a := range sorted(accounts) {
-		g.Groups = append(g.Groups, core.Group{ID: a, Axis: "account", Type: "aws_account", Label: a})
+		label := a
+		if name, ok := names[a]; ok && name != "" {
+			// The id stays in the label. Two accounts can be called the same
+			// thing in two places, and the id is what settles which one this
+			// is when somebody has to go and look.
+			label = name + " (" + a + ")"
+		}
+		g.Groups = append(g.Groups, core.Group{ID: a, Axis: "account", Type: "aws_account", Label: label})
 	}
 	// Naming the estate has to qualify the ids, not only the metadata: two
 	// repositories can both hold a state called states/vpc, and combining the
@@ -466,5 +491,16 @@ func sorted(set map[string]bool) []string {
 		out = append(out, k)
 	}
 	sort.Strings(out)
+	return out
+}
+
+// fileNames is the plain file names in a directory listing.
+func fileNames(entries []os.DirEntry) []string {
+	out := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if !e.IsDir() {
+			out = append(out, e.Name())
+		}
+	}
 	return out
 }
