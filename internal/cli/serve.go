@@ -447,7 +447,11 @@ func (s *site) page(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSuffix(filepath.Base(full), filepath.Ext(full))
 	wantOverlay := r.URL.Query().Get("overlay")
 
-	if d := s.may(r, authz.Read, name); !d.Allowed {
+	// A page's graph is the page's data under another name. Asking about
+	// "core.graph" would consult whatever somebody wrote about an item that
+	// does not exist, so a limit on "core" would not apply and the whole graph
+	// could be fetched by anyone refused the page it belongs to.
+	if d := s.may(r, authz.Read, strings.TrimSuffix(name, ".graph")); !d.Allowed {
 		http.Error(w, d.Because, http.StatusForbidden)
 		return
 	}
@@ -473,9 +477,26 @@ func (s *site) page(w http.ResponseWriter, r *http.Request) {
 	// Asking for no particular layout gets the one somebody promoted. That is
 	// what promoting means: the page comes out that way for everybody who did
 	// not ask for something else.
+	//
+	// Only a version whose file has gone falls back to the plain drawing —
+	// that case is deliberate, and StaleDefault says it out loud. State that
+	// cannot be read is not that case: swallowing it would make a decision
+	// somebody recorded appear to have evaporated, on every request, silently.
 	if want == "" {
-		if d, ok, err := s.store.DefaultFor(name); err == nil && ok {
-			if path, err := s.store.LayoutFor(name); err == nil && path != "" {
+		d, ok, err := s.store.DefaultFor(name)
+		if err != nil {
+			http.Error(w, "what this is drawn with cannot be read: "+err.Error(),
+				http.StatusInternalServerError)
+			return
+		}
+		if ok {
+			path, err := s.store.LayoutFor(name)
+			if err != nil {
+				http.Error(w, "what this is drawn with cannot be read: "+err.Error(),
+					http.StatusInternalServerError)
+				return
+			}
+			if path != "" {
 				want = d.Version
 			}
 		}
@@ -534,6 +555,13 @@ func (s *site) graph(w http.ResponseWriter, r *http.Request, full, page, name st
 }
 
 func (s *site) index(w http.ResponseWriter, r *http.Request) {
+	// Reading covers seeing what is saved for a diagram, and this page is a
+	// list of exactly that: which pages exist, what has been saved for each,
+	// and how much of it lands. /manage and /roles ask; this one did not.
+	if d := s.may(r, authz.Read, ""); !d.Allowed {
+		http.Error(w, d.Because, http.StatusForbidden)
+		return
+	}
 	pages, err := serve.Pages(s.pages)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

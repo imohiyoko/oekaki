@@ -98,6 +98,7 @@ func (s *Store) AllMeta() (map[string]Meta, error) {
 		return nil, err
 	}
 	out := make(map[string]Meta, len(entries))
+	var bad []string
 	for _, e := range entries {
 		name := strings.TrimSuffix(e.Name(), ".json")
 		if e.IsDir() || name == e.Name() {
@@ -105,9 +106,18 @@ func (s *Store) AllMeta() (map[string]Meta, error) {
 		}
 		m, err := s.Meta(name)
 		if err != nil {
+			// Skipping it quietly makes this disagree with every caller that
+			// reads one item at a time: the preview would show the item as
+			// visible to everyone while an actual request for it is refused,
+			// because that path fails closed on the same unreadable file.
+			bad = append(bad, name)
 			continue
 		}
 		out[name] = m
+	}
+	if len(bad) > 0 {
+		sort.Strings(bad)
+		return out, fmt.Errorf("cannot read what was written about %s", strings.Join(bad, ", "))
 	}
 	return out, nil
 }

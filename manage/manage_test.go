@@ -649,3 +649,57 @@ func TestNoAnnotationsYetIsStillJustEmpty(t *testing.T) {
 		t.Fatalf("%#v %v", got, err)
 	}
 }
+
+// Skipping an unreadable annotation quietly makes this disagree with every
+// caller that reads one item at a time: a preview built from here shows the
+// item as visible to everyone, while an actual request for it is refused
+// because that path fails closed on the same file.
+func TestAnAnnotationThatCannotBeReadIsNotSilentlySkipped(t *testing.T) {
+	s := store(t)
+	if _, err := s.Annotate("fine", Meta{Title: "readable"}, actor(), nil); err != nil {
+		t.Fatal(err)
+	}
+	bad := filepath.Join(s.Root(), metaDir, "broken.json")
+	if err := os.WriteFile(bad, []byte("{ not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.AllMeta()
+	if err == nil {
+		t.Fatalf("the unreadable one was skipped without a word: %#v", got)
+	}
+	if !strings.Contains(err.Error(), "broken") {
+		t.Fatalf("the complaint does not name it: %v", err)
+	}
+	// What could be read still comes back, so a caller can show both.
+	if got["fine"].Title != "readable" {
+		t.Fatalf("one bad file took the good ones with it: %#v", got)
+	}
+}
+
+// The file is already gone by the time the journal is written. Leaving the
+// pointer to it behind would draw the page plain from now on with nothing
+// saying why, and a journal that could not be written is not a reason to leave
+// the store inconsistent.
+func TestAFailedAuditDoesNotLeaveADefaultPointingAtNothing(t *testing.T) {
+	s := store(t)
+	save(t, s, "core", "wide")
+	if err := s.Promote("core", "wide", actor()); err != nil {
+		t.Fatal(err)
+	}
+	// Make the journal unwritable by putting a directory where the file goes.
+	if err := os.Remove(filepath.Join(s.Root(), journalFile)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(s.Root(), journalFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	err := s.Forget("core", "wide", actor())
+	if err == nil {
+		t.Fatal("the audit failure was not reported at all")
+	}
+	if _, ok, _ := s.DefaultFor("core"); ok {
+		t.Fatal("the default outlived the version it named because the journal failed")
+	}
+}

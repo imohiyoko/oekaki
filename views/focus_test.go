@@ -276,3 +276,103 @@ func TestFoldingAPairKeepsEachKindOfLineBetweenThem(t *testing.T) {
 		t.Fatalf("one of the two kinds was lost: %#v", got.Edges)
 	}
 }
+
+// nested is a hierarchical axis: a network holding two subnets, each holding a
+// machine, plus one machine directly in the network and one somewhere else.
+func nested() *core.Graph {
+	g := core.New()
+	g.Axes = []core.Axis{{ID: "network", Label: "network"}}
+	parent := "vpc-a"
+	g.Groups = []core.Group{
+		{ID: "vpc-a", Axis: "network", Type: "vpc", Label: "a"},
+		{ID: "sub-1", Axis: "network", Type: "subnet", Label: "1", Parent: &parent},
+		{ID: "sub-2", Axis: "network", Type: "subnet", Label: "2", Parent: &parent},
+		{ID: "vpc-b", Axis: "network", Type: "vpc", Label: "b"},
+	}
+	add := func(id, path string) {
+		g.Nodes = append(g.Nodes, core.Node{ID: id, Type: "thing", Name: id, Provider: "aws",
+			Groups: map[string]string{"network": path}})
+	}
+	add("direct", "vpc-a")
+	add("deep-1", "vpc-a/sub-1")
+	add("deep-2", "vpc-a/sub-2")
+	add("elsewhere", "vpc-b")
+	g.Edges = []core.Edge{
+		{From: "direct", To: "deep-1", Kind: core.EdgeIACRef, Relation: "remote_state"},
+		{From: "deep-1", To: "elsewhere", Kind: core.EdgeIACRef, Relation: "remote_state"},
+	}
+	g.Normalize()
+	return g
+}
+
+// A node records the whole path down to it, not the id of the group it sits
+// in, so a machine inside a subnet inside a network reads "vpc/subnet".
+// Comparing that against "vpc" matches nothing, and focusing on any container
+// that has containers of its own would fold its own contents away as though
+// they belonged to somebody else.
+func TestFocusingOnAContainerKeepsWhatIsNestedInsideIt(t *testing.T) {
+	got, err := Focus(nested(), "network", "vpc-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := map[string]bool{}
+	for _, n := range got.Nodes {
+		ids[n.ID] = true
+	}
+	for _, want := range []string{"direct", "deep-1", "deep-2"} {
+		if !ids[want] {
+			t.Fatalf("%q is inside the focused network and was folded away: %#v", want, ids)
+		}
+	}
+	if ids["elsewhere"] {
+		t.Fatalf("something outside survived as itself: %#v", ids)
+	}
+}
+
+// An edge between two things that are both inside must stay an edge between
+// them, not become a line to a box standing in for their own container.
+func TestAnEdgeBetweenANetworkAndItsOwnSubnetIsNotFolded(t *testing.T) {
+	got, err := Focus(nested(), "network", "vpc-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range got.Edges {
+		if e.From == "direct" && e.To == "deep-1" {
+			return
+		}
+	}
+	t.Fatalf("an edge inside the focus was folded: %#v", got.Edges)
+}
+
+// A box per subnet of somebody else's network is not one box; it is the
+// tangle this view exists to fold away.
+func TestWhatIsOutsideFoldsToItsOutermostContainer(t *testing.T) {
+	g := nested()
+	g.Nodes = append(g.Nodes, core.Node{ID: "other-deep", Type: "thing", Name: "other-deep",
+		Provider: "aws", Groups: map[string]string{"network": "vpc-b/sub-9"}})
+	sub9 := "vpc-b"
+	g.Groups = append(g.Groups, core.Group{ID: "sub-9", Axis: "network", Type: "subnet",
+		Label: "9", Parent: &sub9})
+	g.Edges = append(g.Edges, core.Edge{From: "direct", To: "other-deep",
+		Kind: core.EdgeIACRef, Relation: "remote_state"})
+	g.Normalize()
+
+	got, err := Focus(g, "network", "vpc-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range got.Nodes {
+		if n.ID == "vpc-b/sub-9" || n.ID == "sub-9" {
+			t.Fatalf("a subnet of another network got its own box: %#v", got.Nodes)
+		}
+	}
+	var found bool
+	for _, n := range got.Nodes {
+		if n.ID == "vpc-b" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the other network is not there at all: %#v", got.Nodes)
+	}
+}

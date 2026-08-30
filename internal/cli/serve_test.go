@@ -38,6 +38,30 @@ func testSite(t *testing.T) *site {
 		store: manage.At(state), mode: authz.ModeOf("local")}
 }
 
+// enforcing is a site that actually authorizes, so that a guard can be seen
+// working rather than only being present.
+func enforcing(t *testing.T) *site {
+	t.Helper()
+	s := testSite(t)
+	s.mode = authz.Mode{Auth: false, Enforce: true}
+	s.cfg.Roles = authz.Policy{
+		Roles: map[string][]authz.Rule{
+			"viewer": {{Permission: authz.Read, Effect: authz.Allow}},
+			"editor": {{Permission: authz.Read, Effect: authz.Allow},
+				{Permission: authz.Write, Effect: authz.Allow}},
+		},
+	}
+	if err := s.store.Grant("github:reader", []string{"viewer"}, manage.Actor{}, []string{"viewer", "editor"}); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+var (
+	asReader   = map[string]string{"X-Actor": "github:reader"}
+	asStranger = map[string]string{"X-Actor": "github:stranger"}
+)
+
 func ask(t *testing.T, s *site, method, path string, body string, headers map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
 	var r *http.Request
@@ -358,5 +382,83 @@ func TestTheRolesPageSaysWhenItCouldNotReadWhatPeopleWroteDown(t *testing.T) {
 	}
 	if !strings.Contains(got.Body.String(), "could not be read") {
 		t.Fatalf("it showed an empty set of limits without saying so:\n%s", got.Body.String())
+	}
+}
+
+// A page's graph is the page's data under another name. Authorizing it as
+// "core.graph" consults whatever somebody wrote about an item that does not
+// exist, so a limit on "core" does not apply and the whole graph can be
+// fetched by exactly the person refused the page it belongs to.
+func TestTheGraphOfAPageIsGuardedLikeThePage(t *testing.T) {
+	s := enforcing(t)
+	if _, err := s.store.Annotate("core", manage.Meta{ReadRoles: []string{"editor"}},
+		manage.Actor{}, []string{"viewer", "editor"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(s.pages, "core.graph.json"), []byte(servedGraph), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := ask(t, s, http.MethodGet, "/core.html", "", asReader); got.Code != http.StatusForbidden {
+		t.Fatalf("the page itself was not refused: %d", got.Code)
+	}
+	got := ask(t, s, http.MethodGet, "/core.graph.json", "", asReader)
+	if got.Code != http.StatusForbidden {
+		t.Fatalf("the graph came back %d to somebody refused the page: %s", got.Code, got.Body.String())
+	}
+}
+
+// Reading covers seeing what is saved for a diagram, and this page is a list
+// of exactly that.
+func TestTheListOfSavedLayoutsAsksTheSameQuestionTheOtherPagesDo(t *testing.T) {
+	s := enforcing(t)
+	got := ask(t, s, http.MethodGet, "/layouts", "", asStranger)
+	if got.Code != http.StatusForbidden {
+		t.Fatalf("a caller with no roles enumerated what is saved: %d", got.Code)
+	}
+	if ok := ask(t, s, http.MethodGet, "/layouts", "", asReader); ok.Code != http.StatusOK {
+		t.Fatalf("a reader was refused: %d %s", ok.Code, ok.Body.String())
+	}
+}
+
+// A version whose file has gone falls back to the plain drawing on purpose,
+// and StaleDefault says so. State that cannot be read is not that case:
+// swallowing it makes a recorded decision appear to evaporate, on every
+// request, with nothing saying why.
+func TestStateThatCannotBeReadIsNotTheQuietFallback(t *testing.T) {
+	s := testSite(t)
+	if err := os.WriteFile(filepath.Join(s.state, "defaults.json"), []byte("{ not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := ask(t, s, http.MethodGet, "/core.html", "", nil)
+	if got.Code != http.StatusInternalServerError {
+		t.Fatalf("a page came back %d with unreadable state behind it", got.Code)
+	}
+	if !strings.Contains(got.Body.String(), "cannot be read") {
+		t.Fatalf("%q", got.Body.String())
+	}
+}
+
+// The preview must not be able to say an item is visible to everyone while an
+// actual request for that item is refused, which is what happens when one path
+// skips an unreadable file and the other fails closed on it.
+func TestThePreviewAndTheRealAnswerDoNotDisagree(t *testing.T) {
+	s := enforcing(t)
+	path := filepath.Join(s.state, "meta", "core.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{ not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// The real answer refuses.
+	if got := ask(t, s, http.MethodGet, "/core.html", "", asReader); got.Code != http.StatusForbidden {
+		t.Fatalf("the page was served despite an unreadable limit: %d", got.Code)
+	}
+	// So the preview must not claim otherwise.
+	page := ask(t, s, http.MethodGet, "/roles", "", asReader)
+	if !strings.Contains(page.Body.String(), "could not be read") {
+		t.Fatalf("the preview said nothing about the file it could not read:\n%s", page.Body.String())
 	}
 }

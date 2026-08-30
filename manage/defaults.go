@@ -133,9 +133,11 @@ func (s *Store) Forget(page, name string, who Actor) error {
 	if err := serve.Remove(s.root, page, name); err != nil {
 		return err
 	}
-	if _, err := s.Record(who, ActionForget, page, map[string]any{"version": name}); err != nil {
-		return err
-	}
+	// Recording comes first but must not be able to stop what follows. The
+	// file is already gone; leaving the pointer to it behind would draw the
+	// page plain from now on with nothing saying why, and a journal that could
+	// not be written is not a reason to leave the store inconsistent.
+	_, journal := s.Record(who, ActionForget, page, map[string]any{"version": name})
 
 	current, ok, err := s.DefaultFor(page)
 	if err != nil {
@@ -146,7 +148,7 @@ func (s *Store) Forget(page, name string, who Actor) error {
 			return err
 		}
 	}
-	return nil
+	return journal
 }
 
 // LayoutFor is the file a page should be drawn with, or empty if none.

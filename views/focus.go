@@ -3,6 +3,7 @@ package views
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/imohiyoko/oekaki/core"
 )
@@ -36,9 +37,18 @@ func Focus(g *core.Graph, axis, group string) (*core.Graph, error) {
 		return nil, fmt.Errorf("no group %q on the %s axis", group, axis)
 	}
 
+	// A node records the whole path down to it, not the id of the group it
+	// sits in, so a vpc holding subnets holding instances gives the instances
+	// "vpc/subnet". Comparing that to "vpc" matches nothing, and focusing on
+	// any container that has containers of its own would fold its own contents
+	// away as though they belonged to somebody else.
+	path, err := g.GroupPath(group)
+	if err != nil {
+		return nil, err
+	}
 	inside := map[string]bool{}
 	for _, n := range g.Nodes {
-		if n.Groups[axis] == group {
+		if within(n.Groups[axis], path) {
 			inside[n.ID] = true
 		}
 	}
@@ -112,15 +122,15 @@ func Focus(g *core.Graph, axis, group string) (*core.Graph, error) {
 			continue
 		}
 		if !fromIn {
-			owner, ok := groupOf(g, axis, from)
-			if !ok || owner == group {
+			owner, ok := outermost(g, axis, from)
+			if !ok {
 				continue
 			}
 			from = standIn(owner)
 		}
 		if !toIn {
-			owner, ok := groupOf(g, axis, to)
-			if !ok || owner == group {
+			owner, ok := outermost(g, axis, to)
+			if !ok {
 				continue
 			}
 			to = standIn(owner)
@@ -149,6 +159,28 @@ func Focus(g *core.Graph, axis, group string) (*core.Graph, error) {
 
 	out.Normalize()
 	return out, out.Validate()
+}
+
+// within reports whether a node's group path is at or below the focused one.
+func within(got, path string) bool {
+	return got == path || strings.HasPrefix(got, path+core.GroupSeparator)
+}
+
+// outermost is the top container a node sits under on this axis.
+//
+// Everything outside the focus becomes one box, and a box per subnet of
+// somebody else's network is not one box — it is the tangle this view exists
+// to fold away. The outermost container is the coarsest honest answer to
+// "where does this live", which is all a drawing that is not about it needs.
+func outermost(g *core.Graph, axis, id string) (string, bool) {
+	got, ok := groupOf(g, axis, id)
+	if !ok {
+		return "", false
+	}
+	if cut := strings.Index(got, core.GroupSeparator); cut >= 0 {
+		got = got[:cut]
+	}
+	return got, true
 }
 
 // groupOf is which group a node belongs to on this axis, if any.
