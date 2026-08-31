@@ -822,7 +822,8 @@
   // one lane's order keeps the bundle nested. Adding the two orders together —
   // which is what this did at first — mixes two orderings that have nothing to
   // do with each other, and the lines cross where they disagree: measured on
-  // the estate's main account, 91 crossings became 120.
+  // a busy box, adding the two orders together left more crossings than
+  // having no ordering at all, and this one roughly halves them.
   const channelOf = (r) => 1 - 2 * ((r.targetLane || 1) >= (r.sourceLane || 1) ? r.targetAt : r.sourceAt);
 
   function curveBetween(a, b, fromSide, toSide, channel, bypass) {
@@ -943,8 +944,8 @@
     }
 
     // Lines that meet the same side of the same box share it out. Without
-    // this every line on a box that moved lands on one point: measured on the
-    // estate's main account, thirty lines on two points.
+    // this they all arrive at the same anchor, however many of them there are
+    // — measured on a busy box, every line stacked on one point per side.
     const lanes = new Map();
     const lane = (id, side) => {
       const k = id + '\u0000' + side;
@@ -2232,7 +2233,7 @@
   });
 
   // Curves or right angles, for the whole diagram. It is a switch rather than
-  // a per-line chore: a page of 194 lines is not made orthogonal one line at a
+  // a per-line chore: a dense page is not made orthogonal one line at a
   // time. It sits with the authoring controls because it is authored — it is
   // written into the layout document and read back with --layout.
   let shapeSwitch = document.createElement('div');
@@ -2355,8 +2356,8 @@
   //
   // Selecting, deselecting and highlighting do not come here. They move
   // nothing, and sending them through a layout is what used to make a click
-  // that changed one highlight cost 90ms on the estate diagram and 167ms on
-  // the account one. maxGraph redraws the cells that changed; that is the
+  // that changed one highlight cost a substantial fraction of a second on a
+  // large diagram. maxGraph redraws the cells that changed; that is the
   // whole of what those gestures now cost.
   async function render() {
     const mine = ++generation;
