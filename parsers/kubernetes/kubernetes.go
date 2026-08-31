@@ -58,8 +58,17 @@ type Result struct {
 	Documents int
 
 	// MinimumRelease is the oldest Kubernetes release that serves every
-	// apiVersion in the input. Empty when nothing recognised was found.
+	// apiVersion in the input. Empty when nothing recognised was found, and
+	// empty when no release serves them all: see Incompatible.
 	MinimumRelease string
+
+	// Incompatible is set when the input mixes apiVersions that no single
+	// release serves — something here needs a cluster at or past the release
+	// that stopped serving something else here. The floor and the ceiling are
+	// reported so the contradiction can be read rather than guessed at.
+	Incompatible bool
+	Floor        string
+	Ceiling      string
 
 	// Removed lists objects whose apiVersion is no longer served by
 	// SupportedThrough, and Unknown those whose apiVersion this parser does
@@ -107,9 +116,23 @@ func Parse(raw []byte, opts Options) (*Result, error) {
 		if !o.known {
 			res.Unknown = append(res.Unknown, o.id())
 		}
-		if o.known && compare(o.api.Since, res.MinimumRelease) > 0 {
-			res.MinimumRelease = o.api.Since
+		if !o.known {
+			continue
 		}
+		if compare(o.api.Since, res.Floor) > 0 {
+			res.Floor = o.api.Since
+		}
+		if o.api.Removed != "" && (res.Ceiling == "" || compare(o.api.Removed, res.Ceiling) < 0) {
+			res.Ceiling = o.api.Removed
+		}
+	}
+	// The releases that accept all of this are [floor, ceiling). When the
+	// ceiling is at or below the floor that interval is empty: one object
+	// needs a release that another object was already removed from. Reporting
+	// the floor anyway would name a cluster that will refuse half the input.
+	res.Incompatible = res.Ceiling != "" && res.Floor != "" && compare(res.Floor, res.Ceiling) >= 0
+	if !res.Incompatible {
+		res.MinimumRelease = res.Floor
 	}
 	g.Metadata.SourceVersion = res.MinimumRelease
 
@@ -161,7 +184,12 @@ func decode(raw []byte, opts Options) ([]object, error) {
 				continue
 			}
 			o.api, o.known = lookup(o.apiVersion, o.kind)
-			if o.namespace == "" && o.kind != "Namespace" {
+			// The default namespace is only supplied for kinds known to live
+			// in one. A ClusterRole or a PersistentVolume does not, and a kind
+			// this build has never heard of might not either — filing one
+			// under `default` would put it in a namespace that never held it,
+			// and the diagram would not admit the guess.
+			if o.namespace == "" && o.known && o.api.Namespaced {
 				o.namespace = opts.DefaultNamespace
 				if o.namespace == "" {
 					o.namespace = "default"
@@ -227,7 +255,7 @@ func add(g *core.Graph, o *object, opts Options) {
 		Type:     strings.ToLower(o.kind),
 		Name:     o.name,
 		Provider: "kubernetes",
-		Groups:   map[string]string{core.AxisNetwork: namespaceID(o.namespace)},
+		Groups:   placement(o.namespace),
 		Attrs:    attrs,
 		Source:   source(opts, o.line),
 	})
@@ -282,26 +310,27 @@ func selects(g *core.Graph, svc *object, all []object) {
 // repository that needs to see it drawn.
 func routes(g *core.Graph, ing *object, all []object) {
 	backends := map[string]string{}
-	collect := func(backend any, host, path string) {
+	collect := func(backend any, where string) {
 		name := str(backend, "service", "name")
 		if name == "" {
 			name = str(backend, "serviceName")
 		}
-		if name == "" {
-			return
+		if name != "" {
+			backends[name] = where
 		}
-		where := host + path
-		if where == "" {
-			where = "default backend"
-		}
-		backends[name] = where
 	}
-	collect(dig(ing.body, "spec", "defaultBackend"), "", "")
-	collect(dig(ing.body, "spec", "backend"), "", "")
+	collect(dig(ing.body, "spec", "defaultBackend"), "default backend")
+	collect(dig(ing.body, "spec", "backend"), "default backend")
 	for _, rule := range seq(ing.body, "spec", "rules") {
-		host := str(rule, "host")
 		for _, p := range seq(rule, "http", "paths") {
-			collect(dig(p, "backend"), host, str(p, "path"))
+			// A rule that names neither host nor path still is not the
+			// default backend: it catches everything, which is a different
+			// statement from catching what nothing else did.
+			where := str(rule, "host") + str(p, "path")
+			if where == "" {
+				where = "any host and path"
+			}
+			collect(dig(p, "backend"), where)
 		}
 	}
 	for _, name := range sortedKeys(backends) {
@@ -356,6 +385,17 @@ func mounts(g *core.Graph, o *object, spec any, all []object, opts Options) {
 		case str(v, "persistentVolumeClaim", "claimName") != "":
 			refs = append(refs, ref{"PersistentVolumeClaim", str(v, "persistentVolumeClaim", "claimName"), "mounts", "volume " + str(v, "name")})
 		}
+		// A projected volume holds the same references one level further in,
+		// and names its Secret `name` rather than `secretName`. A workload
+		// that mounts its config this way depends on it exactly as much.
+		for _, src := range seq(v, "projected", "sources") {
+			if n := str(src, "configMap", "name"); n != "" {
+				refs = append(refs, ref{"ConfigMap", n, "reads", "projected volume " + str(v, "name")})
+			}
+			if n := str(src, "secret", "name"); n != "" {
+				refs = append(refs, ref{"Secret", n, "reads", "projected volume " + str(v, "name")})
+			}
+		}
 	}
 	for _, s := range seq(spec, "imagePullSecrets") {
 		if n := str(s, "name"); n != "" {
@@ -402,13 +442,17 @@ func reference(g *core.Graph, all []object, kind, namespace, name string) string
 	}
 	if _, ok := g.Node(want); !ok {
 		ensureNamespace(g, namespace, nil)
+		attrs := map[string]any{"kind": kind, "declared_only": true}
+		if namespace != "" {
+			attrs["namespace"] = namespace
+		}
 		g.Nodes = append(g.Nodes, core.Node{
 			ID:       want,
 			Type:     strings.ToLower(kind),
 			Name:     name,
 			Provider: "kubernetes",
-			Groups:   map[string]string{core.AxisNetwork: namespaceID(namespace)},
-			Attrs:    map[string]any{"kind": kind, "namespace": namespace, "declared_only": true},
+			Groups:   placement(namespace),
+			Attrs:    attrs,
 		})
 	}
 	return want
@@ -435,6 +479,15 @@ func ensureNamespace(g *core.Graph, name string, src *core.Source) {
 // namespaceID keeps the separator out of a group id, which the IR reserves for
 // group paths.
 func namespaceID(name string) string { return "namespace:" + name }
+
+// placement puts a namespaced object in its namespace and leaves a
+// cluster-scoped one at the top level, where it belongs.
+func placement(namespace string) map[string]string {
+	if namespace == "" {
+		return nil
+	}
+	return map[string]string{core.AxisNetwork: namespaceID(namespace)}
+}
 
 func edge(g *core.Graph, from, to, relation string, attrs map[string]any) {
 	if from == "" || to == "" || from == to {

@@ -1,0 +1,38 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: reader
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get"]
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: archive
+spec:
+  capacity:
+    storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout
+  namespace: shop
+spec:
+  template:
+    metadata:
+      labels: {app: checkout}
+    spec:
+      volumes:
+      - name: bundle
+        projected:
+          sources:
+          - configMap:
+              name: trust-bundle
+          - secret:
+              name: signing-key
+      containers:
+      - name: checkout
+        image: registry.example/checkout:1.4.0

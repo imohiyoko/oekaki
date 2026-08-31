@@ -999,6 +999,10 @@ func loadManifests(env Env, path string, raw []byte, scope string) (*core.Graph,
 		fmt.Fprintf(env.Stderr, ", oldest cluster that serves them all: %s", res.MinimumRelease)
 	}
 	fmt.Fprintln(env.Stderr)
+	if res.Incompatible {
+		fmt.Fprintf(env.Stderr, "  no release serves all of them: something needs %s or later, and %s stopped serving something else here\n",
+			res.Floor, res.Ceiling)
+	}
 	if len(res.Removed) > 0 {
 		fmt.Fprintf(env.Stderr, "  %d on an apiVersion no longer served: %s\n",
 			len(res.Removed), summarise(res.Removed))

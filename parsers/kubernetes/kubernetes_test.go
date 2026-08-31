@@ -219,6 +219,79 @@ func TestMinimumReleaseIsTheNewestAPIVersion(t *testing.T) {
 	}
 }
 
+// A ClusterRole, a PersistentVolume and a CustomResourceDefinition do not live
+// in a namespace. Giving them the default one files them under a namespace
+// that never contained them, and the diagram shows it as fact.
+func TestClusterScopedObjectsGetNoNamespace(t *testing.T) {
+	raw, err := os.ReadFile("testdata/cluster-scoped.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := Parse(raw, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := res.Graph
+
+	// PersistentVolume is in the table as cluster-scoped; ClusterRole is not
+	// in the table at all, and an unknown kind with no namespace of its own
+	// must not be assumed into one either.
+	for _, id := range []string{"persistentvolume/archive", "clusterrole/reader"} {
+		n, ok := g.Node(id)
+		if !ok {
+			t.Fatalf("%s is missing: a cluster-scoped object was filed under a namespace", id)
+		}
+		if n.Groups[core.AxisNetwork] != "" {
+			t.Errorf("%s was placed in %q", id, n.Groups[core.AxisNetwork])
+		}
+		if n.Attrs["namespace"] != nil {
+			t.Errorf("%s carries a namespace it does not have", id)
+		}
+	}
+	if _, ok := g.Group("namespace:default"); ok {
+		t.Error("a default namespace was invented for objects that have none")
+	}
+}
+
+// A projected volume holds the same references one level further in, and names
+// its Secret `name` rather than `secretName`. A workload that mounts its config
+// this way depends on it exactly as much as one that does not.
+func TestProjectedVolumeReferencesAreRead(t *testing.T) {
+	raw, err := os.ReadFile("testdata/cluster-scoped.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := Parse(raw, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const from = "deployment/shop/checkout"
+	if !hasEdge(res.Graph, from, "configmap/shop/trust-bundle", "reads") {
+		t.Error("a ConfigMap projected into a volume was not read")
+	}
+	if !hasEdge(res.Graph, from, "secret/shop/signing-key", "reads") {
+		t.Error("a Secret projected into a volume was not read")
+	}
+}
+
+// The releases that accept a document set are [floor, ceiling): the newest
+// apiVersion sets the floor, the earliest removal sets the ceiling. When they
+// cross, no cluster runs all of it, and naming the floor anyway would promise
+// a release that will refuse half the input.
+func TestNoReleaseServesEveryAPIVersion(t *testing.T) {
+	res := parseFile(t, "testdata/mixed-eras.yaml")
+
+	if !res.Incompatible {
+		t.Fatal("a set no release serves was reported as compatible")
+	}
+	if res.MinimumRelease != "" || res.Graph.Metadata.SourceVersion != "" {
+		t.Errorf("a minimum release was reported for a set that has none: %q", res.MinimumRelease)
+	}
+	if res.Floor != "1.23" || res.Ceiling != "1.22" {
+		t.Errorf("floor/ceiling = %q/%q, want 1.23/1.22", res.Floor, res.Ceiling)
+	}
+}
+
 // `kubectl get -o yaml` returns a List when it is asked for more than one
 // object, and ownerReferences are the only thing that puts a live ReplicaSet
 // under the Deployment that made it.

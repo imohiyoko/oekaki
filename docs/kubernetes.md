@@ -56,9 +56,23 @@ in the input — a Secret nobody committed — becomes a node with
 `declared_only`, because a dependency on something absent is the most useful
 thing this graph can show.
 
+A cluster-scoped object — a ClusterRole, a PersistentVolume, a
+CustomResourceDefinition — is left outside every namespace rather than filed
+under `default`. So is an object of a kind not in the table that names no
+namespace of its own: the scope is genuinely unknown there, and a guess would
+be drawn as a fact.
+
 `metadata.source_version` on the resulting graph is the **oldest Kubernetes
 release that serves every apiVersion in the input**: the floor of what a
 cluster must be running to accept these manifests.
+
+The releases that accept a whole document set are the interval
+`[floor, ceiling)` — the newest apiVersion sets the floor, the earliest
+removal sets the ceiling. These can cross. A set holding both
+`autoscaling/v2`, which arrived in 1.23, and an `extensions/v1beta1` Ingress,
+which stopped being served in 1.22, is one no cluster runs. `source_version`
+is then left empty and the contradiction is reported, because naming 1.23
+there would promise a release that refuses half the input.
 
 ## Supported apiVersions
 

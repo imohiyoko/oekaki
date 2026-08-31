@@ -100,9 +100,11 @@ func TestDocumentMatchesTheTable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Markdown()
-	if !strings.Contains(string(raw), want) {
-		t.Errorf("%s is out of date. Replace the generated block with:\n\n%s", doc, want)
+	// Compared exactly rather than by containment: a stale row left below the
+	// generated block would still be found by a search, and the document
+	// would go on advertising an apiVersion nothing recognises.
+	if got, want := tableBlock(t, string(raw)), Markdown(); got != want {
+		t.Errorf("%s is out of date.\n\nhas:\n%s\nwants:\n%s", doc, got, want)
 	}
 	if !strings.Contains(string(raw), SupportedThrough) {
 		t.Errorf("%s does not name the release the table was checked against", doc)
@@ -122,6 +124,24 @@ func TestReleasesCompareNumerically(t *testing.T) {
 	if api.Served("1.25") || !api.Served("1.24") {
 		t.Error("a removed apiVersion is served in the wrong releases")
 	}
+}
+
+// tableBlock returns the run of table rows the document carries, from the
+// header to the first line that is not one.
+func tableBlock(t *testing.T, raw string) string {
+	t.Helper()
+	start := strings.Index(raw, "| apiVersion |")
+	if start < 0 {
+		t.Fatalf("%s has no generated table", doc)
+	}
+	var b strings.Builder
+	for _, line := range strings.Split(raw[start:], "\n") {
+		if !strings.HasPrefix(line, "|") {
+			break
+		}
+		b.WriteString(line + "\n")
+	}
+	return b.String()
 }
 
 func claims(a API, what string) bool {
