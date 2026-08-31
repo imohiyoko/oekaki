@@ -436,8 +436,8 @@ func TestSeveralBoxesCanBePickedUpAtOnce(t *testing.T) {
 
 // Which side of a box a line met was never written down: it fell out of ELK's
 // route and went with it. Moving one box put every line on it through the same
-// two points — measured at thirty lines on two points — and nothing could say
-// otherwise.
+// two points — measured on a busy box, every one of its lines on two points —
+// and nothing could say otherwise.
 func TestALineIsGivenASideOfEachBox(t *testing.T) {
 	app := string(Assets(nil)[AssetApp])
 
@@ -489,8 +489,9 @@ func TestLinesDoNotRunOnTopOfEachOther(t *testing.T) {
 	}
 	// Order matters as much as spacing. The channel comes from one lane, in
 	// that lane's own order, so the bundle nests. Adding the two lanes'
-	// orders together crosses the lines wherever they disagree: measured,
-	// 91 crossings without channels became 120, and 49 with this ordering.
+	// orders together crosses the lines wherever they disagree: measured, that
+	// left more crossings than no ordering at all, and this one roughly halves
+	// them.
 	if !strings.Contains(app, "m.r[m.role + 'Lane'] = members.length;") {
 		t.Error("there is nothing to tell which of a line's two lanes is the crowded one")
 	}
