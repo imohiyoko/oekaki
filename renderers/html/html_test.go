@@ -435,9 +435,9 @@ func TestSeveralBoxesCanBePickedUpAtOnce(t *testing.T) {
 }
 
 // Which side of a box a line met was never written down: it fell out of ELK's
-// route and went with it. Moving one box put every line on it through the same
-// two points — measured on a busy box, every one of its lines on two points —
-// and nothing could say otherwise.
+// route and went with it. Moving one box sent every line on it through the
+// same anchor — measured on a busy box, all of them stacked on one point per
+// side — and nothing could say otherwise.
 func TestALineIsGivenASideOfEachBox(t *testing.T) {
 	app := string(Assets(nil)[AssetApp])
 

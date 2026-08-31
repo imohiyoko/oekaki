@@ -944,8 +944,8 @@
     }
 
     // Lines that meet the same side of the same box share it out. Without
-    // this every line on a box that moved lands on one point, however many of
-    // them there are — measured on a busy box, all of them on two points.
+    // this they all arrive at the same anchor, however many of them there are
+    // — measured on a busy box, every line stacked on one point per side.
     const lanes = new Map();
     const lane = (id, side) => {
       const k = id + '\u0000' + side;
