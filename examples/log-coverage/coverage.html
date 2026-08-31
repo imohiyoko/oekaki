@@ -233,11 +233,13 @@ body[data-mode="edit"] .hint-edit { display: inline; }
       <button id="spread-x" type="button" title="Even horizontal gaps">↔</button>
       <button id="spread-y" type="button" title="Even vertical gaps">↕</button>
     </div>
+    <button id="tidy" type="button" title="Lay the diagram out again and keep the best result">整列</button>
     <button id="add-node" type="button">Add box</button>
   </div>
   <button id="fit" type="button" title="Fit the whole diagram">全体</button>
   <button id="export" hidden>Export overlay</button>
 
+  <button id="make-default" hidden title="Draw this page with the saved version from now on, for everybody">既定にする</button>
   <button id="copy" hidden>Copy JSON</button>
 </header>
 
@@ -8083,6 +8085,10 @@ module.exports = Worker;
   // whole canvas. This is every drawn box and container in the one coordinate
   // system a route can be written in.
   const absRect = new Map();
+  // Where the layout put each box, kept apart from where it ended up. A box a
+  // hand moved has both: this is the answer the engine gave, which is what a
+  // fresh layout document is made of.
+  const computed = new Map();
   let fitted = false;
   let minK = 0.1;
 
@@ -8131,6 +8137,7 @@ module.exports = Worker;
     edgeEnds.clear();
     elkRoutes.clear();
     absRect.clear();
+    computed.clear();
     board.getDataModel().clear();
     const root = board.getDefaultParent();
     const edges = [];
@@ -8154,6 +8161,10 @@ module.exports = Worker;
     else if (selectedEdge && edgeCells.has(selectedEdge)) highlight(edgeCells.get(selectedEdge));
 
     if (!fitted) fitted = fit(laid);
+    // A layout has just landed, so there is now a picture to hand over. The
+    // control that offers it is decided from what exists, and until this ran
+    // nothing did.
+    syncTools();
     document.getElementById('status').textContent = summary();
   }
 
@@ -8171,6 +8182,19 @@ module.exports = Worker;
       // box was placed by hand.
       const geo = cell.getGeometry();
       absRect.set(idOf(cell), {x: ax + geo.x, y: ay + geo.y, w: geo.width, h: geo.height});
+      // Where the box would have gone if nobody had touched it, written in
+      // the same terms a layout document uses: relative to whatever contains
+      // it, named by that container. Nothing recorded this before, and it is
+      // the reason reading a diagram could not produce a layout — the only
+      // positions the page could name were the ones a hand had already moved,
+      // so the document came out empty and the control was hidden.
+      if (c.infra.kind === 'node') {
+        computed.set(idOf(cell), {
+          id: idOf(cell),
+          parent: String(parent.id || '').startsWith('group:') ? idOf(parent) : undefined,
+          x, y,
+        });
+      }
       placeChildren(cell, c, ax + geo.x, ay + geo.y, edges);
       for (const e of c.edges || []) edges.push({e, ox: ax + x, oy: ay + y});
     }
@@ -9585,7 +9609,21 @@ module.exports = Worker;
     }, null, 2) + '\n';
   }
 
-  function layoutDocument() {
+  // asDrawn is every box where it is on screen right now, whether a hand put
+  // it there or the engine did. A hand's answer wins where there is one: it
+  // was chosen, and the engine's was only computed.
+  //
+  // It is what reading a diagram has to be able to hand over. The alternative
+  // — the hand-moved boxes alone — is empty for somebody who has not moved
+  // anything, which is everybody who is only reading, and a document with no
+  // positions in it places nothing.
+  function asDrawn() {
+    const out = new Map(computed);
+    for (const [id, at] of positions) out.set(id, at);
+    return out;
+  }
+
+  function layoutDocument(from) {
     // Written in the words the IR uses for a line rather than the encoded name
     // this page indexes it under: the document is meant to be read, and edited,
     // by whoever exported it.
@@ -9598,10 +9636,19 @@ module.exports = Worker;
     })).sort((a, b) => edgeKey(a).localeCompare(edgeKey(b)));
 
     return JSON.stringify({kind: 'oekaki.layout', version: '0.2',
-      nodes: [...positions.values()].map((n) => {
+      nodes: [...(from || positions).values()].map((n) => {
         const size = sizes.get(n.id);
-        return size ? {...n, ...(size.width ? {width: size.width} : {}),
-          ...(size.height ? {height: size.height} : {})} : n;
+        // Rounded, because a position is a pixel and the sixteen digits the
+        // engine hands back are not sixteen digits of anything. The document
+        // says it is meant to be read and edited by whoever exported it, and
+        // it now carries every box rather than the two or three somebody
+        // moved — so the difference between 1284.5553165584414 and 1285 is
+        // the difference between a file a person can work in and one they
+        // cannot. It also makes the round trip stable: what is exported and
+        // read back exports again unchanged.
+        const at = {...n, x: Math.round(n.x), y: Math.round(n.y)};
+        return size ? {...at, ...(size.width ? {width: size.width} : {}),
+          ...(size.height ? {height: size.height} : {})} : at;
       }).sort((a, b) => a.id.localeCompare(b.id)),
       ...(lineShape === 'curved' ? {} : {lines: lineShape}),
       ...(edges.length ? {edges} : {}),
@@ -9630,38 +9677,109 @@ module.exports = Worker;
   // is the whole difference between a round trip and a downloads folder: the
   // file goes where the page came from, under the name it was opened as, and
   // nobody has to remember a path.
-  const layoutPost = document.body.dataset.layoutPost;
-  const overlayPost = document.body.dataset.overlayPost;
+  //
+  // These are not const because a save under no particular name gets given
+  // one, and from then on this page is that version — see savedAs.
+  let layoutPost = document.body.dataset.layoutPost;
+  let overlayPost = document.body.dataset.overlayPost;
+  const defaultPost = document.body.dataset.defaultPost;
   if (layoutPost) layoutExport.textContent = 'Save';
+
+  // The name the page is saving under. Empty until a save happens on a page
+  // that was opened without one.
+  let savedAs = new URLSearchParams(location.search).get('layout') || '';
 
   async function post(url, text) {
     const r = await fetch(url, {method: 'POST',
       headers: {'Content-Type': 'application/json'}, body: text});
     if (!r.ok) throw new Error(await r.text());
-    return r.text();
+    return {said: await r.text(), name: r.headers.get('Oekaki-Name') || ''};
+  }
+
+  // savedUnder is what makes a save survive the reload after it.
+  //
+  // Saving without a name gets one made up from the clock at the other end,
+  // and until the page is told what it was, the version it just wrote is
+  // unreachable: the url it would reload under does not name it, and nothing
+  // on screen says what to type. The work was on disk and gone at the same
+  // time, which is the worst of both.
+  //
+  // So the name goes into the url, and into where the next save is sent —
+  // otherwise every press leaves another minute-stamped copy behind and the
+  // one before it is the one that is still promoted.
+  function savedUnder(name) {
+    if (!name || name === savedAs) return;
+    savedAs = name;
+    layoutPost = layoutPost.replace(/\/[^/]*$/, '/' + encodeURIComponent(name));
+    // Only an overlay that was not opened under a name of its own follows the
+    // layout's. One that was is somebody else's document, and moving it would
+    // leave whatever pointed at it pointing at nothing.
+    if (overlayPost && overlayPost.endsWith('/')) overlayPost += encodeURIComponent(name);
+    const url = new URL(location.href);
+    url.searchParams.set('layout', name);
+    history.replaceState(null, '', url);
+    syncTools();
   }
 
   layoutExport.addEventListener('click', async () => {
-    if (!layoutPost) { saveDocument(layoutDocument(), 'layout.json'); return; }
+    // Reading, the button hands over a file and asks the server for nothing.
+    // Editing is a mode, not a modifier: a page being read does not write.
+    if (!layoutPost || !editing) { saveDocument(layoutDocument(asDrawn()), 'layout.json'); return; }
     // A box drawn here has two facts about it: that it exists, which only an
     // overlay carries, and where it sits, which only a layout carries. Saving
     // one without the other loses half of it, and the half that goes is the
     // box itself. So one press saves both.
     try {
-      const said = [await post(layoutPost, layoutDocument())];
+      // The whole picture, not only the boxes a hand moved. What comes back
+      // on the next reload is then what was on screen when the button was
+      // pressed — including an arrangement the engine chose, which nothing
+      // else records and which would otherwise be gone.
+      const first = await post(layoutPost, layoutDocument(asDrawn()));
+      const said = [first.said];
+      // Named before the overlay goes, so both halves are filed under the one
+      // name. Opening a layout whose overlay answers to something else brings
+      // back positions for boxes that are not there.
+      savedUnder(first.name);
       if (pending.length > 0 && overlayPost) {
-        said.push(await post(overlayPost, overlayDocument()));
+        said.push((await post(overlayPost, overlayDocument())).said);
       }
       flash(said.join(', '));
     } catch (err) { flash('not saved: ' + err.message); }
   });
 
+  // Making a saved version the one everybody gets is its own press, and not
+  // part of saving.
+  //
+  // Saving is private: it writes a file nobody else is looking at, and the
+  // journal deliberately does not record it. Promoting changes what this page
+  // draws for the next person who opens it, and is recorded. Folding the
+  // second into the first would mean every stray press of Save rewrote the
+  // diagram out from under whoever else had it open, and there would be no
+  // way left to save without doing that.
+  const makeDefault = document.getElementById('make-default');
+  if (makeDefault) {
+    makeDefault.addEventListener('click', async () => {
+      if (!defaultPost || !savedAs) return;
+      try {
+        const r = await fetch(defaultPost + encodeURIComponent(savedAs), {method: 'POST'});
+        const said = await r.text();
+        if (!r.ok) throw new Error(said);
+        flash(said);
+      } catch (err) { flash('not set: ' + err.message); }
+    });
+  }
+
   /* ---- mode ------------------------------------------------------------
-     Read mode hides the export controls rather than merely refusing the
-     gestures. A button that offers to export nothing is the part that made
-     the old page ambiguous: a plain click on a box counted as a placement and
-     put "Export layout" on screen, so the page looked as though something had
-     been authored when nothing had. */
+     Read mode hides the controls that author something rather than merely
+     refusing the gestures. A button that offers to export nothing is the part
+     that made the old page ambiguous: a plain click on a box counted as a
+     placement and put "Export layout" on screen, so the page looked as though
+     something had been authored when nothing had.
+
+     Handing over the layout is no longer one of those. It says where the
+     boxes are, which is true of a diagram nobody has touched, so it is
+     offered in both modes — and while reading it writes a file rather than
+     posting one, because reading does not write. */
 
   const readButton = document.getElementById('mode-read');
   const editButton = document.getElementById('mode-edit');
@@ -9788,9 +9906,20 @@ module.exports = Worker;
     }
     document.getElementById('export').hidden = !editing || !claims;
     document.getElementById('copy').hidden = !editing || !claims;
-    layoutExport.hidden = !editing
-      || (positions.size === 0 && sizes.size === 0 && edgeAnchors.size === 0
-        && lineShape === 'curved' && !(claims && layoutPost));
+    // Offered as soon as there is a drawing to hand over, in either mode.
+    //
+    // It used to be hidden while reading, and the reason was sound at the
+    // time: the document was the boxes a hand had moved, so reading — where
+    // nothing has been moved — could only ever have exported a document that
+    // placed nothing, and a button offering that is worse than no button. Now
+    // it exports what is on screen, which is exactly what somebody reading a
+    // diagram and wanting its layout is asking for.
+    layoutExport.hidden = computed.size === 0 && positions.size === 0;
+    // Making a version the one everybody gets needs a version. Until this
+    // page has saved one there is nothing to point at, and a server that
+    // takes no decisions has nowhere to send it.
+    const makeDefaultButton = document.getElementById('make-default');
+    if (makeDefaultButton) makeDefaultButton.hidden = !editing || !defaultPost || !savedAs;
   }
 
   function setMode(next) {
@@ -9900,6 +10029,216 @@ module.exports = Worker;
       throw err;
     }
   }
+
+  /* ---- scoring a layout -------------------------------------------------
+     What makes one of these pictures hard to read is measurable, and until
+     now nothing measured it: the engine was asked for an answer with one set
+     of options and whatever came back was the diagram.
+
+     Four numbers, because they are the four complaints. A line that turns
+     six times is followed by nobody. Lines crossing each other is the thing
+     that turns a diagram into a hairball. Long lines are travel with nothing
+     said along the way. And a drawing taller than the screen is read a
+     third at a time.
+
+     This is not a layout engine and must not become one — ELK is better at
+     that than this project will ever be. It is a way to ask ELK several
+     times and keep the answer that reads best. */
+
+  // segments walks the laid-out tree and yields every drawn line in one
+  // coordinate system.
+  //
+  // ELK writes an edge's route relative to whatever container it attached the
+  // edge to, which is not the container either endpoint sits in — the same
+  // offset placeChildren carries for the same reason. Measuring without
+  // applying it compares lines that were never drawn together.
+  function segments(laid) {
+    const out = [];
+    const walk = (container, ox, oy) => {
+      for (const e of container.edges || []) {
+        for (const s of e.sections || []) {
+          const points = [s.startPoint, ...(s.bendPoints || []), s.endPoint]
+            .filter(Boolean).map((p) => ({x: ox + p.x, y: oy + p.y}));
+          for (let i = 1; i < points.length; i++) out.push([points[i - 1], points[i]]);
+        }
+      }
+      for (const c of container.children || []) {
+        walk(c, ox + (c.x || 0), oy + (c.y || 0));
+      }
+    };
+    walk(laid, 0, 0);
+    return out;
+  }
+
+  // How much work a line does on its way across.
+  //
+  // Drawn with right angles these are corners, and the count is literally how
+  // many times the line turns. Drawn as curves they are the control points of
+  // the spline, which is a larger number for the same picture — a wigglier
+  // route needs more of them, so it still ranks routes against each other,
+  // but the two shapes are not on the same scale. Nothing here compares
+  // across a change of shape: every candidate is laid out with whichever one
+  // the page is currently drawing.
+  const bendCount = (laid) => {
+    let n = 0;
+    const walk = (c) => {
+      for (const e of c.edges || []) for (const s of e.sections || []) n += (s.bendPoints || []).length;
+      (c.children || []).forEach(walk);
+    };
+    walk(laid);
+    return n;
+  };
+
+  // Proper crossings only: two segments that share an endpoint meet at a box
+  // or at a corner of one line, and neither is the thing that makes a diagram
+  // unreadable. Counting them would score a fan of lines leaving one box as
+  // badly as a knot.
+  function crossingCount(segs) {
+    const side = (a, b, c) => Math.sign((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x));
+    let n = 0;
+    for (let i = 0; i < segs.length; i++) {
+      const [p1, p2] = segs[i];
+      for (let j = i + 1; j < segs.length; j++) {
+        const [p3, p4] = segs[j];
+        const d1 = side(p3, p4, p1), d2 = side(p3, p4, p2);
+        const d3 = side(p1, p2, p3), d4 = side(p1, p2, p4);
+        if (d1 !== d2 && d3 !== d4 && d1 && d2 && d3 && d4) n++;
+      }
+    }
+    return n;
+  }
+
+  function measureLayout(laid) {
+    const segs = segments(laid);
+    let length = 0;
+    for (const [a, b] of segs) length += Math.hypot(b.x - a.x, b.y - a.y);
+    return {
+      bends: bendCount(laid),
+      crossings: crossingCount(segs),
+      length: Math.round(length),
+      // The size across the flow: what "too tall" means laid out left to
+      // right, and what "too wide" means laid out top to bottom.
+      across: Math.round(layoutDirection === 'RIGHT' ? (laid.height || 0) : (laid.width || 0)),
+    };
+  }
+
+  // Weighted against the first candidate rather than in raw units, because
+  // the four are counted in different things — a bend is not comparable to a
+  // pixel, and summing them unweighted would let the one with the largest
+  // numbers decide alone. The three that were asked for carry about the same
+  // weight; total line length is a tie-breaker between layouts that are
+  // otherwise level, not a complaint in its own right.
+  const WEIGHTS = {bends: 1, crossings: 1.2, across: 1, length: 0.3};
+
+  function scoreAgainst(base, m) {
+    let total = 0;
+    for (const [key, weight] of Object.entries(WEIGHTS)) {
+      // A baseline of zero is already perfect on that count, so there is no
+      // ratio to take and nothing to improve; anything worse still shows up
+      // in the other three.
+      total += base[key] ? weight * (m[key] / base[key]) : 0;
+    }
+    return total;
+  }
+
+  /* ---- laying out again --------------------------------------------------
+     ELK was being asked one way. It has options that change exactly the
+     things people complain about, and which one wins depends on the graph —
+     a diagram of thirty boxes and one of two hundred do not want the same
+     answer, and neither is knowable from here. So try them and measure. */
+
+  // Every one of these was measured against a graph dense enough for the
+  // differences to show, and kept only because it moved the numbers. That
+  // check is worth repeating before adding to the list, because most of the
+  // obvious knobs do nothing: BRANDES_KOEPF with BALANCED alignment,
+  // LAYER_SWEEP crossing minimization and a raised thoroughness are what ELK
+  // already does, and asking for them by name returns a layout identical to
+  // the first, at the cost of a second run. Others are worse on every count,
+  // and one — MIN_WIDTH layering — took seconds to produce the worst picture
+  // of the lot.
+  //
+  // The tighter spacing appears in most of them because the complaint it
+  // answers is size, and spacing is what size is made of.
+  const TIGHT = {'elk.spacing.nodeNode': '14', 'elk.layered.spacing.nodeNodeBetweenLayers': '60'};
+  const CANDIDATES = [
+    {name: 'as generated', options: {}},
+    {name: 'tight', options: TIGHT},
+    {name: 'straight', options: {...TIGHT, 'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX'}},
+    {name: 'aligned', options: {...TIGHT, 'elk.layered.nodePlacement.bk.fixedAlignment': 'LEFTUP'}},
+    {name: 'segments', options: {...TIGHT, 'elk.layered.nodePlacement.strategy': 'LINEAR_SEGMENTS'}},
+    {name: 'roomy', options: {
+      'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
+      'elk.spacing.edgeEdge': '8',
+      'elk.spacing.edgeNode': '12',
+    }},
+  ];
+
+  let tidying = false;
+
+  // tidy lays the diagram out several ways and keeps the one that measures
+  // best, then writes where every box landed into the layout document.
+  //
+  // Positions chosen by hand are dropped first, on purpose. Half of them
+  // pinned and the rest laid out around them is neither picture: the engine
+  // would be solving a problem nobody posed, and the result reads worse than
+  // either. Somebody who wants their placements kept does not press this.
+  //
+  // Dropping them is also what keeps the routes. A box this page holds a
+  // position for is a box the engine's route was drawn for and no longer
+  // fits, so every line touching one is re-drawn here instead — by a router
+  // that does not avoid boxes. Writing the engine's own answer back into
+  // those positions would throw away the routing this just spent six layouts
+  // choosing. The result is kept in `computed`, which is what the layout
+  // document is made of, and the placements stay empty.
+  async function tidy() {
+    if (tidying) return;
+    tidying = true;
+    const button = document.getElementById('tidy');
+    button.disabled = true;
+    const status = document.getElementById('status');
+    const was = status.textContent;
+    try {
+      let best = null, base = null;
+      for (const [i, candidate] of CANDIDATES.entries()) {
+        status.textContent = `laying out ${i + 1}/${CANDIDATES.length}…`;
+        // A fresh tree each time: ELK writes its answer into the object it
+        // was given, so handing it the same one twice measures the second
+        // run against the first one's leftovers.
+        const root = buildRoot();
+        root.layoutOptions = {...root.layoutOptions, ...candidate.options};
+        let laid;
+        try {
+          laid = await elk.layout(root);
+        } catch {
+          // One set of options this build does not like is not a reason to
+          // abandon the rest. The first candidate is the options the page
+          // already runs, so there is always something to fall back to.
+          continue;
+        }
+        const m = measureLayout(laid);
+        if (!base) base = m;
+        const s = scoreAgainst(base, m);
+        if (!best || s < best.score) best = {laid, m, score: s, name: candidate.name};
+      }
+      if (!best) { flash('could not lay out again'); return; }
+
+      positions.clear();
+      // The whole picture changed, so the view is fitted to it again rather
+      // than left looking at where something used to be.
+      fitted = false;
+      paint(best.laid);
+
+      status.textContent = was;
+      flash(`${best.name}: 折れ ${base.bends}→${best.m.bends}  ` +
+        `交差 ${base.crossings}→${best.m.crossings}  縦 ${base.across}→${best.m.across}`);
+    } finally {
+      tidying = false;
+      button.disabled = false;
+      if (status.textContent.startsWith('laying out')) status.textContent = was;
+    }
+  }
+
+  document.getElementById('tidy').addEventListener('click', tidy);
 
   buildFilters();
   buildLabelFilters();

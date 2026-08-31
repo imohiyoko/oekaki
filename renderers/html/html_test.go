@@ -1006,3 +1006,130 @@ func TestAStylesheetCannotEndThePagesStyleElement(t *testing.T) {
 		t.Errorf("the error does not say what is wrong with the file: %v", err)
 	}
 }
+
+// Reading a diagram and wanting its layout is an ordinary thing to want, and
+// the page used to have no answer to it. The document was the boxes a hand had
+// moved, so reading — where nothing has been moved — could only have produced
+// a document that placed nothing. Recording where the engine put each box is
+// what makes the control worth offering in both modes.
+func TestTheLayoutCanBeTakenFromADiagramNobodyHasTouched(t *testing.T) {
+	app := string(Assets(nil)[AssetApp])
+	if !strings.Contains(app, "function asDrawn() {") {
+		t.Fatal("nothing collects the picture as it is on screen")
+	}
+	// Every box the layout placed, named the way a layout document names one:
+	// relative to whatever contains it.
+	if !strings.Contains(app, "computed.set(idOf(cell), {") {
+		t.Error("where the engine put each box is not recorded, so a layout cannot be made from it")
+	}
+	// A hand's answer beats a computed one, or moving a box would have no
+	// effect on what gets saved.
+	if !strings.Contains(app, "for (const [id, at] of positions) out.set(id, at);") {
+		t.Error("a position chosen by hand does not win over the one the engine chose")
+	}
+	if !strings.Contains(app, "layoutExport.hidden = computed.size === 0 && positions.size === 0;") {
+		t.Error("handing over the layout is still refused while reading")
+	}
+	// Reading does not write. The same button posts while editing and writes a
+	// file while reading, because editing is a mode rather than a modifier.
+	if !strings.Contains(app, "if (!layoutPost || !editing) { saveDocument(layoutDocument(asDrawn()), 'layout.json'); return; }") {
+		t.Error("a page being read sends its layout to the server")
+	}
+}
+
+// A save that cannot be found again is the same as no save. The name is
+// chosen at the other end when the page was not opened under one, so the page
+// has to be told what it was — otherwise the url it reloads under does not
+// name the version it just wrote, and the work is on disk and unreachable at
+// once.
+func TestASavedLayoutCanBeFoundAgain(t *testing.T) {
+	app := string(Assets(nil)[AssetApp])
+	if !strings.Contains(app, `r.headers.get('Oekaki-Name')`) {
+		t.Fatal("the page never learns what its save was filed under")
+	}
+	if !strings.Contains(app, "function savedUnder(name) {") {
+		t.Fatal("nothing acts on the name the save was filed under")
+	}
+	// In the url, so a reload comes back to the same drawing.
+	if !strings.Contains(app, "url.searchParams.set('layout', name);") {
+		t.Error("the name is learned and then not put where a reload would use it")
+	}
+	// And in where the next save goes, or every press leaves another
+	// minute-stamped copy behind and promotes none of them.
+	if !strings.Contains(app, "layoutPost = layoutPost.replace(/\\/[^/]*$/, '/' + encodeURIComponent(name));") {
+		t.Error("a second save writes a second version instead of the one already named")
+	}
+}
+
+// Saving is private and promoting is not, so they are two presses. Folding
+// the second into the first would mean every stray press of Save redrew the
+// page for everybody who had it open, and would leave no way to save without
+// doing that.
+func TestMakingAVersionTheDefaultIsItsOwnPress(t *testing.T) {
+	page := render(t, fixture(), Options{})
+	if !strings.Contains(page, `id="make-default"`) {
+		t.Fatal("there is no way to make a saved version the one everybody gets")
+	}
+	app := string(Assets(nil)[AssetApp])
+	if !strings.Contains(app, "document.body.dataset.defaultPost") {
+		t.Error("the page has nowhere to send the decision")
+	}
+	// Nothing to point at until this page has saved something.
+	if !strings.Contains(app, "makeDefaultButton.hidden = !editing || !defaultPost || !savedAs;") {
+		t.Error("the page offers to promote a version it has not got")
+	}
+}
+
+// The complaint about these diagrams is measurable, so it is measured. This
+// is not a layout engine and must not become one: it asks ELK several times
+// and keeps whichever answer reads best.
+func TestALayoutIsMeasuredBeforeItIsKept(t *testing.T) {
+	page := render(t, fixture(), Options{})
+	if !strings.Contains(page, `id="tidy"`) {
+		t.Fatal("there is no way to lay the diagram out again")
+	}
+	app := string(Assets(nil)[AssetApp])
+	for _, want := range []string{
+		"function measureLayout(laid) {",
+		"function crossingCount(segs) {",
+		"const bendCount = (laid) =>",
+	} {
+		if !strings.Contains(app, want) {
+			t.Errorf("nothing measures the layout: missing %s", want)
+		}
+	}
+	// An edge's route is written relative to whatever container ELK attached
+	// the edge to, which is not the one either endpoint sits in. Measuring
+	// without applying that offset compares lines that were never drawn
+	// together.
+	if !strings.Contains(app, "walk(c, ox + (c.x || 0), oy + (c.y || 0));") {
+		t.Error("the routes are measured without being put in one coordinate system")
+	}
+	// The four numbers are counted in different things, so they are taken as
+	// ratios against the first candidate rather than summed as they are.
+	if !strings.Contains(app, "total += base[key] ? weight * (m[key] / base[key]) : 0;") {
+		t.Error("the measurements are added up in units that are not comparable")
+	}
+}
+
+// Most of the obvious ELK options are what ELK already does, and asking for
+// them by name costs a whole extra layout to produce a picture identical to
+// the one before it. These three were measured doing exactly that on a graph
+// dense enough for a difference to have shown, and are named here so that
+// adding them back is a deliberate act rather than an oversight.
+func TestTheLayoutsTriedAreNotAllTheSameLayout(t *testing.T) {
+	app := string(Assets(nil)[AssetApp])
+	tried := between(t, app, "const CANDIDATES = [", "];")
+	for _, noop := range []string{"BALANCED", "LAYER_SWEEP", "elk.layered.thoroughness"} {
+		if strings.Contains(tried, noop) {
+			t.Errorf("%s is what ELK already does: it costs a layout and returns the first one again", noop)
+		}
+	}
+	// Dropping the hand-placed boxes is what keeps the routes. A box this page
+	// holds a position for has its lines re-drawn by the router in here, which
+	// does not avoid boxes — so writing the engine's own answer back into
+	// those positions would throw away the routing the measuring just chose.
+	if !strings.Contains(app, "positions.clear();\n      // The whole picture changed") {
+		t.Error("laying out again keeps placements that would discard the routes it chose")
+	}
+}

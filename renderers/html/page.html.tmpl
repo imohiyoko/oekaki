@@ -34,11 +34,13 @@
       <button id="spread-x" type="button" title="Even horizontal gaps">↔</button>
       <button id="spread-y" type="button" title="Even vertical gaps">↕</button>
     </div>
+    <button id="tidy" type="button" title="Lay the diagram out again and keep the best result">整列</button>
     <button id="add-node" type="button">Add box</button>
   </div>
   <button id="fit" type="button" title="Fit the whole diagram">全体</button>
   <button id="export" hidden>Export overlay</button>
 {{if .Layout}}  <button id="export-layout" hidden>Export layout</button>{{end}}
+  <button id="make-default" hidden title="Draw this page with the saved version from now on, for everybody">既定にする</button>
   <button id="copy" hidden>Copy JSON</button>
 </header>
 
