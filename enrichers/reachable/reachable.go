@@ -124,6 +124,7 @@ func (e Enricher) Enrich(g *core.Graph) (*enrichers.Report, error) {
 			}
 		}
 	}
+	applyNetworkPolicies(g, seen, r)
 	applyDocuments(g, e.Documents, seen, r)
 	addInternetObservations(g)
 	g.Normalize()

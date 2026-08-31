@@ -154,3 +154,35 @@ func TestShortTypeTrimsTheProviderPrefix(t *testing.T) {
 		t.Errorf("ShortType = %q, want %q", got, "ecs_service")
 	}
 }
+
+// Terraform and a manifest name the same concept differently, and only the
+// Terraform spelling has a prefix to match on. Without the kinds, every box
+// from a manifest falls through to Generic and the profile — categories,
+// attachments, highlights — is unreachable from that parser.
+func TestManifestKindsReachTheKubernetesProfile(t *testing.T) {
+	for kind, want := range map[string]Category{
+		"deployment":            Compute,
+		"cronjob":               Compute,
+		"service":               Network,
+		"ingress":               Network,
+		"secret":                Security,
+		"configmap":             Storage,
+		"persistentvolumeclaim": Storage,
+	} {
+		if p := Lookup(kind); p == nil || p.Name != "kubernetes" {
+			t.Errorf("Lookup(%q) did not reach the kubernetes profile", kind)
+			continue
+		}
+		if got := CategoryOf(kind); got != want {
+			t.Errorf("CategoryOf(%q) = %v, want %v", kind, got, want)
+		}
+	}
+}
+
+// A bare kind must not be claimed by a prefix rule belonging to somebody else,
+// and an unrelated type must not be dragged in by the kinds list.
+func TestKindsMatchWholeTypesOnly(t *testing.T) {
+	if p := Lookup("deployment_group"); p != nil && p.Name == "kubernetes" {
+		t.Error("a longer type was claimed by an exact kind")
+	}
+}

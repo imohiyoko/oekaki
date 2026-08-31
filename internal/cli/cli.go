@@ -27,6 +27,7 @@ import (
 	"github.com/imohiyoko/oekaki/enrichers/reachable"
 	traceenricher "github.com/imohiyoko/oekaki/enrichers/traces"
 	layoutdoc "github.com/imohiyoko/oekaki/layout"
+	k8sparser "github.com/imohiyoko/oekaki/parsers/kubernetes"
 	sourceparser "github.com/imohiyoko/oekaki/parsers/source"
 	"github.com/imohiyoko/oekaki/parsers/terraform"
 	dotrender "github.com/imohiyoko/oekaki/renderers/dot"
@@ -920,9 +921,10 @@ func runSchema(env Env, args []string) error {
 	return write(env, *output, schema.GraphSchema)
 }
 
-// loadGraph accepts either Terraform output or an IR document, so that
-// `oekaki graph ... | oekaki render -` works and so that a graph
-// committed to a repository can be re-rendered without the original plan.
+// loadGraph accepts Terraform output, Kubernetes manifests, or an IR
+// document, so that `oekaki graph ... | oekaki render -` works and so that a
+// graph committed to a repository can be re-rendered without the original
+// plan.
 func loadGraph(env Env, path string, opts terraform.Options, sourceOpts sourceparser.Options) (*core.Graph, error) {
 	if path != "-" {
 		if info, statErr := os.Stat(path); statErr == nil && info.IsDir() {
@@ -944,7 +946,10 @@ func loadGraph(env Env, path string, opts terraform.Options, sourceOpts sourcepa
 		FormatVersion string          `json:"format_version"`
 	}
 	if err := json.Unmarshal(raw, &probe); err != nil {
-		return nil, fmt.Errorf("%s is not valid JSON: %w", describe(path), err)
+		// Not JSON at all, which is what a stream of Kubernetes manifests
+		// looks like. Reporting the JSON syntax error here would send the
+		// reader hunting for a mistake in a file that has none.
+		return loadManifests(env, path, raw, opts.Scope)
 	}
 
 	if probe.Version != "" && probe.Nodes != nil {
@@ -956,7 +961,9 @@ func loadGraph(env Env, path string, opts terraform.Options, sourceOpts sourcepa
 	}
 
 	if probe.FormatVersion == "" {
-		return nil, fmt.Errorf("%s is neither `terraform show -json` output nor an oekaki graph", describe(path))
+		// Valid JSON that is neither. Kubernetes accepts JSON manifests as
+		// readily as YAML ones, so this is not yet a mistake.
+		return loadManifests(env, path, raw, opts.Scope)
 	}
 
 	g, err := terraform.Parse(raw, opts)
@@ -967,6 +974,62 @@ func loadGraph(env Env, path string, opts terraform.Options, sourceOpts sourcepa
 		g.Metadata.Generator = "oekaki/" + version()
 	}
 	return g, nil
+}
+
+// loadManifests reads a stream of Kubernetes manifests. What it could not
+// place is reported rather than dropped: an apiVersion no cluster still serves
+// and one this build has never heard of are both drawn, and both are worth
+// hearing about before reading the diagram.
+func loadManifests(env Env, path string, raw []byte, scope string) (*core.Graph, error) {
+	file := ""
+	if path != "-" {
+		file = path
+	}
+	res, err := k8sparser.Parse(raw, k8sparser.Options{File: file, Scope: scope})
+	if err != nil {
+		return nil, fmt.Errorf("%s is not `terraform show -json` output, an oekaki graph, or Kubernetes manifests: %w",
+			describe(path), err)
+	}
+	if res.Graph.Metadata != nil {
+		res.Graph.Metadata.Generator = "oekaki/" + version()
+	}
+
+	fmt.Fprintf(env.Stderr, "kubernetes: %d objects", res.Objects)
+	if res.MinimumRelease != "" {
+		fmt.Fprintf(env.Stderr, ", oldest cluster that serves them all: %s", res.MinimumRelease)
+	}
+	fmt.Fprintln(env.Stderr)
+	if res.Incompatible {
+		fmt.Fprintf(env.Stderr, "  no release serves all of them: something needs %s or later, and %s stopped serving something else here\n",
+			res.Floor, res.Ceiling)
+	}
+	if len(res.Removed) > 0 {
+		fmt.Fprintf(env.Stderr, "  %d on an apiVersion no longer served: %s\n",
+			len(res.Removed), summarise(res.Removed))
+	}
+	if len(res.Unknown) > 0 {
+		fmt.Fprintf(env.Stderr, "  %d on an apiVersion this build does not know: %s\n",
+			len(res.Unknown), summarise(res.Unknown))
+	}
+	if len(res.Skipped) > 0 {
+		fmt.Fprintf(env.Stderr, "  %d document parts held no object: %s\n",
+			len(res.Skipped), summarise(res.Skipped))
+	}
+	if len(res.Duplicates) > 0 {
+		fmt.Fprintf(env.Stderr, "  %d defined more than once, first one drawn: %s\n",
+			len(res.Duplicates), summarise(res.Duplicates))
+	}
+	return res.Graph, nil
+}
+
+// summarise lists a few ids and says how many were left out, so a cluster full
+// of custom resources reports a number instead of a wall of names.
+func summarise(ids []string) string {
+	const show = 3
+	if len(ids) <= show {
+		return strings.Join(ids, ", ")
+	}
+	return fmt.Sprintf("%s and %d more", strings.Join(ids[:show], ", "), len(ids)-show)
 }
 
 // loadGraphs builds one graph from the positional input and every --repo (or
@@ -1102,6 +1165,8 @@ func inputKind(g *core.Graph) string {
 		return "repository"
 	case "terraform":
 		return "terraform"
+	case "kubernetes":
+		return "kubernetes"
 	default:
 		return "graph"
 	}

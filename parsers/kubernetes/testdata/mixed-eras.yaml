@@ -1,0 +1,23 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: checkout
+  namespace: shop
+spec:
+  scaleTargetRef:
+    kind: Deployment
+    name: checkout
+  maxReplicas: 10
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: storefront
+  namespace: shop
+spec:
+  rules:
+  - http:
+      paths:
+      - backend:
+          serviceName: checkout
+          servicePort: 80

@@ -92,7 +92,8 @@ exported so the parts can be read and tested separately, not as a library
 contract: before v1.0 an exported signature can change in any release, and
 this repository will not carry a compatibility shim for one.
 
-- **Works:** Terraform and multi-language source parsing, `iac_ref`,
+- **Works:** Terraform, Kubernetes manifest, and multi-language source
+  parsing, `iac_ref`,
   `reachable`, and observed edges, observations with thresholds, log inventory
   polling/classification, trace and metrics adapters, exposure findings,
   architecture/network/ER/workflow/request-path/security/code/service and
@@ -144,8 +145,9 @@ oekaki validate <graph.json>      check a graph against the IR schema
 oekaki schema                     print the IR JSON Schema
 ```
 
-`<input>` is `terraform show -json` output, a source directory, or a graph
-oekaki produced earlier. `-` reads standard input.
+`<input>` is `terraform show -json` output, a stream of Kubernetes manifests,
+a source directory, or a graph oekaki produced earlier. `-` reads standard
+input.
 
 A source directory is parsed conservatively into files, functions, packages,
 and `contains`/`imports`/`calls` relationships across common Go, Python,
@@ -154,6 +156,27 @@ same IR as Terraform, so all renderers and overlays remain reusable.
 Unknown text extensions can also be represented as file nodes with
 `--include-unknown-source`; language-specific parsers can register against the
 same source parser API when richer AST information is available.
+
+Kubernetes manifests are read from whatever writes them, with no cluster
+access and no kubeconfig:
+
+```console
+$ helm template ./chart | oekaki render - -o app.svg
+$ kubectl get all,ingress -n shop -o yaml | oekaki render - -f html -o shop.html
+```
+
+A Service reaches the workload its selector matches, an Ingress the Service it
+names, a pod template the ConfigMaps, Secrets, volumes and ServiceAccount it
+needs. Traffic between two workloads is not inferred: manifests do not record
+it, and an edge invented there would arrive in the same colour as one that was
+read.
+
+Every apiVersion it understands is listed in [docs/kubernetes.md] with the
+release that started serving it and the one that stopped, so how far the parser
+goes is a question with a written answer. An object on an apiVersion no cluster
+still serves is drawn and flagged rather than dropped, and so is one this build
+has never heard of. The graph's `source_version` is the oldest release that
+serves every apiVersion in the input.
 
 Views are graph projections rather than renderer-specific modes:
 
@@ -578,6 +601,7 @@ Apache-2.0. See [LICENSE](LICENSE).
 The binaries embed Graphviz, which is EPL-2.0. Every release archive carries
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) with the full attribution.
 
+[docs/kubernetes.md]: docs/kubernetes.md
 [docs/roadmap.md]: docs/roadmap.md
 [docs/schema.md]: docs/schema.md
 [docs/architecture.md]: docs/architecture.md
