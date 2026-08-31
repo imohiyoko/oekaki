@@ -56,6 +56,15 @@ in the input — a Secret nobody committed — becomes a node with
 `declared_only`, because a dependency on something absent is the most useful
 thing this graph can show.
 
+An object the input defines twice — concatenate a base and an overlay, or two
+chart renders sharing a namespace-level ConfigMap — is drawn once, from the
+first definition, and counted. The repetition is a fact about the input and is
+reported as one.
+
+A Service whose selector holds a value that is not a string matches nothing
+and says so. Dropping the unreadable pair would widen the match, and the extra
+workloads would arrive looking exactly like the intended ones.
+
 A cluster-scoped object — a ClusterRole, a PersistentVolume, a
 CustomResourceDefinition — is left outside every namespace rather than filed
 under `default`. So is an object of a kind not in the table that names no

@@ -11,9 +11,23 @@ func init() { Register(kubernetes) }
 // block rather than naming it in a top-level attribute, which the expression
 // walker already handles: it descends into nested blocks and reports the
 // block name as the referencing attribute.
+// The same concepts arrive under two vocabularies. Terraform calls a
+// Deployment `kubernetes_deployment`; a manifest calls it `Deployment`, which
+// the manifest parser writes as `deployment`. Both are claimed here so that
+// one estate does not render in two palettes depending on which tool declared
+// it.
 var kubernetes = &Profile{
 	Name:     "kubernetes",
 	Prefixes: []string{"kubernetes_"},
+	Kinds: []string{
+		"pod", "deployment", "statefulset", "daemonset", "replicaset",
+		"job", "cronjob",
+		"service", "ingress", "networkpolicy",
+		"secret", "serviceaccount", "role", "rolebinding",
+		"clusterrole", "clusterrolebinding",
+		"configmap", "persistentvolume", "persistentvolumeclaim",
+		"horizontalpodautoscaler", "poddisruptionbudget",
+	},
 
 	Containers: map[string]Container{
 		"kubernetes_namespace": {Type: "namespace"},
@@ -65,6 +79,31 @@ var kubernetes = &Profile{
 		"kubernetes_persistent_volume":       Storage,
 		"kubernetes_persistent_volume_claim": Storage,
 		"kubernetes_config_map":              Storage,
+
+		"pod":         Compute,
+		"deployment":  Compute,
+		"statefulset": Compute,
+		"daemonset":   Compute,
+		"replicaset":  Compute,
+		"job":         Compute,
+		"cronjob":     Compute,
+
+		"service":       Network,
+		"ingress":       Network,
+		"networkpolicy": Network,
+
+		"secret":                  Security,
+		"serviceaccount":          Security,
+		"role":                    Security,
+		"rolebinding":             Security,
+		"clusterrole":             Security,
+		"clusterrolebinding":      Security,
+		"horizontalpodautoscaler": Compute,
+		"poddisruptionbudget":     Compute,
+
+		"configmap":             Storage,
+		"persistentvolume":      Storage,
+		"persistentvolumeclaim": Storage,
 	},
 
 	Highlights: []string{

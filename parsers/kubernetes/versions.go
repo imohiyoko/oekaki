@@ -109,6 +109,18 @@ func lookup(apiVersion, kind string) (API, bool) {
 	return API{}, false
 }
 
+// lookupKind finds any entry for a kind, whatever apiVersion it was written
+// with. It answers the one question that does not depend on the version: does
+// this kind live in a namespace.
+func lookupKind(kind string) (API, bool) {
+	for _, a := range table {
+		if a.Kind == kind {
+			return a, true
+		}
+	}
+	return API{}, false
+}
+
 // Table returns the recognised apiVersions, ordered for display.
 func Table() []API {
 	out := append([]API(nil), table...)

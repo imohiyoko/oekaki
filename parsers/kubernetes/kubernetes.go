@@ -75,6 +75,25 @@ type Result struct {
 	// not know. Both are drawn; both are worth saying out loud.
 	Removed []string
 	Unknown []string
+
+	// Duplicates lists objects the input defines more than once. Concatenating
+	// a base and an overlay does that, and so do two chart renders sharing a
+	// namespace-level ConfigMap. The first definition is drawn and the rest
+	// are counted: an IR error about a duplicate id would report the tool's
+	// problem instead of the input's.
+	Duplicates []string
+}
+
+// builder carries the state one parse needs: the graph being filled, the
+// objects indexed by the id they will have, and the edges already drawn. The
+// index is what lets a reference find an object rather than guess at its id,
+// and what keeps a large input from costing a scan per reference.
+type builder struct {
+	g     *core.Graph
+	opts  Options
+	all   []object
+	byID  map[string]*object
+	edges map[string]bool
 }
 
 // object is one decoded manifest, kept as a map because the fields worth
@@ -106,10 +125,15 @@ func Parse(raw []byte, opts Options) (*Result, error) {
 	g.Axes = []core.Axis{{ID: core.AxisNetwork, Label: "Namespace"}}
 
 	res := &Result{Graph: g, Documents: len(objects)}
-	index := map[string]*object{}
+	b := &builder{g: g, opts: opts, all: objects, byID: map[string]*object{}, edges: map[string]bool{}}
 	for i := range objects {
 		o := &objects[i]
-		index[o.id()] = o
+		if first, clash := b.byID[o.id()]; clash {
+			_ = first
+			res.Duplicates = append(res.Duplicates, o.id())
+			continue
+		}
+		b.byID[o.id()] = o
 		if o.known && o.api.Removed != "" && !o.api.Served(SupportedThrough) {
 			res.Removed = append(res.Removed, o.id())
 		}
@@ -137,14 +161,19 @@ func Parse(raw []byte, opts Options) (*Result, error) {
 	g.Metadata.SourceVersion = res.MinimumRelease
 
 	for i := range objects {
-		add(g, &objects[i], opts)
+		if b.byID[objects[i].id()] == &objects[i] {
+			b.add(&objects[i])
+		}
 	}
 	for i := range objects {
-		relate(g, &objects[i], objects, opts)
+		if b.byID[objects[i].id()] == &objects[i] {
+			b.relate(&objects[i])
+		}
 	}
 
 	sort.Strings(res.Removed)
 	sort.Strings(res.Unknown)
+	sort.Strings(res.Duplicates)
 	g.Normalize()
 	if opts.Scope != "" {
 		g.ApplyScope(opts.Scope)
@@ -204,7 +233,10 @@ func decode(raw []byte, opts Options) ([]object, error) {
 // flatten unwraps a List, which is what `kubectl get -o yaml` returns when it
 // is asked for more than one object.
 func flatten(body map[string]any) []map[string]any {
-	if !strings.HasSuffix(str(body, "kind"), "List") {
+	// A List is recognised by holding items, not by its name alone. A custom
+	// resource called AllowList is an object, and dropping it would lose the
+	// whole document while claiming nothing was there.
+	if !strings.HasSuffix(str(body, "kind"), "List") || dig(body, "items") == nil {
 		return []map[string]any{body}
 	}
 	var out []map[string]any
@@ -227,12 +259,12 @@ func (o *object) id() string {
 }
 
 // add turns one object into a node, or into a group when it is a Namespace.
-func add(g *core.Graph, o *object, opts Options) {
+func (b *builder) add(o *object) {
 	if o.kind == "Namespace" {
-		ensureNamespace(g, o.name, source(opts, o.line))
+		b.ensureNamespace(o.name, b.source(o.line))
 		return
 	}
-	ensureNamespace(g, o.namespace, nil)
+	b.ensureNamespace(o.namespace, nil)
 
 	attrs := map[string]any{"apiVersion": o.apiVersion, "kind": o.kind}
 	if o.namespace != "" {
@@ -250,46 +282,53 @@ func add(g *core.Graph, o *object, opts Options) {
 		attrs["replicas"] = replicas
 	}
 
-	g.Nodes = append(g.Nodes, core.Node{
+	b.g.Nodes = append(b.g.Nodes, core.Node{
 		ID:       o.id(),
 		Type:     strings.ToLower(o.kind),
 		Name:     o.name,
 		Provider: "kubernetes",
 		Groups:   placement(o.namespace),
 		Attrs:    attrs,
-		Source:   source(opts, o.line),
+		Source:   b.source(o.line),
 	})
 }
 
 // relate reads one object's references to others.
-func relate(g *core.Graph, o *object, all []object, opts Options) {
+func (b *builder) relate(o *object) {
 	switch o.kind {
 	case "Service":
-		selects(g, o, all)
+		b.selects(o)
 	case "Ingress":
-		routes(g, o, all)
+		b.routes(o)
 	case "HorizontalPodAutoscaler":
-		scales(g, o, all)
+		b.scales(o)
 	}
 	if spec := podSpec(o); spec != nil {
-		mounts(g, o, spec, all, opts)
+		b.mounts(o, spec)
 	}
-	owners(g, o, all)
+	b.owners(o)
 }
 
 // selects joins a Service to the workloads whose pod template carries every
 // label in its selector. A Service with no selector — ExternalName, or
 // Endpoints managed by hand — selects nothing, and saying so is not the same
 // as finding nothing.
-func selects(g *core.Graph, svc *object, all []object) {
-	selector := strMap(svc.body, "spec", "selector")
-	if len(selector) == 0 {
-		setAttr(g, svc.id(), "selects", "nothing: no selector")
+func (b *builder) selects(svc *object) {
+	selector, whole := strMapAll(svc.body, "spec", "selector")
+	if len(selector) == 0 && whole {
+		b.setAttr(svc.id(), "selects", "nothing: no selector")
+		return
+	}
+	// A selector is matched only when every pair of it was readable. Dropping
+	// an unreadable pair would widen the match rather than narrow it, and the
+	// extra workloads would arrive looking exactly like the right ones.
+	if !whole {
+		b.setAttr(svc.id(), "selects", "not resolved: part of the selector is not a string")
 		return
 	}
 	matched := 0
-	for i := range all {
-		target := &all[i]
+	for i := range b.all {
+		target := &b.all[i]
 		if target.namespace != svc.namespace || podLabels(target) == nil {
 			continue
 		}
@@ -297,10 +336,10 @@ func selects(g *core.Graph, svc *object, all []object) {
 			continue
 		}
 		matched++
-		edge(g, svc.id(), target.id(), "selects", map[string]any{"selector": joined(selector)})
+		b.edge(svc.id(), target.id(), "selects", map[string]any{"selector": joined(selector)})
 	}
 	if matched == 0 {
-		setAttr(g, svc.id(), "selects", "nothing in this input matches "+joined(selector))
+		b.setAttr(svc.id(), "selects", "nothing in this input matches "+joined(selector))
 	}
 }
 
@@ -308,7 +347,7 @@ func selects(g *core.Graph, svc *object, all []object) {
 // (backend.service.name) and the v1beta1 one (backend.serviceName) are read,
 // because a repository that still has the older shape is exactly the
 // repository that needs to see it drawn.
-func routes(g *core.Graph, ing *object, all []object) {
+func (b *builder) routes(ing *object) {
 	backends := map[string]string{}
 	collect := func(backend any, where string) {
 		name := str(backend, "service", "name")
@@ -334,25 +373,25 @@ func routes(g *core.Graph, ing *object, all []object) {
 		}
 	}
 	for _, name := range sortedKeys(backends) {
-		to := reference(g, all, "Service", ing.namespace, name)
-		edge(g, ing.id(), to, "routes", map[string]any{"via": backends[name]})
+		to := b.reference("Service", ing.namespace, name)
+		b.edge(ing.id(), to, "routes", map[string]any{"via": backends[name]})
 	}
 }
 
 // scales joins an autoscaler to what it scales.
-func scales(g *core.Graph, hpa *object, all []object) {
+func (b *builder) scales(hpa *object) {
 	kind := str(hpa.body, "spec", "scaleTargetRef", "kind")
 	name := str(hpa.body, "spec", "scaleTargetRef", "name")
 	if kind == "" || name == "" {
 		return
 	}
-	to := reference(g, all, kind, hpa.namespace, name)
-	edge(g, hpa.id(), to, "scales", nil)
+	to := b.reference(kind, hpa.namespace, name)
+	b.edge(hpa.id(), to, "scales", nil)
 }
 
 // mounts reads a pod spec for everything it names: config, secrets, storage
 // and the identity it runs as.
-func mounts(g *core.Graph, o *object, spec any, all []object, opts Options) {
+func (b *builder) mounts(o *object, spec any) {
 	type ref struct{ kind, name, relation, how string }
 	var refs []ref
 
@@ -410,22 +449,22 @@ func mounts(g *core.Graph, o *object, spec any, all []object, opts Options) {
 	}
 
 	for _, r := range refs {
-		to := reference(g, all, r.kind, o.namespace, r.name)
-		edge(g, o.id(), to, r.relation, map[string]any{"via": r.how})
+		to := b.reference(r.kind, o.namespace, r.name)
+		b.edge(o.id(), to, r.relation, map[string]any{"via": r.how})
 	}
 }
 
 // owners reads metadata.ownerReferences, which a cluster fills in and a
 // repository does not. It is what makes a `kubectl get` dump show a
 // ReplicaSet under its Deployment rather than beside it.
-func owners(g *core.Graph, o *object, all []object) {
+func (b *builder) owners(o *object) {
 	for _, ref := range seq(o.body, "metadata", "ownerReferences") {
 		kind, name := str(ref, "kind"), str(ref, "name")
 		if kind == "" || name == "" {
 			continue
 		}
-		to := reference(g, all, kind, o.namespace, name)
-		edge(g, o.id(), to, "owned-by", nil)
+		to := b.reference(kind, o.namespace, name)
+		b.edge(o.id(), to, "owned-by", nil)
 	}
 }
 
@@ -433,45 +472,65 @@ func owners(g *core.Graph, o *object, all []object) {
 // does not contain it. A Deployment that mounts a Secret nobody committed is
 // the most useful thing a manifest graph can show, and it can only show it if
 // the missing end has somewhere to point.
-func reference(g *core.Graph, all []object, kind, namespace, name string) string {
-	want := strings.ToLower(kind) + "/" + namespace + "/" + name
-	for i := range all {
-		if all[i].id() == want {
-			return want
+//
+// The id is built the way object.id builds one, which is why this cannot be a
+// plain concatenation: a cluster-scoped object has no namespace segment, and
+// composing one anyway produces an id that matches nothing in the input and a
+// second, phantom box beside the real one.
+func (b *builder) reference(kind, namespace, name string) string {
+	lower := strings.ToLower(kind)
+	// An object that is in the input decides its own id. Look for it in the
+	// referring namespace first, then at cluster scope.
+	for _, id := range []string{lower + "/" + namespace + "/" + name, lower + "/" + name} {
+		if o, ok := b.byID[id]; ok {
+			return o.id()
 		}
 	}
-	if _, ok := g.Node(want); !ok {
-		ensureNamespace(g, namespace, nil)
+
+	// Absent. Where it would live is decided by the table when the kind is
+	// known, and otherwise by whether the reference came from something that
+	// has a namespace at all.
+	api, known := lookupKind(kind)
+	scoped := namespace
+	if known && !api.Namespaced {
+		scoped = ""
+	}
+	want := lower + "/" + name
+	if scoped != "" {
+		want = lower + "/" + scoped + "/" + name
+	}
+	if _, ok := b.g.Node(want); !ok {
 		attrs := map[string]any{"kind": kind, "declared_only": true}
-		if namespace != "" {
-			attrs["namespace"] = namespace
+		if scoped != "" {
+			attrs["namespace"] = scoped
 		}
-		g.Nodes = append(g.Nodes, core.Node{
+		b.ensureNamespace(scoped, nil)
+		b.g.Nodes = append(b.g.Nodes, core.Node{
 			ID:       want,
-			Type:     strings.ToLower(kind),
+			Type:     lower,
 			Name:     name,
 			Provider: "kubernetes",
-			Groups:   placement(namespace),
+			Groups:   placement(scoped),
 			Attrs:    attrs,
 		})
 	}
 	return want
 }
 
-func ensureNamespace(g *core.Graph, name string, src *core.Source) {
+func (b *builder) ensureNamespace(name string, src *core.Source) {
 	if name == "" {
 		return
 	}
 	id := namespaceID(name)
-	for i := range g.Groups {
-		if g.Groups[i].ID == id {
-			if g.Groups[i].Source == nil {
-				g.Groups[i].Source = src
+	for i := range b.g.Groups {
+		if b.g.Groups[i].ID == id {
+			if b.g.Groups[i].Source == nil {
+				b.g.Groups[i].Source = src
 			}
 			return
 		}
 	}
-	g.Groups = append(g.Groups, core.Group{
+	b.g.Groups = append(b.g.Groups, core.Group{
 		ID: id, Axis: core.AxisNetwork, Type: "namespace", Label: name, Source: src,
 	})
 }
@@ -489,22 +548,22 @@ func placement(namespace string) map[string]string {
 	return map[string]string{core.AxisNetwork: namespaceID(namespace)}
 }
 
-func edge(g *core.Graph, from, to, relation string, attrs map[string]any) {
+func (b *builder) edge(from, to, relation string, attrs map[string]any) {
 	if from == "" || to == "" || from == to {
 		return
 	}
-	for _, e := range g.Edges {
-		if e.From == from && e.To == to && e.Relation == relation {
-			return
-		}
+	key := from + "\x00" + to + "\x00" + relation
+	if b.edges[key] {
+		return
 	}
-	g.Edges = append(g.Edges, core.Edge{
+	b.edges[key] = true
+	b.g.Edges = append(b.g.Edges, core.Edge{
 		From: from, To: to, Kind: core.EdgeIACRef, Relation: relation, Attrs: attrs,
 	})
 }
 
-func setAttr(g *core.Graph, id, key string, value any) {
-	if n, ok := g.Node(id); ok {
+func (b *builder) setAttr(id, key string, value any) {
+	if n, ok := b.g.Node(id); ok {
 		if n.Attrs == nil {
 			n.Attrs = map[string]any{}
 		}
@@ -512,11 +571,11 @@ func setAttr(g *core.Graph, id, key string, value any) {
 	}
 }
 
-func source(opts Options, line int) *core.Source {
-	if opts.File == "" {
+func (b *builder) source(line int) *core.Source {
+	if b.opts.File == "" {
 		return nil
 	}
-	return &core.Source{File: opts.File, Line: line}
+	return &core.Source{File: b.opts.File, Line: line}
 }
 
 // podSpec finds the pod template inside a workload. The path differs per kind

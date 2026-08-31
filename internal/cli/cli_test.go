@@ -969,3 +969,21 @@ func TestTheSharedRuntimeMovesWhenTheThemeDoes(t *testing.T) {
 		t.Error("both themes were written to the same directory, so the second is served the first")
 	}
 }
+
+// inputKind is the only place a downstream tool learns what a combined graph
+// was built from. A parser added without a case here reports its input as an
+// oekaki graph, which says the context was already derived when it was not.
+func TestInputKindNamesEveryParser(t *testing.T) {
+	for source, want := range map[string]string{
+		"terraform":  "terraform",
+		"source":     "repository",
+		"kubernetes": "kubernetes",
+		"":           "graph",
+	} {
+		g := core.New()
+		g.Metadata = &core.Metadata{Source: source}
+		if got := inputKind(g); got != want {
+			t.Errorf("inputKind(%q) = %q, want %q", source, got, want)
+		}
+	}
+}

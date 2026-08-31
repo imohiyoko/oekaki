@@ -48,15 +48,27 @@ func seq(v any, path ...string) []any {
 // a string. Label values are strings in Kubernetes; anything else in that
 // position is a manifest that would not apply.
 func strMap(v any, path ...string) map[string]string {
+	m, _ := strMapAll(v, path...)
+	return m
+}
+
+// strMapAll is strMap with the part it drops reported. A caller matching one
+// map against another has to know: losing a pair from a selector widens what
+// it matches, and the extra matches look exactly like the intended ones.
+func strMapAll(v any, path ...string) (map[string]string, bool) {
 	m, ok := dig(v, path...).(map[string]any)
 	if !ok {
-		return nil
+		return nil, true
 	}
 	out := make(map[string]string, len(m))
+	whole := true
 	for k, value := range m {
-		if s, ok := value.(string); ok {
-			out[k] = s
+		s, ok := value.(string)
+		if !ok {
+			whole = false
+			continue
 		}
+		out[k] = s
 	}
-	return out
+	return out, whole
 }

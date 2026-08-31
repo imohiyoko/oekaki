@@ -1011,6 +1011,10 @@ func loadManifests(env Env, path string, raw []byte, scope string) (*core.Graph,
 		fmt.Fprintf(env.Stderr, "  %d on an apiVersion this build does not know: %s\n",
 			len(res.Unknown), summarise(res.Unknown))
 	}
+	if len(res.Duplicates) > 0 {
+		fmt.Fprintf(env.Stderr, "  %d defined more than once, first one drawn: %s\n",
+			len(res.Duplicates), summarise(res.Duplicates))
+	}
 	return res.Graph, nil
 }
 
@@ -1157,6 +1161,8 @@ func inputKind(g *core.Graph) string {
 		return "repository"
 	case "terraform":
 		return "terraform"
+	case "kubernetes":
+		return "kubernetes"
 	default:
 		return "graph"
 	}

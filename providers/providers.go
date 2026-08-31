@@ -69,6 +69,13 @@ type Profile struct {
 	// renderers see only a resource type.
 	Prefixes []string
 
+	// Kinds are whole resource types this profile claims, for a source whose
+	// type names carry no prefix to match on. A Kubernetes manifest calls a
+	// Deployment `deployment`, and there is no string every such type starts
+	// with; without this the profile would be unreachable from anything but
+	// Terraform, and every box would fall through to Generic.
+	Kinds []string
+
 	// Containers are the types that become groups rather than nodes.
 	Containers map[string]Container
 
@@ -125,6 +132,11 @@ func Lookup(resourceType string) *Profile {
 	for _, p := range registry {
 		for _, prefix := range p.Prefixes {
 			if strings.HasPrefix(resourceType, prefix) {
+				return p
+			}
+		}
+		for _, kind := range p.Kinds {
+			if resourceType == kind {
 				return p
 			}
 		}
