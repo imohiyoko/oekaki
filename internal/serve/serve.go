@@ -356,6 +356,14 @@ type Dressing struct {
 	GraphQuery  string // appended to the graph url when the graph is a separate file
 	LayoutPost  string // where the page saves its layout
 	OverlayPost string // where the page saves what it asserted
+
+	// DefaultPost is where the page asks for a version it saved to become the
+	// one everybody gets. It is separate from LayoutPost because the two mean
+	// different things to everyone who is not the person clicking: saving is
+	// private and changes nobody's picture, promoting changes what the page
+	// draws for the next person who opens it. Handing the page one url for
+	// both would make that distinction impossible to offer.
+	DefaultPost string
 }
 
 // Apply puts a layout and an overlay into a rendered page and tells it where
@@ -400,7 +408,8 @@ func Apply(page []byte, d Dressing) ([]byte, error) {
 		})
 	}
 
-	for attr, url := range map[string]string{"data-layout-post": d.LayoutPost, "data-overlay-post": d.OverlayPost} {
+	for attr, url := range map[string]string{"data-layout-post": d.LayoutPost,
+		"data-overlay-post": d.OverlayPost, "data-default-post": d.DefaultPost} {
 		if url != "" {
 			out = bytes.Replace(out, []byte("<body "), []byte(`<body `+attr+`="`+url+`" `), 1)
 		}

@@ -133,6 +133,16 @@ func loopbackOnly(addr string) error {
 	return nil
 }
 
+// NameHeader carries the name a save was filed under back to whoever sent it.
+//
+// The body of that response is a sentence for a person. A name has to survive
+// being read by a program — the page turns it into the url it reloads under,
+// and a sentence that later gains a word would take the drawing with it.
+//
+// renderers/html/app.js reads this string. The two are far enough apart that
+// nothing but a test holds them together; see the one that names them both.
+const NameHeader = "Oekaki-Name"
+
 type site struct {
 	pages string
 	state string
@@ -318,6 +328,14 @@ func (s *site) documents(w http.ResponseWriter, r *http.Request, kind, rest stri
 			refused(w, err)
 			return
 		}
+		// The name this end chose, where a machine can read it. A save from a
+		// page that was not opened under a name gets one made up from the
+		// clock a few lines above, and until now the only place that name
+		// appeared was in the sentence below — which the browser shows for a
+		// second and then forgets. The version was saved and immediately
+		// unfindable: the page could not ask to be drawn with it, because it
+		// never learned what it was called.
+		w.Header().Set(NameHeader, name)
 		fmt.Fprintf(w, "saved %s/%s", page, name)
 	case http.MethodDelete:
 		// Deleting a layout goes through the store rather than straight to the
@@ -526,6 +544,7 @@ func (s *site) page(w http.ResponseWriter, r *http.Request) {
 	// that case is deliberate, and StaleDefault says it out loud. State that
 	// cannot be read is not that case: swallowing it would make a decision
 	// somebody recorded appear to have evaporated, on every request, silently.
+	promoted := false
 	if want == "" {
 		d, ok, err := s.store.DefaultFor(name)
 		if err != nil {
@@ -541,14 +560,34 @@ func (s *site) page(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if path != "" {
-				want = d.Version
+				want, promoted = d.Version, true
 			}
+		}
+	}
+
+	// A version promoted with an overlay beside it is drawn with both.
+	//
+	// The two halves of a box somebody drew live in different documents: that
+	// it exists is in the overlay, where it sits is in the layout. Promoting
+	// used to bring back only the second, so the page pinned a position for a
+	// box its graph had never heard of — the box gone and the space it stood
+	// in still reserved. /manage has always opened the pair together; this is
+	// the same rule for the plain url.
+	//
+	// Only what is drawn changes. Where a save goes is left alone below, so
+	// pressing Save on a promoted page writes a new version rather than
+	// quietly rewriting the one everybody else is looking at.
+	drawOverlay := wantOverlay
+	if drawOverlay == "" && promoted {
+		if _, err := serve.ReadOverlay(s.state, name, want); err == nil {
+			drawOverlay = want
 		}
 	}
 
 	d := serve.Dressing{
 		LayoutPost:  "/api/layouts/" + url.PathEscape(name) + "/" + url.PathEscape(r.URL.Query().Get("layout")),
 		OverlayPost: "/api/overlays/" + url.PathEscape(name) + "/" + url.PathEscape(wantOverlay),
+		DefaultPost: "/api/defaults/" + url.PathEscape(name) + "/",
 	}
 	if want != "" {
 		if d.Layout, err = serve.Read(s.state, name, want); err != nil {
@@ -556,12 +595,12 @@ func (s *site) page(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if wantOverlay != "" {
-		if d.Overlay, err = serve.ReadOverlay(s.state, name, wantOverlay); err != nil {
+	if drawOverlay != "" {
+		if d.Overlay, err = serve.ReadOverlay(s.state, name, drawOverlay); err != nil {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
-		d.GraphQuery = "overlay=" + url.QueryEscape(wantOverlay)
+		d.GraphQuery = "overlay=" + url.QueryEscape(drawOverlay)
 	}
 
 	dressed, err := serve.Apply(body, d)
@@ -629,7 +668,9 @@ func (s *site) index(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if len(saved) == 0 {
-			b.WriteString(`<p class=m>None saved yet. Open the page, switch to Edit, move things, then Export layout.</p>`)
+			b.WriteString(`<p class=m>None saved yet. Open the page, switch to Edit, ` +
+				`move things or press 整列, then Save. The page comes back to what ` +
+				`you saved; 既定にする is what makes everybody else get it too.</p>`)
 			continue
 		}
 		b.WriteString(`<table><tr><th>saved<th>positions<th>placed<th>not in this graph`)

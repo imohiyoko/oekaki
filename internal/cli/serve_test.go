@@ -557,3 +557,95 @@ func TestAnIndexThatExistsIsStillServed(t *testing.T) {
 		t.Fatalf("came back %d", got.Code)
 	}
 }
+
+// Saving from a page that was not opened under a name gets one made up from
+// the clock. Until it was said out loud, the version was written and
+// unreachable in the same breath: the only place the name appeared was in a
+// sentence meant for a person, so nothing could ask to be drawn with it.
+//
+// This is the round trip end to end — post it, get the name, ask for it back,
+// find it on the page — which nothing exercised before. The promote tests all
+// seed the file from Go and never go through the handler that names it.
+func TestASaveSaysWhatItWasFiledUnder(t *testing.T) {
+	s := testSite(t)
+	saved := ask(t, s, http.MethodPost, "/api/layouts/core/", servedLayout, nil)
+	if saved.Code != http.StatusOK {
+		t.Fatalf("saving came back %d: %s", saved.Code, saved.Body)
+	}
+	name := saved.Header().Get(NameHeader)
+	if name == "" {
+		t.Fatal("the save did not say what it named the version, so nothing can ask for it again")
+	}
+	if !strings.Contains(saved.Body.String(), name) {
+		t.Errorf("the sentence says one name and the header another: %q vs %q", saved.Body, name)
+	}
+
+	back := ask(t, s, http.MethodGet, "/core.html?layout="+name, "", nil)
+	if back.Code != http.StatusOK {
+		t.Fatalf("asking for it back came back %d", back.Code)
+	}
+	if !strings.Contains(back.Body.String(), `id="oekaki-layout"`) {
+		t.Error("the version came back by name and was not applied")
+	}
+	// And the page it hands back saves to that same name, or the next press
+	// leaves another version behind instead of replacing this one.
+	if !strings.Contains(back.Body.String(), `data-layout-post="/api/layouts/core/`+name+`"`) {
+		t.Error("a page opened under a name still saves to a fresh one")
+	}
+}
+
+// The page has to be told where decisions go, not only where documents go.
+// They are different urls because they are different acts: one writes a file
+// nobody else is looking at, the other changes what this page draws for
+// everybody.
+func TestThePageIsToldWhereToSendADecision(t *testing.T) {
+	s := testSite(t)
+	got := ask(t, s, http.MethodGet, "/core.html", "", nil)
+	if !strings.Contains(got.Body.String(), `data-default-post="/api/defaults/core/"`) {
+		t.Error("the page cannot ask for a version to become the one everybody gets")
+	}
+}
+
+// A box somebody drew has two halves in two documents: that it exists is in
+// the overlay, where it sits is in the layout. Promoting used to bring back
+// only the second, so the plain url drew a page holding a position for a box
+// its graph had never heard of — the box gone and the space it stood in still
+// reserved. /manage has always opened the pair together.
+func TestAPromotedVersionBringsBackTheBoxItPlaces(t *testing.T) {
+	s := testSite(t)
+	// A whole graph rather than the shared fixture: applying an overlay reads
+	// the page's graph as IR, and the short one every other test uses here is
+	// not a document the schema accepts.
+	const whole = `{"version":"0.5","axes":[],"groups":[],"edges":[],` +
+		`"nodes":[{"id":"a","type":"aws_instance","name":"a","provider":"aws","groups":{}}]}`
+	page := `<!doctype html><body data-mode="read">` +
+		`<script type="application/json" id="oekaki-graph">` + whole + `</script></body>`
+	if err := os.WriteFile(filepath.Join(s.pages, "core.html"), []byte(page), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const drawn = `{"kind":"oekaki.overlay","version":"0.1",` +
+		`"metadata":{"origin":"human"},` +
+		`"assertions":[{"assert":"node","subject":{"name":"drawn"},"name":"drawn"}]}`
+	if err := serve.SaveOverlay(s.state, "core", "v1", []byte(drawn)); err != nil {
+		t.Fatal(err)
+	}
+	if err := serve.Save(s.state, "core", "v1", []byte(servedLayout)); err != nil {
+		t.Fatal(err)
+	}
+	if got := ask(t, s, http.MethodPost, "/api/defaults/core/v1", "", nil); got.Code != http.StatusOK {
+		t.Fatalf("promoting came back %d: %s", got.Code, got.Body)
+	}
+
+	drew := ask(t, s, http.MethodGet, "/core.html", "", nil).Body.String()
+	if !strings.Contains(drew, `id="oekaki-layout"`) {
+		t.Fatal("the promoted layout is not on the page")
+	}
+	if !strings.Contains(drew, "drawn") {
+		t.Error("the layout came back without the box it places, so it places nothing")
+	}
+	// Where a save goes is untouched: pressing Save on a page somebody else
+	// promoted must not rewrite the version they promoted.
+	if !strings.Contains(drew, `data-layout-post="/api/layouts/core/"`) {
+		t.Error("a save from a promoted page would overwrite what everybody is looking at")
+	}
+}
