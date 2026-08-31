@@ -30,15 +30,18 @@ type API struct {
 	Namespaced bool
 
 	// Since is the Kubernetes release that started serving this apiVersion for
-	// this kind. The highest Since across a document set is the oldest cluster
-	// that can accept all of it, which is what Parse records as the graph's
-	// source version.
+	// this kind. The highest Since across a document set is the floor of the
+	// releases that accept all of it.
 	Since string
 
 	// Removed is the release that stopped serving it, empty while it is still
 	// served. An object using one of these still becomes a node: a manifest no
 	// current cluster will accept is a finding, and dropping it hides the
 	// finding rather than the problem.
+	//
+	// The earliest Removed across a document set is the ceiling of the
+	// releases that accept all of it. Floor and ceiling can cross, and Parse
+	// records no source version when they do: see Result.Incompatible.
 	Removed string
 
 	// Recovers names the relationships the parser reads out of this kind.
