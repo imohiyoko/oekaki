@@ -89,11 +89,16 @@ type Result struct {
 // index is what lets a reference find an object rather than guess at its id,
 // and what keeps a large input from costing a scan per reference.
 type builder struct {
-	g     *core.Graph
-	opts  Options
-	all   []object
-	byID  map[string]*object
-	edges map[string]bool
+	g    *core.Graph
+	opts Options
+	all  []object
+	byID map[string]*object
+
+	// nsLabels are the labels of the Namespace objects in the input. A policy
+	// naming a namespaceSelector can only be evaluated against namespaces
+	// somebody sent; there is no way to look one up.
+	nsLabels map[string]map[string]string
+	edges    map[string]bool
 }
 
 // object is one decoded manifest, kept as a map because the fields worth
@@ -125,7 +130,8 @@ func Parse(raw []byte, opts Options) (*Result, error) {
 	g.Axes = []core.Axis{{ID: core.AxisNetwork, Label: "Namespace"}}
 
 	res := &Result{Graph: g, Documents: len(objects)}
-	b := &builder{g: g, opts: opts, all: objects, byID: map[string]*object{}, edges: map[string]bool{}}
+	b := &builder{g: g, opts: opts, all: objects, byID: map[string]*object{},
+		nsLabels: map[string]map[string]string{}, edges: map[string]bool{}}
 	for i := range objects {
 		o := &objects[i]
 		if first, clash := b.byID[o.id()]; clash {
@@ -262,6 +268,7 @@ func (o *object) id() string {
 func (b *builder) add(o *object) {
 	if o.kind == "Namespace" {
 		b.ensureNamespace(o.name, b.source(o.line))
+		b.nsLabels[o.name] = strMap(o.body, "metadata", "labels")
 		return
 	}
 	b.ensureNamespace(o.namespace, nil)
@@ -302,6 +309,8 @@ func (b *builder) relate(o *object) {
 		b.routes(o)
 	case "HorizontalPodAutoscaler":
 		b.scales(o)
+	case "NetworkPolicy":
+		b.restricts(o)
 	}
 	if spec := podSpec(o); spec != nil {
 		b.mounts(o, spec)

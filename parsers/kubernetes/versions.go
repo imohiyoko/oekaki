@@ -92,6 +92,9 @@ var table = []API{
 	{Group: "networking.k8s.io", Namespaced: true, Version: "v1beta1", Kind: "Ingress", Since: "1.14", Removed: "1.22", Recovers: []string{"backend"}},
 	{Group: "extensions", Namespaced: true, Version: "v1beta1", Kind: "Ingress", Since: "1.2", Removed: "1.22", Recovers: []string{"backend"}},
 
+	{Group: "networking.k8s.io", Namespaced: true, Version: "v1", Kind: "NetworkPolicy", Since: "1.7", Recovers: []string{"restricts", "allows"}},
+	{Group: "extensions", Namespaced: true, Version: "v1beta1", Kind: "NetworkPolicy", Since: "1.3", Removed: "1.16", Recovers: []string{"restricts", "allows"}},
+
 	{Group: "autoscaling", Namespaced: true, Version: "v2", Kind: "HorizontalPodAutoscaler", Since: "1.23", Recovers: []string{"scaleTarget"}},
 	{Group: "autoscaling", Namespaced: true, Version: "v1", Kind: "HorizontalPodAutoscaler", Since: "1.2", Recovers: []string{"scaleTarget"}},
 	{Group: "autoscaling", Namespaced: true, Version: "v2beta2", Kind: "HorizontalPodAutoscaler", Since: "1.12", Removed: "1.26", Recovers: []string{"scaleTarget"}},

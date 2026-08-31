@@ -27,6 +27,8 @@ relationship a manifest actually records:
 | `mounts` | workload | PersistentVolumeClaim | `volumes[].persistentVolumeClaim` |
 | `runs-as` | workload | ServiceAccount | `spec.serviceAccountName` |
 | `owned-by` | any | its owner | `metadata.ownerReferences` |
+| `restricts` | NetworkPolicy | workload | `spec.podSelector` matched against the pod template's labels |
+| `allows` | NetworkPolicy | workload, namespace, CIDR | `ingress[].from` and `egress[].to` |
 
 A Namespace becomes a container on the network axis rather than a node, so
 `--axis network` nests workloads inside it.
@@ -38,14 +40,36 @@ runtime use matters.
 
 ## What it does not read yet
 
-- **NetworkPolicy**, which would be a `reachable` edge rather than an
-  `iac_ref` one. The semantics are worth getting right rather than early:
-  a policy only restricts pods it selects, and a graph that says otherwise
-  would report firewall rules that do not exist.
 - **StatefulSet `volumeClaimTemplates`**, which create a PVC per replica
   rather than naming an existing one.
 - **RBAC**, `PodDisruptionBudget`, `StorageClass`, and custom resources.
   These still become nodes; nothing is read out of them.
+
+## NetworkPolicy
+
+A NetworkPolicy is read the way a security group is: what the object says, and
+nothing about what the network then does. Which workloads a policy isolates
+becomes a `restricts` edge, and each rule's peers become `allows` edges. Both
+are `iac_ref` — they are written down, not inferred.
+
+Whether a path is *permitted* is not decided here. Two things stop it:
+
+- **The default is allow.** A namespace with no policy lets every pod reach
+  every other, so "what can reach this" is the complete graph until something
+  restricts it, and the fact worth having lives in the edges that are missing.
+  Missing edges cannot be drawn.
+- **A policy is enforced by the CNI, which no manifest mentions.** On a cluster
+  whose plugin does not implement NetworkPolicy the object is accepted and
+  changes nothing. "This policy allows A" stays true there; "only A can reach
+  B" does not.
+
+So the first is written down and the second is left to an enricher, which is
+also where security group reachability is derived.
+
+A rule this input cannot evaluate is recorded on the policy rather than
+dropped — a `namespaceSelector` with no Namespace objects to match against, or
+any selector using `matchExpressions`. A policy whose reach is partly unknown
+must not read as a policy that reaches only what was resolved.
 
 ## Objects it cannot place
 
@@ -115,8 +139,10 @@ object still using it will not apply to a cluster at or past that release.
 | `batch/v1beta1` | CronJob | 1.8 | **1.25** | `configmap`, `secret`, `pvc`, `serviceaccount`, `owner` |
 | `batch/v1` | Job | 1.2 | — | `configmap`, `secret`, `pvc`, `serviceaccount`, `owner` |
 | `extensions/v1beta1` | Ingress | 1.2 | **1.22** | `backend` |
+| `extensions/v1beta1` | NetworkPolicy | 1.3 | **1.16** | `restricts`, `allows` |
 | `networking.k8s.io/v1` | Ingress | 1.19 | — | `backend` |
 | `networking.k8s.io/v1beta1` | Ingress | 1.14 | **1.22** | `backend` |
+| `networking.k8s.io/v1` | NetworkPolicy | 1.7 | — | `restricts`, `allows` |
 
 The table is generated from `parsers/kubernetes/versions.go`; a test fails if
 this document and that table disagree. Adding a kind means adding a row, and
