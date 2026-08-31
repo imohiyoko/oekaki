@@ -26,7 +26,11 @@ th{color:var(--muted);font-weight:400}tr:last-child td{border-bottom:0}
 nav{margin:0 0 24px}nav a{margin-right:16px}
 button{font:inherit;padding:2px 10px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink);cursor:pointer}
 .warn{background:var(--surface);border-left:3px solid var(--accent);padding:8px 12px;margin:8px 0}
-code{background:var(--surface);padding:1px 5px;border-radius:4px}`
+code{background:var(--surface);padding:1px 5px;border-radius:4px}
+input,select{font:inherit;padding:3px 8px;border:1px solid var(--line);border-radius:6px;background:var(--page);color:var(--ink)}
+form.screen{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:flex-end;margin:8px 0;padding:12px;background:var(--surface);border-radius:8px}
+form.screen label{display:flex;flex-direction:column;gap:2px;font-size:12px;color:var(--muted)}
+p.kept{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin:6px 0}`
 
 // theme is the fallback for every custom property the stylesheet uses. A
 // deployment overrides what it cares about and inherits the rest, so a catalog

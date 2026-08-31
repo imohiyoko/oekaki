@@ -532,6 +532,38 @@ directory rather than a file so that a shared description and a personal one
 can sit side by side: name yours so it sorts last and it wins, without having
 to restate the parts you agree with.
 
+### Narrowing the list
+
+`/layouts` grows with the pipeline: one generation per run, and every page it
+wrote. What separates the interesting ones from the rest is already recorded —
+what somebody tagged it, who looks after it, whether anybody settled on a
+version, whether that version still lands on the graph the page carries now — so
+the listing can be screened on it:
+
+| | |
+| --- | --- |
+| text | path, title, note, tags, maintainers, and the names of saved versions |
+| tags | all of them, not any of them |
+| person | a maintainer, or whoever wrote it down |
+| kind | the catalog's grouping |
+| drawn with | a version somebody chose, none, or one that has since gone |
+| positions | all land, some land nowhere, or nothing saved yet |
+
+A screening is a url, so it works with no script running and can be sent to
+somebody else. Naming one keeps it, filed under whoever kept it and shown to
+nobody else — a screening is one person's way through a listing rather than a
+statement about it. Keeping one is not written to the journal, for the same
+reason saving a layout is not: it changes nothing anybody else can see.
+
+A condition this build does not recognise is dropped rather than carried, so a
+kept screening widens instead of turning into a link nobody read. Nothing is
+stored that a later page will trust.
+
+There is no identity provider yet, so the name a screening is filed under is one
+you type and nothing checks — exactly as good as the header a program would
+send, and recorded as self-asserted wherever it lands, so that a name a provider
+vouches for one day cannot be mistaken for one somebody chose today.
+
 ### Who may see what
 
 Roles are configured; who holds one is not. Which roles exist is written by
