@@ -27,17 +27,32 @@ import (
 // reach B" does not. Only the first is written down.
 
 // external is the peer every open ipBlock collapses to. The reachable
-// enricher already uses this id for the same idea on the AWS side.
+// enricher and the exposure enricher already use this id for the same idea,
+// and the node has to be built the way they build it: two definitions of one
+// id are a conflict when graphs are combined, and the difference would only
+// surface for somebody drawing a Kubernetes estate beside a cloud one.
 const external = "external:internet"
+
+// allowRelation puts the direction in the relation rather than in an
+// attribute. Normalize merges edges that share from, to, kind and relation
+// without looking at attributes, so a policy allowing one peer both ways
+// would otherwise become a single edge and lose a direction on the way out.
+func allowRelation(direction string) string {
+	return "allows-" + strings.ToLower(direction)
+}
 
 // restricts reads one NetworkPolicy: which workloads it isolates, and which
 // peers it then lets through.
 func (b *builder) restricts(np *object) {
 	directions := policyTypes(np)
 
-	sel, everything, ok := labelSelector(np.body, "spec", "podSelector")
-	if !ok {
-		b.setAttr(np.id(), "restricts", "not resolved: the pod selector uses matchExpressions")
+	sel, everything, why := labelSelector(np.body, "spec", "podSelector")
+	if why != "" {
+		// The name has to end in _unresolved: that suffix is what tells the
+		// reachable enricher this policy reaches further than the edges say.
+		// A policy whose own selector could not be read reaches further than
+		// any of them.
+		b.setAttr(np.id(), "restricts_unresolved", "the pod selector is "+why)
 		return
 	}
 	targets := b.workloadsMatching(np.namespace, sel, everything)
@@ -71,8 +86,8 @@ func (b *builder) restricts(np *object) {
 				// A rule with ports but no peers allows every source on those
 				// ports. Saying so needs a peer, and the only honest one is
 				// everything.
-				b.edge(np.id(), external, "allows",
-					map[string]any{"direction": direction, "ports": ports, "peer": "any source"})
+				b.edge(np.id(), b.internet(), allowRelation(direction),
+					map[string]any{"ports": ports, "peer": "any source"})
 			}
 		}
 	}
@@ -83,19 +98,19 @@ func (b *builder) restricts(np *object) {
 // read as a rule that reaches nothing.
 func (b *builder) allow(np *object, peer any, direction, ports string) {
 	if cidr := str(peer, "ipBlock", "cidr"); cidr != "" {
-		attrs := map[string]any{"direction": direction, "ports": ports, "cidr": cidr}
+		attrs := map[string]any{"ports": ports, "cidr": cidr}
 		if except := seq(peer, "ipBlock", "except"); len(except) > 0 {
 			attrs["except"] = fmt.Sprint(except)
 		}
-		b.edge(np.id(), b.cidrNode(cidr), "allows", attrs)
+		b.edge(np.id(), b.cidrNode(cidr), allowRelation(direction), attrs)
 		return
 	}
 
-	pods, podsAll, podsOK := labelSelector(peer, "podSelector")
-	spaces, spacesAll, spacesOK := labelSelector(peer, "namespaceSelector")
+	pods, podsAll, podsWhy := labelSelector(peer, "podSelector")
+	spaces, spacesAll, spacesWhy := labelSelector(peer, "namespaceSelector")
 	hasPods, hasSpaces := dig(peer, "podSelector") != nil, dig(peer, "namespaceSelector") != nil
-	if (hasPods && !podsOK) || (hasSpaces && !spacesOK) {
-		b.unresolved(np, direction, "a peer selector uses matchExpressions")
+	if why := firstReason(podsWhy, spacesWhy); why != "" {
+		b.unresolved(np, direction, "a peer selector is "+why)
 		return
 	}
 
@@ -115,7 +130,7 @@ func (b *builder) allow(np *object, peer any, direction, ports string) {
 	for _, ns := range namespaces {
 		for _, id := range b.workloadsMatching(ns, pods, podsAll || !hasPods) {
 			matched++
-			b.edge(np.id(), id, "allows", map[string]any{"direction": direction, "ports": ports})
+			b.edge(np.id(), id, allowRelation(direction), map[string]any{"ports": ports})
 		}
 	}
 	if matched == 0 {
@@ -166,25 +181,38 @@ func policyTypes(np *object) []string {
 // A selector carrying matchExpressions cannot be evaluated here, and reading
 // it as its matchLabels alone would produce a wider selector wearing the same
 // colour as an exact one. Those are refused rather than approximated.
-func labelSelector(v any, path ...string) (match map[string]string, everything, ok bool) {
+// The third return is why the selector could not be read, empty when it was.
+// There are three ways to fail and they need different words: a reader told
+// that `podSelector: whatever` uses matchExpressions goes looking for syntax
+// that is not there.
+func labelSelector(v any, path ...string) (match map[string]string, everything bool, why string) {
 	sel := dig(v, path...)
 	if sel == nil {
-		return nil, false, true
+		return nil, false, ""
 	}
 	if _, isMap := sel.(map[string]any); !isMap {
 		// `podSelector: something` is not a selector. An empty selector
 		// selects every pod in the namespace, so reading a malformed one as
 		// empty would restrict the whole namespace on the strength of a typo.
-		return nil, false, false
+		return nil, false, "not a selector"
 	}
 	if len(seq(sel, "matchExpressions")) > 0 {
-		return nil, false, false
+		return nil, false, "written with matchExpressions, which this does not evaluate"
 	}
 	labels, whole := strMapAll(sel, "matchLabels")
 	if !whole {
-		return nil, false, false
+		return nil, false, "carrying a label value that is not a string"
 	}
-	return labels, len(labels) == 0, true
+	return labels, len(labels) == 0, ""
+}
+
+func firstReason(reasons ...string) string {
+	for _, r := range reasons {
+		if r != "" {
+			return r
+		}
+	}
+	return ""
 }
 
 // workloadsMatching finds the workloads in a namespace whose pod template
@@ -222,16 +250,28 @@ func (b *builder) namespacesMatching(sel map[string]string, everything bool) []s
 // idea the reachable enricher already draws as the internet, so it reuses that
 // node rather than introducing a second name for it.
 func (b *builder) cidrNode(cidr string) string {
-	id, name := "cidr:"+cidr, cidr
 	if cidr == "0.0.0.0/0" || cidr == "::/0" {
-		id, name = external, "internet"
+		return b.internet()
 	}
+	id := "cidr:" + cidr
 	if _, ok := b.g.Node(id); !ok {
 		b.g.Nodes = append(b.g.Nodes, core.Node{
-			ID: id, Type: "cidr", Name: name, Attrs: map[string]any{"cidr": cidr},
+			ID: id, Type: "cidr", Name: cidr, Attrs: map[string]any{"cidr": cidr},
 		})
 	}
 	return id
+}
+
+// internet is the node an open block points at. Its shape is copied from the
+// enrichers rather than chosen here, because an id defined two ways is a
+// conflict the moment two graphs are combined.
+func (b *builder) internet() string {
+	if _, ok := b.g.Node(external); !ok {
+		b.g.Nodes = append(b.g.Nodes, core.Node{
+			ID: external, Type: "external_endpoint", Name: "Internet", Provider: "external",
+		})
+	}
+	return external
 }
 
 func describeSelector(sel map[string]string, everything bool) string {

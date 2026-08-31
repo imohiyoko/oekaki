@@ -36,7 +36,7 @@ relationship a manifest actually records:
 | `grants` | RoleBinding, ClusterRoleBinding | Role, ClusterRole | `roleRef` |
 | `binds` | RoleBinding, ClusterRoleBinding | ServiceAccount | `subjects[]` |
 | `restricts` | NetworkPolicy | workload | `spec.podSelector` matched against the pod template's labels |
-| `allows` | NetworkPolicy | workload, namespace, CIDR | `ingress[].from` and `egress[].to` |
+| `allows-ingress`, `allows-egress` | NetworkPolicy | workload, CIDR | `ingress[].from` and `egress[].to`. The direction is in the relation rather than an attribute: edges that agree on ends, kind and relation are merged without their attributes being read, so a peer allowed both ways would arrive as one edge naming one direction |
 
 A Namespace becomes a container on the network axis rather than a node, so
 `--axis network` nests workloads inside it.
@@ -95,6 +95,9 @@ A policy with peers this input could not resolve permits more than what is
 drawn, and the enricher reports it rather than letting the drawn subset read as
 the whole.
 
+A rule with ports and no peers allows every source on those ports, and points
+at the same `external:internet` node the enrichers use.
+
 A rule this input cannot evaluate is recorded on the policy rather than
 dropped — a `namespaceSelector` with no Namespace objects to match against, or
 any selector using `matchExpressions`. A policy whose reach is partly unknown
@@ -108,6 +111,11 @@ served becomes a node with `api_removed_in`. A referenced object that is not
 in the input — a Secret nobody committed — becomes a node with
 `declared_only`, because a dependency on something absent is the most useful
 thing this graph can show.
+
+A document part that holds no object — YAML that will not decode, a List item
+that is not a mapping, an object with only a `generateName` and therefore no
+name yet — is counted and reported. "Nothing is dropped" is a claim this makes,
+and a silent skip is how such a claim stops being true.
 
 An object the input defines twice — concatenate a base and an overlay, or two
 chart renders sharing a namespace-level ConfigMap — is drawn once, from the

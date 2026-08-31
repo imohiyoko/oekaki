@@ -588,7 +588,7 @@ func TestErrorsAreReportedUsefully(t *testing.T) {
 		{"undetectable format", []string{"render", plan, "-o", "out.txt"}, "", "cannot tell the format"},
 		{"not terraform output", []string{"render", "-"}, `{"hello":"world"}`, "is not `terraform show -json` output, an oekaki graph, or Kubernetes manifests"},
 		{"not json at all", []string{"render", "-"}, `hello`, "is not `terraform show -json` output, an oekaki graph, or Kubernetes manifests"},
-		{"yaml that is not manifests", []string{"render", "-"}, "just: a map\n", "missing apiVersion or kind"},
+		{"yaml that is not manifests", []string{"render", "-"}, "just: a map\n", "no apiVersion or kind"},
 	}
 
 	for _, tt := range tests {

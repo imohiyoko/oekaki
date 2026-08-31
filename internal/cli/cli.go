@@ -1011,6 +1011,10 @@ func loadManifests(env Env, path string, raw []byte, scope string) (*core.Graph,
 		fmt.Fprintf(env.Stderr, "  %d on an apiVersion this build does not know: %s\n",
 			len(res.Unknown), summarise(res.Unknown))
 	}
+	if len(res.Skipped) > 0 {
+		fmt.Fprintf(env.Stderr, "  %d document parts held no object: %s\n",
+			len(res.Skipped), summarise(res.Skipped))
+	}
 	if len(res.Duplicates) > 0 {
 		fmt.Fprintf(env.Stderr, "  %d defined more than once, first one drawn: %s\n",
 			len(res.Duplicates), summarise(res.Duplicates))

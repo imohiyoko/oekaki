@@ -94,11 +94,11 @@ spec:
 	if hasEdge(res.Graph, np, "deployment/shop/web", "restricts") {
 		t.Error("the policy restricted a workload its selector does not match")
 	}
-	attrs := edgeAttrs(res, np, "deployment/shop/web", "allows")
+	attrs := edgeAttrs(res, np, "deployment/shop/web", "allows-ingress")
 	if attrs == nil {
 		t.Fatal("the rule's peer did not become an allows edge")
 	}
-	if attrs["direction"] != "Ingress" || attrs["ports"] != "TCP/5432" {
+	if attrs["ports"] != "TCP/5432" {
 		t.Errorf("allows attrs = %v", attrs)
 	}
 }
@@ -124,12 +124,12 @@ spec:
 `)
 	const np = "networkpolicy/shop/from-platform-scrapers"
 
-	if !hasEdge(res.Graph, np, "deployment/ops/scraper", "allows") {
+	if !hasEdge(res.Graph, np, "deployment/ops/scraper", "allows-ingress") {
 		t.Error("the anded peer did not reach the one workload that satisfies both")
 	}
 	// web is in shop, which the namespace selector does not match, and is not
 	// a scraper either.
-	if hasEdge(res.Graph, np, "deployment/shop/web", "allows") {
+	if hasEdge(res.Graph, np, "deployment/shop/web", "allows-ingress") {
 		t.Error("the peer was read as an alternative rather than a conjunction")
 	}
 }
@@ -186,7 +186,7 @@ spec:
 			t.Errorf("a selector that was not evaluated still restricted %s", to)
 		}
 	}
-	got, _ := nodeAttr(res, np, "restricts").(string)
+	got, _ := nodeAttr(res, np, "restricts_unresolved").(string)
 	if !strings.Contains(got, "matchExpressions") {
 		t.Errorf("restricts = %q, want the reason it was not resolved", got)
 	}
@@ -211,9 +211,8 @@ spec:
 `)
 	const np = "networkpolicy/shop/web-egress"
 
-	attrs := edgeAttrs(res, np, "deployment/shop/db", "allows")
-	if attrs == nil || attrs["direction"] != "Egress" {
-		t.Errorf("the egress peer was not read: %v", attrs)
+	if !hasEdge(res.Graph, np, "deployment/shop/db", "allows-egress") {
+		t.Error("the egress peer was not read")
 	}
 	restrict := edgeAttrs(res, np, "deployment/shop/web", "restricts")
 	if restrict == nil || restrict["direction"] != "Ingress,Egress" {
@@ -221,7 +220,7 @@ spec:
 	}
 	// An open block is the same idea the reachable enricher draws as the
 	// internet, and a second name for it would split one thing in two.
-	open := edgeAttrs(res, np, external, "allows")
+	open := edgeAttrs(res, np, external, "allows-egress")
 	if open == nil || open["cidr"] != "0.0.0.0/0" || open["except"] == nil {
 		t.Errorf("the open ipBlock did not reach the internet node: %v", open)
 	}
@@ -252,5 +251,71 @@ spec:
 	}
 	if nodeAttr(res, np, "ingress_allows") != "nothing" || nodeAttr(res, np, "egress_allows") != "nothing" {
 		t.Error("a policy that allows nothing does not say so")
+	}
+}
+
+// A rule with ports and no peers allows every source on those ports. It is one
+// of the most ordinary policies there is, and the peer it needs has to exist:
+// an edge pointing at a node nobody made fails validation and takes the whole
+// command down with it.
+func TestPortsOnlyRuleReachesTheInternetNode(t *testing.T) {
+	res := parseString(t, policyFixture+`
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: any-source, namespace: shop}
+spec:
+  podSelector: {matchLabels: {app: db}}
+  ingress:
+  - ports: [{protocol: TCP, port: 8080}]
+`)
+	if err := res.Graph.Validate(); err != nil {
+		t.Fatalf("a ports-only rule produced an invalid graph: %v", err)
+	}
+	n, ok := res.Graph.Node(external)
+	if !ok {
+		t.Fatal("the rule's implicit peer has no node")
+	}
+	// The id is shared with the enrichers, so the definition has to be too:
+	// two shapes for one id is a conflict as soon as graphs are combined.
+	if n.Type != "external_endpoint" || n.Name != "Internet" || n.Provider != "external" {
+		t.Errorf("internet node = %+v, want the shape the enrichers build", n)
+	}
+}
+
+// One policy can allow the same peer in both directions, and two rules can
+// allow one peer on different ports. Both used to arrive as a single edge
+// keeping whichever was read first.
+func TestBothDirectionsAndBothPortsSurvive(t *testing.T) {
+	res := parseString(t, policyFixture+`
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: both-ways, namespace: shop}
+spec:
+  podSelector: {matchLabels: {app: web}}
+  policyTypes: [Ingress, Egress]
+  ingress:
+  - from: [{podSelector: {matchLabels: {app: db}}}]
+    ports: [{protocol: TCP, port: 8080}]
+  - from: [{podSelector: {matchLabels: {app: db}}}]
+    ports: [{protocol: TCP, port: 9090}]
+  egress:
+  - to: [{podSelector: {matchLabels: {app: db}}}]
+    ports: [{protocol: TCP, port: 5432}]
+`)
+	const np = "networkpolicy/shop/both-ways"
+
+	in := edgeAttrs(res, np, "deployment/shop/db", "allows-ingress")
+	out := edgeAttrs(res, np, "deployment/shop/db", "allows-egress")
+	if in == nil || out == nil {
+		t.Fatalf("a direction was lost: ingress=%v egress=%v", in, out)
+	}
+	if out["ports"] != "TCP/5432" {
+		t.Errorf("egress ports = %v", out["ports"])
+	}
+	ports, _ := in["ports"].(string)
+	if !strings.Contains(ports, "TCP/8080") || !strings.Contains(ports, "TCP/9090") {
+		t.Errorf("ingress ports = %q, want both rules' ports", ports)
 	}
 }

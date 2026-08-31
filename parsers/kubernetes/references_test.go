@@ -253,7 +253,7 @@ spec:
 	if hasEdge(res.Graph, "networkpolicy/shop/broken", "deployment/shop/web", "restricts") {
 		t.Error("a malformed pod selector restricted the namespace as if it were empty")
 	}
-	got, _ := nodeAttrString(res, "networkpolicy/shop/broken", "restricts")
+	got, _ := nodeAttrString(res, "networkpolicy/shop/broken", "restricts_unresolved")
 	if got == "" {
 		t.Error("the policy does not say that its selector could not be read")
 	}

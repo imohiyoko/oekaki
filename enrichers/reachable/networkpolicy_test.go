@@ -1,6 +1,7 @@
 package reachable
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/imohiyoko/oekaki/core"
@@ -27,8 +28,9 @@ func restricts(policy, target, direction string) core.Edge {
 }
 
 func allows(policy, peer, direction string) core.Edge {
-	return core.Edge{From: policy, To: peer, Kind: core.EdgeIACRef, Relation: "allows",
-		Attrs: map[string]any{"direction": direction, "ports": "TCP/5432"}}
+	return core.Edge{From: policy, To: peer, Kind: core.EdgeIACRef,
+		Relation: "allows-" + strings.ToLower(direction),
+		Attrs:    map[string]any{"ports": "TCP/5432"}}
 }
 
 func reachableEdge(g *core.Graph, from, to string) *core.Edge {
@@ -139,5 +141,21 @@ func TestAGraphWithoutPoliciesIsUnchanged(t *testing.T) {
 	}
 	if len(g.Edges) != before {
 		t.Errorf("edges = %d, want %d", len(g.Edges), before)
+	}
+}
+
+// A policy whose own selector could not be read restricts something this graph
+// cannot name, so it permits more than any edge here says. The parser records
+// that on the policy, and the suffix is the whole of the contract between the
+// two halves.
+func TestAPolicyWithAnUnreadableSelectorIsReported(t *testing.T) {
+	g := policyGraph()
+	g.Nodes[3].Attrs = map[string]any{"restricts_unresolved": "the pod selector is not a selector"}
+	r, err := (Enricher{}).Enrich(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Unmatched) != 1 {
+		t.Fatalf("Unmatched = %v, want the policy nothing could be read from", r.Unmatched)
 	}
 }

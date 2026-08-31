@@ -77,6 +77,13 @@ type Result struct {
 	Removed []string
 	Unknown []string
 
+	// Skipped lists documents that held something this could not turn into an
+	// object: YAML that would not decode, a List item that is not a mapping,
+	// an object with only a generateName and therefore no id yet. They are
+	// counted because "nothing is dropped" is a claim this package makes, and
+	// a silent skip is how that claim stops being true.
+	Skipped []string
+
 	// Duplicates lists objects the input defines more than once. Concatenating
 	// a base and an overlay does that, and so do two chart renders sharing a
 	// namespace-level ConfigMap. The first definition is drawn and the rest
@@ -118,12 +125,18 @@ type object struct {
 
 // Parse reads a stream of YAML documents.
 func Parse(raw []byte, opts Options) (*Result, error) {
-	objects, err := decode(raw, opts)
+	objects, skipped, err := decode(raw, opts)
 	if err != nil {
 		return nil, err
 	}
 	if len(objects) == 0 {
-		return nil, errors.New("no Kubernetes objects: every document is missing apiVersion or kind")
+		// The reasons are part of the message. "Every document is missing
+		// apiVersion" is a specific claim, and it is wrong for a file whose
+		// documents were skipped for some other reason.
+		if len(skipped) > 0 {
+			return nil, fmt.Errorf("no Kubernetes objects: %s", strings.Join(skipped, "; "))
+		}
+		return nil, errors.New("no Kubernetes objects: the input holds no documents")
 	}
 
 	g := core.New()
@@ -135,7 +148,7 @@ func Parse(raw []byte, opts Options) (*Result, error) {
 	// which then draw edges to the first definition's node: an object that
 	// was not used deciding what an object that was used connects to.
 	unique := make([]object, 0, len(objects))
-	res := &Result{Graph: g, Objects: len(objects)}
+	res := &Result{Graph: g, Objects: len(objects), Skipped: skipped}
 	seenID := map[string]bool{}
 	for _, o := range objects {
 		if seenID[o.id()] {
@@ -195,9 +208,10 @@ func Parse(raw []byte, opts Options) (*Result, error) {
 // decode splits the stream into objects. A document that is empty, or that is
 // a List, or that is not a Kubernetes object at all, is skipped rather than
 // failing the parse: manifest streams routinely carry all three.
-func decode(raw []byte, opts Options) ([]object, error) {
+func decode(raw []byte, opts Options) ([]object, []string, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(raw))
 	var out []object
+	var skipped []string
 	for {
 		var doc yaml.Node
 		err := dec.Decode(&doc)
@@ -205,13 +219,22 @@ func decode(raw []byte, opts Options) ([]object, error) {
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("reading YAML: %w", err)
+			return nil, nil, fmt.Errorf("reading YAML: %w", err)
 		}
 		var body map[string]any
 		if err := doc.Decode(&body); err != nil {
+			// A document that is a scalar or a list is not an object. Empty
+			// ones are not worth mentioning; anything else is.
+			if doc.Kind != 0 && (doc.Kind != yaml.DocumentNode || len(doc.Content) > 0) {
+				skipped = append(skipped, fmt.Sprintf("line %d: not a Kubernetes object", doc.Line))
+			}
 			continue
 		}
-		for _, item := range flatten(body) {
+		items, dropped := flatten(body)
+		for _, why := range dropped {
+			skipped = append(skipped, fmt.Sprintf("line %d: %s", doc.Line, why))
+		}
+		for _, item := range items {
 			o := object{
 				apiVersion: str(item, "apiVersion"),
 				kind:       str(item, "kind"),
@@ -220,7 +243,20 @@ func decode(raw []byte, opts Options) ([]object, error) {
 				body:       item,
 				line:       doc.Line,
 			}
-			if o.apiVersion == "" || o.kind == "" || o.name == "" {
+			if o.apiVersion == "" || o.kind == "" {
+				skipped = append(skipped, fmt.Sprintf("line %d: no apiVersion or kind", doc.Line))
+				continue
+			}
+			if o.name == "" {
+				// An object with only a generateName has no name until the
+				// cluster gives it one, so it has no id here either. It is
+				// reported rather than dropped: an object nobody mentioned is
+				// indistinguishable from an object that was not there.
+				what := o.kind
+				if g := str(item, "metadata", "generateName"); g != "" {
+					what += " " + g + "*"
+				}
+				skipped = append(skipped, fmt.Sprintf("line %d: %s has no name", doc.Line, what))
 				continue
 			}
 			o.api, o.known = lookup(o.apiVersion, o.kind)
@@ -245,25 +281,29 @@ func decode(raw []byte, opts Options) ([]object, error) {
 			out = append(out, o)
 		}
 	}
-	return out, nil
+	return out, skipped, nil
 }
 
 // flatten unwraps a List, which is what `kubectl get -o yaml` returns when it
 // is asked for more than one object.
-func flatten(body map[string]any) []map[string]any {
+func flatten(body map[string]any) ([]map[string]any, []string) {
 	// A List is recognised by holding items, not by its name alone. A custom
 	// resource called AllowList is an object, and dropping it would lose the
 	// whole document while claiming nothing was there.
 	if !strings.HasSuffix(str(body, "kind"), "List") || dig(body, "items") == nil {
-		return []map[string]any{body}
+		return []map[string]any{body}, nil
 	}
 	var out []map[string]any
-	for _, item := range seq(body, "items") {
-		if m, ok := item.(map[string]any); ok {
-			out = append(out, m)
+	var skipped []string
+	for i, item := range seq(body, "items") {
+		m, ok := item.(map[string]any)
+		if !ok {
+			skipped = append(skipped, fmt.Sprintf("item %d of a List is not an object", i))
+			continue
 		}
+		out = append(out, m)
 	}
-	return out
+	return out, skipped
 }
 
 // id is the stable identity: kind, namespace and name, the three things that
@@ -613,14 +653,50 @@ func (b *builder) edge(from, to, relation string, attrs map[string]any) {
 	if from == "" || to == "" || from == to {
 		return
 	}
+	// Two rules can name the same peer, and a workload can reach one
+	// ConfigMap through both an envFrom and a volume. Dropping the second
+	// call keeps the first one's ports and loses the rest; Normalize would
+	// not recover them either, since it merges on from, to, kind and relation
+	// without reading attributes.
 	key := from + "\x00" + to + "\x00" + relation
 	if b.edges[key] {
+		for i := range b.g.Edges {
+			e := &b.g.Edges[i]
+			if e.From == from && e.To == to && e.Relation == relation {
+				e.Attrs = widen(e.Attrs, attrs)
+				break
+			}
+		}
 		return
 	}
 	b.edges[key] = true
 	b.g.Edges = append(b.g.Edges, core.Edge{
 		From: from, To: to, Kind: core.EdgeIACRef, Relation: relation, Attrs: attrs,
 	})
+}
+
+// widen adds what a second reading of the same edge saw. Values are joined
+// rather than replaced: two rules allowing one peer on different ports allow
+// both, and keeping one of them would narrow the edge to a rule that is only
+// half of it.
+func widen(into, extra map[string]any) map[string]any {
+	if into == nil {
+		return extra
+	}
+	for key, value := range extra {
+		current, ok := into[key]
+		if !ok {
+			into[key] = value
+			continue
+		}
+		a, aok := current.(string)
+		bs, bok := value.(string)
+		if !aok || !bok || a == bs || strings.Contains(a, bs) {
+			continue
+		}
+		into[key] = a + ", " + bs
+	}
+	return into
 }
 
 func (b *builder) setAttr(id, key string, value any) {

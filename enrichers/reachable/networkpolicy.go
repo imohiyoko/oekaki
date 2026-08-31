@@ -44,6 +44,18 @@ type policySet struct {
 
 func applyNetworkPolicies(g *core.Graph, seen map[string]bool, r *enrichers.Report) {
 	set := readPolicies(g)
+
+	// Reported before the early return. A graph holding only policies that
+	// could not be read has nothing to draw and everything to warn about, and
+	// warning below the guard would drop exactly that case.
+	for _, id := range set.partial {
+		r.Unmatched = append(r.Unmatched, enrichers.Unmatched{
+			Selector: map[string]string{"policy": id},
+			Assert:   "reachable",
+			Reason:   "the policy has peers this input could not resolve, so what it permits is wider than what is drawn",
+			Action:   "dropped",
+		})
+	}
 	if len(set.isolated) == 0 {
 		return
 	}
@@ -68,14 +80,6 @@ func applyNetworkPolicies(g *core.Graph, seen map[string]bool, r *enrichers.Repo
 		}
 	}
 
-	for _, id := range set.partial {
-		r.Unmatched = append(r.Unmatched, enrichers.Unmatched{
-			Selector: map[string]string{"policy": id},
-			Assert:   "reachable",
-			Reason:   "the policy has peers this input could not resolve, so what it permits is wider than what is drawn",
-			Action:   "dropped",
-		})
-	}
 }
 
 // permits reports whether an end allows the path. An end that is not
@@ -129,10 +133,14 @@ func readPolicies(g *core.Graph) *policySet {
 		}
 	}
 	for _, e := range g.Edges {
-		if e.Kind != core.EdgeIACRef || e.Relation != "allows" || !isPolicy(g, e.From) {
+		if e.Kind != core.EdgeIACRef || !isPolicy(g, e.From) {
 			continue
 		}
-		for _, d := range directions(e.Attrs) {
+		d := allowDirection(e.Relation)
+		if d == "" {
+			continue
+		}
+		{
 			for _, target := range restricts[e.From] {
 				k := key(target, d)
 				if s.allowed[k] == nil {
@@ -168,14 +176,28 @@ func isPolicy(g *core.Graph, id string) bool {
 	return ok && n.Type == "networkpolicy"
 }
 
-// directions reads the direction an edge applies to. A restricts edge can name
-// both; an allows edge names one.
+// directions reads the direction a restricts edge applies to. One edge can
+// name both.
 func directions(attrs map[string]any) []string {
 	d, _ := attrs["direction"].(string)
 	if d == "" {
 		return nil
 	}
 	return strings.Split(d, ",")
+}
+
+// allowDirection reads the direction out of an allows relation. It lives in
+// the relation rather than an attribute because Normalize merges edges that
+// agree on from, to, kind and relation without reading attributes, so a peer
+// allowed both ways would arrive here as one edge naming one direction.
+func allowDirection(relation string) string {
+	switch relation {
+	case "allows-ingress":
+		return ingress
+	case "allows-egress":
+		return egress
+	}
+	return ""
 }
 
 func key(node, direction string) string { return node + "\x00" + direction }
