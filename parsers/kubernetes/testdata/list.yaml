@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: List
+items:
+- apiVersion: apps/v1
+  kind: ReplicaSet
+  metadata:
+    name: checkout-7d9f
+    namespace: shop
+    ownerReferences:
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: checkout
+  spec:
+    template:
+      metadata:
+        labels:
+          app: checkout
+      spec:
+        containers:
+        - name: checkout
+          image: registry.example/checkout:1.4.0

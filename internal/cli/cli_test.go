@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/imohiyoko/oekaki/core"
+	"github.com/imohiyoko/oekaki/schema"
 )
 
 const plan = "../../examples/three-tier/plan.json"
@@ -525,6 +526,53 @@ func TestVersionAndHelp(t *testing.T) {
 	}
 }
 
+// Manifests reach the same renderers Terraform output does. Wiring the parser
+// into loadGraph is what makes `helm template | oekaki render -` work at all,
+// and a parser nothing calls is a parser that does not exist.
+func TestManifestsRenderThroughTheSameCommands(t *testing.T) {
+	manifests := `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout
+  namespace: shop
+spec:
+  template:
+    metadata:
+      labels:
+        app: checkout
+    spec:
+      containers:
+      - name: checkout
+        image: registry.example/checkout:1.4.0
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: checkout
+  namespace: shop
+spec:
+  selector:
+    app: checkout
+`
+
+	r := run(t, manifests, "graph", "-")
+	if r.code != 0 {
+		t.Fatalf("exit %d: %s", r.code, r.stderr)
+	}
+	if err := schema.Validate([]byte(r.stdout)); err != nil {
+		t.Fatalf("the emitted graph does not match the schema: %v", err)
+	}
+	for _, want := range []string{"deployment/shop/checkout", "service/shop/checkout", "selects"} {
+		if !strings.Contains(r.stdout, want) {
+			t.Errorf("the graph does not mention %q", want)
+		}
+	}
+	// The reader has to be told which cluster releases will accept this.
+	if !strings.Contains(r.stderr, "kubernetes: 2 objects") {
+		t.Errorf("stderr %q does not report what was read", r.stderr)
+	}
+}
+
 func TestErrorsAreReportedUsefully(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -538,8 +586,9 @@ func TestErrorsAreReportedUsefully(t *testing.T) {
 		{"no input file", []string{"render"}, "", "exactly one input file"},
 		{"unknown format", []string{"render", plan, "-f", "pdf"}, "", "unknown format"},
 		{"undetectable format", []string{"render", plan, "-o", "out.txt"}, "", "cannot tell the format"},
-		{"not terraform output", []string{"render", "-"}, `{"hello":"world"}`, "neither"},
-		{"not json at all", []string{"render", "-"}, `hello`, "not valid JSON"},
+		{"not terraform output", []string{"render", "-"}, `{"hello":"world"}`, "is not `terraform show -json` output, an oekaki graph, or Kubernetes manifests"},
+		{"not json at all", []string{"render", "-"}, `hello`, "is not `terraform show -json` output, an oekaki graph, or Kubernetes manifests"},
+		{"yaml that is not manifests", []string{"render", "-"}, "just: a map\n", "missing apiVersion or kind"},
 	}
 
 	for _, tt := range tests {
