@@ -5,6 +5,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/imohiyoko/oekaki/providers"
 )
 
 const doc = "../../docs/kubernetes.md"
@@ -57,9 +59,16 @@ func TestEveryRowIsRecognised(t *testing.T) {
 				}
 				return
 			}
-			n, ok := res.Graph.Node(strings.ToLower(a.Kind) + "/shop/probe")
+			// A cluster-scoped kind keeps no namespace segment, even though
+			// the probe manifest names one: the cluster ignores it there, and
+			// so does this.
+			want := strings.ToLower(a.Kind) + "/probe"
+			if a.Namespaced {
+				want = strings.ToLower(a.Kind) + "/shop/probe"
+			}
+			n, ok := res.Graph.Node(want)
 			if !ok {
-				t.Fatal("the object did not become a node")
+				t.Fatalf("the object did not become a node at %s", want)
 			}
 			if n.Attrs["api_unknown"] == true {
 				t.Error("a listed apiVersion was not recognised")
@@ -151,4 +160,43 @@ func claims(a API, what string) bool {
 		}
 	}
 	return false
+}
+
+// The version table says what can be read; the provider profile says how it is
+// drawn. They are two lists of the same kinds, and the providers package calls
+// exactly this shape a drift failure. Neither is allowed to grow a kind the
+// other has never heard of.
+func TestTableAndProviderProfileAgree(t *testing.T) {
+	profile := providers.Lookup("deployment")
+	if profile == nil {
+		t.Fatal("the kubernetes profile does not claim a manifest kind at all")
+	}
+
+	claimed := map[string]bool{}
+	for _, kind := range profile.Kinds {
+		claimed[kind] = true
+		if _, ok := lookupKind(canonical(kind)); !ok {
+			t.Errorf("the profile draws %q, which the version table does not recognise", kind)
+		}
+	}
+	for _, a := range Table() {
+		// A Namespace becomes a container rather than a node, so it needs no
+		// drawing category.
+		if a.Kind == "Namespace" {
+			continue
+		}
+		if !claimed[strings.ToLower(a.Kind)] {
+			t.Errorf("the table reads %s, which the profile does not draw", a.Kind)
+		}
+	}
+}
+
+// canonical maps a lower-cased type back to the kind spelling the table uses.
+func canonical(lower string) string {
+	for _, a := range table {
+		if strings.ToLower(a.Kind) == lower {
+			return a.Kind
+		}
+	}
+	return lower
 }

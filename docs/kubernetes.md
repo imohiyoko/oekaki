@@ -23,10 +23,18 @@ relationship a manifest actually records:
 | `selects` | Service | workload | `spec.selector` matched against the pod template's labels |
 | `routes` | Ingress | Service | `backend.service.name`, and the older `backend.serviceName` |
 | `scales` | HorizontalPodAutoscaler | workload | `spec.scaleTargetRef` |
-| `reads` | workload | ConfigMap, Secret | `envFrom`, `env.valueFrom`, volumes, `imagePullSecrets` |
+| `reads` | workload, Ingress, ServiceAccount | ConfigMap, Secret | `envFrom`, `env.valueFrom`, volumes, `imagePullSecrets`, `tls[].secretName`, a ServiceAccount's own secrets |
 | `mounts` | workload | PersistentVolumeClaim | `volumes[].persistentVolumeClaim` |
 | `runs-as` | workload | ServiceAccount | `spec.serviceAccountName` |
 | `owned-by` | any | its owner | `metadata.ownerReferences` |
+| `governed-by` | StatefulSet | Service | `spec.serviceName`, the governing (usually headless) Service |
+| `handled-by` | Ingress | IngressClass | `spec.ingressClassName` |
+| `provisioned-by` | PersistentVolumeClaim | StorageClass | `spec.storageClassName` |
+| `bound-to` | PersistentVolumeClaim | PersistentVolume | `spec.volumeName` |
+| `prioritised-by` | workload | PriorityClass | `spec.priorityClassName` |
+| `measures` | HorizontalPodAutoscaler | any | `spec.metrics[].object.describedObject` |
+| `grants` | RoleBinding, ClusterRoleBinding | Role, ClusterRole | `roleRef` |
+| `binds` | RoleBinding, ClusterRoleBinding | ServiceAccount | `subjects[]` |
 | `restricts` | NetworkPolicy | workload | `spec.podSelector` matched against the pod template's labels |
 | `allows` | NetworkPolicy | workload, namespace, CIDR | `ingress[].from` and `egress[].to` |
 
@@ -42,8 +50,11 @@ runtime use matters.
 
 - **StatefulSet `volumeClaimTemplates`**, which create a PVC per replica
   rather than naming an existing one.
-- **RBAC**, `PodDisruptionBudget`, `StorageClass`, and custom resources.
-  These still become nodes; nothing is read out of them.
+- **A binding's User and Group subjects.** They are not objects in the
+  cluster, so there is nothing to point at; a box for a name in a text field
+  would put an identity on the diagram that no manifest creates.
+- **`PodDisruptionBudget` selectors**, and custom resources. These still
+  become nodes; nothing is read out of them.
 
 ## NetworkPolicy
 
@@ -63,8 +74,26 @@ Whether a path is *permitted* is not decided here. Two things stop it:
   changes nothing. "This policy allows A" stays true there; "only A can reach
   B" does not.
 
-So the first is written down and the second is left to an enricher, which is
-also where security group reachability is derived.
+So the first is written down by the parser and the second is derived by the
+reachable enricher, which is where security group reachability is derived too.
+Ask for it with `--reachable`:
+
+```console
+$ oekaki render manifests.yaml --reachable --view reachability -f html -o reach.html
+```
+
+A path is drawn when **every restricted end permits it and at least one end is
+restricted**. A pair with nothing restricting either end is left out: that is
+the Kubernetes default, and drawing it would draw the complete graph. Which
+ends are restricted is not left implicit — the `restricts` edges say so, which
+is what keeps a missing reachable edge from reading as a blocked path.
+
+Both ends are checked. A sender whose egress is restricted and does not name
+the destination cannot reach it, however open the destination is.
+
+A policy with peers this input could not resolve permits more than what is
+drawn, and the enricher reports it rather than letting the drawn subset read as
+the whole.
 
 A rule this input cannot evaluate is recorded on the policy rather than
 dropped — a `namespaceSelector` with no Namespace objects to match against, or
@@ -120,29 +149,39 @@ object still using it will not apply to a cluster at or past that release.
 | --- | --- | --- | --- | --- |
 | `v1` | ConfigMap | 1.0 | — | — |
 | `v1` | Namespace | 1.0 | — | — |
-| `v1` | PersistentVolumeClaim | 1.0 | — | — |
+| `v1` | PersistentVolume | 1.0 | — | — |
+| `v1` | PersistentVolumeClaim | 1.0 | — | `storageClass`, `volume` |
 | `v1` | Pod | 1.0 | — | `configmap`, `secret`, `pvc`, `serviceaccount`, `owner` |
 | `v1` | Secret | 1.0 | — | — |
 | `v1` | Service | 1.0 | — | `selector` |
-| `v1` | ServiceAccount | 1.0 | — | — |
+| `v1` | ServiceAccount | 1.0 | — | `secret` |
 | `apps/v1` | DaemonSet | 1.9 | — | `configmap`, `secret`, `pvc`, `serviceaccount`, `owner` |
 | `apps/v1` | Deployment | 1.9 | — | `configmap`, `secret`, `pvc`, `serviceaccount`, `owner` |
 | `apps/v1beta2` | Deployment | 1.8 | **1.16** | `configmap`, `secret`, `pvc`, `serviceaccount`, `owner` |
 | `apps/v1beta1` | Deployment | 1.6 | **1.16** | `configmap`, `secret`, `pvc`, `serviceaccount`, `owner` |
 | `apps/v1` | ReplicaSet | 1.9 | — | `configmap`, `secret`, `pvc`, `serviceaccount`, `owner` |
-| `apps/v1` | StatefulSet | 1.9 | — | `configmap`, `secret`, `pvc`, `serviceaccount`, `owner` |
-| `autoscaling/v2` | HorizontalPodAutoscaler | 1.23 | — | `scaleTarget` |
+| `apps/v1` | StatefulSet | 1.9 | — | `configmap`, `secret`, `pvc`, `serviceaccount`, `owner`, `governingService` |
+| `autoscaling/v2` | HorizontalPodAutoscaler | 1.23 | — | `scaleTarget`, `metricObject` |
 | `autoscaling/v1` | HorizontalPodAutoscaler | 1.2 | — | `scaleTarget` |
-| `autoscaling/v2beta2` | HorizontalPodAutoscaler | 1.12 | **1.26** | `scaleTarget` |
+| `autoscaling/v2beta2` | HorizontalPodAutoscaler | 1.12 | **1.26** | `scaleTarget`, `metricObject` |
 | `autoscaling/v2beta1` | HorizontalPodAutoscaler | 1.8 | **1.25** | `scaleTarget` |
 | `batch/v1` | CronJob | 1.21 | — | `configmap`, `secret`, `pvc`, `serviceaccount`, `owner` |
 | `batch/v1beta1` | CronJob | 1.8 | **1.25** | `configmap`, `secret`, `pvc`, `serviceaccount`, `owner` |
 | `batch/v1` | Job | 1.2 | — | `configmap`, `secret`, `pvc`, `serviceaccount`, `owner` |
 | `extensions/v1beta1` | Ingress | 1.2 | **1.22** | `backend` |
 | `extensions/v1beta1` | NetworkPolicy | 1.3 | **1.16** | `restricts`, `allows` |
-| `networking.k8s.io/v1` | Ingress | 1.19 | — | `backend` |
+| `networking.k8s.io/v1` | Ingress | 1.19 | — | `backend`, `tls`, `ingressClass` |
 | `networking.k8s.io/v1beta1` | Ingress | 1.14 | **1.22** | `backend` |
+| `networking.k8s.io/v1` | IngressClass | 1.19 | — | — |
 | `networking.k8s.io/v1` | NetworkPolicy | 1.7 | — | `restricts`, `allows` |
+| `policy/v1` | PodDisruptionBudget | 1.21 | — | — |
+| `policy/v1beta1` | PodDisruptionBudget | 1.5 | **1.25** | — |
+| `rbac.authorization.k8s.io/v1` | ClusterRole | 1.8 | — | — |
+| `rbac.authorization.k8s.io/v1` | ClusterRoleBinding | 1.8 | — | `role`, `subjects` |
+| `rbac.authorization.k8s.io/v1` | Role | 1.8 | — | — |
+| `rbac.authorization.k8s.io/v1` | RoleBinding | 1.8 | — | `role`, `subjects` |
+| `scheduling.k8s.io/v1` | PriorityClass | 1.14 | — | — |
+| `storage.k8s.io/v1` | StorageClass | 1.6 | — | — |
 
 The table is generated from `parsers/kubernetes/versions.go`; a test fails if
 this document and that table disagree. Adding a kind means adding a row, and

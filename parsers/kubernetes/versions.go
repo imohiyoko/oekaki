@@ -74,11 +74,12 @@ var table = []API{
 	{Version: "v1", Namespaced: true, Kind: "Service", Since: "1.0", Recovers: []string{"selector"}},
 	{Version: "v1", Namespaced: true, Kind: "ConfigMap", Since: "1.0"},
 	{Version: "v1", Namespaced: true, Kind: "Secret", Since: "1.0"},
-	{Version: "v1", Namespaced: true, Kind: "PersistentVolumeClaim", Since: "1.0"},
-	{Version: "v1", Namespaced: true, Kind: "ServiceAccount", Since: "1.0"},
+	{Version: "v1", Namespaced: true, Kind: "PersistentVolumeClaim", Since: "1.0", Recovers: []string{"storageClass", "volume"}},
+	{Version: "v1", Namespaced: true, Kind: "ServiceAccount", Since: "1.0", Recovers: []string{"secret"}},
+	{Version: "v1", Kind: "PersistentVolume", Since: "1.0"},
 
 	{Group: "apps", Namespaced: true, Version: "v1", Kind: "Deployment", Since: "1.9", Recovers: []string{"configmap", "secret", "pvc", "serviceaccount", "owner"}},
-	{Group: "apps", Namespaced: true, Version: "v1", Kind: "StatefulSet", Since: "1.9", Recovers: []string{"configmap", "secret", "pvc", "serviceaccount", "owner"}},
+	{Group: "apps", Namespaced: true, Version: "v1", Kind: "StatefulSet", Since: "1.9", Recovers: []string{"configmap", "secret", "pvc", "serviceaccount", "owner", "governingService"}},
 	{Group: "apps", Namespaced: true, Version: "v1", Kind: "DaemonSet", Since: "1.9", Recovers: []string{"configmap", "secret", "pvc", "serviceaccount", "owner"}},
 	{Group: "apps", Namespaced: true, Version: "v1", Kind: "ReplicaSet", Since: "1.9", Recovers: []string{"configmap", "secret", "pvc", "serviceaccount", "owner"}},
 	{Group: "apps", Namespaced: true, Version: "v1beta2", Kind: "Deployment", Since: "1.8", Removed: "1.16", Recovers: []string{"configmap", "secret", "pvc", "serviceaccount", "owner"}},
@@ -88,16 +89,27 @@ var table = []API{
 	{Group: "batch", Namespaced: true, Version: "v1", Kind: "CronJob", Since: "1.21", Recovers: []string{"configmap", "secret", "pvc", "serviceaccount", "owner"}},
 	{Group: "batch", Namespaced: true, Version: "v1beta1", Kind: "CronJob", Since: "1.8", Removed: "1.25", Recovers: []string{"configmap", "secret", "pvc", "serviceaccount", "owner"}},
 
-	{Group: "networking.k8s.io", Namespaced: true, Version: "v1", Kind: "Ingress", Since: "1.19", Recovers: []string{"backend"}},
+	{Group: "networking.k8s.io", Namespaced: true, Version: "v1", Kind: "Ingress", Since: "1.19", Recovers: []string{"backend", "tls", "ingressClass"}},
 	{Group: "networking.k8s.io", Namespaced: true, Version: "v1beta1", Kind: "Ingress", Since: "1.14", Removed: "1.22", Recovers: []string{"backend"}},
 	{Group: "extensions", Namespaced: true, Version: "v1beta1", Kind: "Ingress", Since: "1.2", Removed: "1.22", Recovers: []string{"backend"}},
+
+	{Group: "networking.k8s.io", Version: "v1", Kind: "IngressClass", Since: "1.19"},
+	{Group: "storage.k8s.io", Version: "v1", Kind: "StorageClass", Since: "1.6"},
+	{Group: "scheduling.k8s.io", Version: "v1", Kind: "PriorityClass", Since: "1.14"},
+	{Group: "policy", Namespaced: true, Version: "v1", Kind: "PodDisruptionBudget", Since: "1.21"},
+	{Group: "policy", Namespaced: true, Version: "v1beta1", Kind: "PodDisruptionBudget", Since: "1.5", Removed: "1.25"},
+
+	{Group: "rbac.authorization.k8s.io", Namespaced: true, Version: "v1", Kind: "Role", Since: "1.8"},
+	{Group: "rbac.authorization.k8s.io", Namespaced: true, Version: "v1", Kind: "RoleBinding", Since: "1.8", Recovers: []string{"role", "subjects"}},
+	{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "ClusterRole", Since: "1.8"},
+	{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "ClusterRoleBinding", Since: "1.8", Recovers: []string{"role", "subjects"}},
 
 	{Group: "networking.k8s.io", Namespaced: true, Version: "v1", Kind: "NetworkPolicy", Since: "1.7", Recovers: []string{"restricts", "allows"}},
 	{Group: "extensions", Namespaced: true, Version: "v1beta1", Kind: "NetworkPolicy", Since: "1.3", Removed: "1.16", Recovers: []string{"restricts", "allows"}},
 
-	{Group: "autoscaling", Namespaced: true, Version: "v2", Kind: "HorizontalPodAutoscaler", Since: "1.23", Recovers: []string{"scaleTarget"}},
+	{Group: "autoscaling", Namespaced: true, Version: "v2", Kind: "HorizontalPodAutoscaler", Since: "1.23", Recovers: []string{"scaleTarget", "metricObject"}},
 	{Group: "autoscaling", Namespaced: true, Version: "v1", Kind: "HorizontalPodAutoscaler", Since: "1.2", Recovers: []string{"scaleTarget"}},
-	{Group: "autoscaling", Namespaced: true, Version: "v2beta2", Kind: "HorizontalPodAutoscaler", Since: "1.12", Removed: "1.26", Recovers: []string{"scaleTarget"}},
+	{Group: "autoscaling", Namespaced: true, Version: "v2beta2", Kind: "HorizontalPodAutoscaler", Since: "1.12", Removed: "1.26", Recovers: []string{"scaleTarget", "metricObject"}},
 	{Group: "autoscaling", Namespaced: true, Version: "v2beta1", Kind: "HorizontalPodAutoscaler", Since: "1.8", Removed: "1.25", Recovers: []string{"scaleTarget"}},
 }
 

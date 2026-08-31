@@ -224,6 +224,13 @@ func decode(raw []byte, opts Options) ([]object, error) {
 			// this build has never heard of might not either — filing one
 			// under `default` would put it in a namespace that never held it,
 			// and the diagram would not admit the guess.
+			if o.known && !o.api.Namespaced {
+				// A cluster-scoped object does not live in a namespace, and a
+				// manifest that names one anyway is ignored by the cluster.
+				// Honouring it here would file the object somewhere the
+				// cluster never puts it.
+				o.namespace = ""
+			}
 			if o.namespace == "" && o.known && o.api.Namespaced {
 				o.namespace = opts.DefaultNamespace
 				if o.namespace == "" {
@@ -311,9 +318,26 @@ func (b *builder) relate(o *object) {
 		b.scales(o)
 	case "NetworkPolicy":
 		b.restricts(o)
+	case "PersistentVolumeClaim":
+		b.claims(o)
+	case "ServiceAccount":
+		b.identity(o)
+	case "RoleBinding", "ClusterRoleBinding":
+		b.grants(o)
+	}
+	if o.kind == "StatefulSet" {
+		// The governing Service is what gives a StatefulSet's pods their
+		// names. It is usually headless, so nothing else in the graph links
+		// the two.
+		if name := str(o.body, "spec", "serviceName"); name != "" {
+			b.edge(o.id(), b.reference("Service", o.namespace, name), "governed-by", nil)
+		}
 	}
 	if spec := podSpec(o); spec != nil {
 		b.mounts(o, spec)
+		if class := str(spec, "priorityClassName"); class != "" {
+			b.edge(o.id(), b.reference("PriorityClass", "", class), "prioritised-by", nil)
+		}
 	}
 	b.owners(o)
 }
@@ -385,6 +409,18 @@ func (b *builder) routes(ing *object) {
 		to := b.reference("Service", ing.namespace, name)
 		b.edge(ing.id(), to, "routes", map[string]any{"via": backends[name]})
 	}
+
+	// The certificate an Ingress presents is a Secret it cannot start without,
+	// and it is named nowhere else.
+	for _, tls := range seq(ing.body, "spec", "tls") {
+		if name := str(tls, "secretName"); name != "" {
+			b.edge(ing.id(), b.reference("Secret", ing.namespace, name), "reads",
+				map[string]any{"via": "tls"})
+		}
+	}
+	if class := str(ing.body, "spec", "ingressClassName"); class != "" {
+		b.edge(ing.id(), b.reference("IngressClass", "", class), "handled-by", nil)
+	}
 }
 
 // scales joins an autoscaler to what it scales.
@@ -396,6 +432,17 @@ func (b *builder) scales(hpa *object) {
 	}
 	to := b.reference(kind, hpa.namespace, name)
 	b.edge(hpa.id(), to, "scales", nil)
+
+	// An autoscaler can be driven by a metric belonging to some other object,
+	// which makes that object something the workload's replica count depends
+	// on.
+	for _, m := range seq(hpa.body, "spec", "metrics") {
+		k, n := str(m, "object", "describedObject", "kind"), str(m, "object", "describedObject", "name")
+		if k != "" && n != "" {
+			b.edge(hpa.id(), b.reference(k, hpa.namespace, n), "measures",
+				map[string]any{"metric": str(m, "object", "metric", "name")})
+		}
+	}
 }
 
 // mounts reads a pod spec for everything it names: config, secrets, storage
@@ -650,4 +697,53 @@ func sortedKeys(m map[string]string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// claims reads what a PersistentVolumeClaim asks for. Both ends are
+// cluster-scoped, and both are ways for something outside the namespace to
+// break a workload inside it.
+func (b *builder) claims(pvc *object) {
+	if class := str(pvc.body, "spec", "storageClassName"); class != "" {
+		b.edge(pvc.id(), b.reference("StorageClass", "", class), "provisioned-by", nil)
+	}
+	if volume := str(pvc.body, "spec", "volumeName"); volume != "" {
+		b.edge(pvc.id(), b.reference("PersistentVolume", "", volume), "bound-to", nil)
+	}
+}
+
+// identity reads the Secrets a ServiceAccount carries. A workload reaches them
+// without naming them, which is exactly why the account has to.
+func (b *builder) identity(sa *object) {
+	for _, key := range []string{"secrets", "imagePullSecrets"} {
+		for _, s := range seq(sa.body, key) {
+			if name := str(s, "name"); name != "" {
+				b.edge(sa.id(), b.reference("Secret", sa.namespace, name), "reads",
+					map[string]any{"via": key})
+			}
+		}
+	}
+}
+
+// grants reads a binding: the role it hands out, and who receives it. A
+// ServiceAccount's permissions are not written on the account, so this is the
+// only edge that says what a workload is allowed to do.
+func (b *builder) grants(rb *object) {
+	if kind, name := str(rb.body, "roleRef", "kind"), str(rb.body, "roleRef", "name"); kind != "" && name != "" {
+		b.edge(rb.id(), b.reference(kind, rb.namespace, name), "grants", nil)
+	}
+	for _, s := range seq(rb.body, "subjects") {
+		kind, name := str(s, "kind"), str(s, "name")
+		if kind != "ServiceAccount" || name == "" {
+			// A User or a Group is not an object in the cluster. There is
+			// nothing to point at, and inventing a box for a name in a text
+			// field would put an identity on the diagram that no manifest
+			// creates.
+			continue
+		}
+		namespace := str(s, "namespace")
+		if namespace == "" {
+			namespace = rb.namespace
+		}
+		b.edge(rb.id(), b.reference("ServiceAccount", namespace, name), "binds", nil)
+	}
 }

@@ -25,7 +25,8 @@ var kubernetes = &Profile{
 		"service", "ingress", "networkpolicy",
 		"secret", "serviceaccount", "role", "rolebinding",
 		"clusterrole", "clusterrolebinding",
-		"configmap", "persistentvolume", "persistentvolumeclaim",
+		"configmap", "persistentvolume", "persistentvolumeclaim", "storageclass",
+		"ingressclass", "priorityclass",
 		"horizontalpodautoscaler", "poddisruptionbudget",
 	},
 
@@ -101,9 +102,13 @@ var kubernetes = &Profile{
 		"horizontalpodautoscaler": Compute,
 		"poddisruptionbudget":     Compute,
 
+		"priorityclass": Compute,
+		"ingressclass":  Network,
+
 		"configmap":             Storage,
 		"persistentvolume":      Storage,
 		"persistentvolumeclaim": Storage,
+		"storageclass":          Storage,
 	},
 
 	Highlights: []string{
