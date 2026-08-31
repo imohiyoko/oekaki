@@ -293,9 +293,15 @@ func flatten(body map[string]any) ([]map[string]any, []string) {
 	if !strings.HasSuffix(str(body, "kind"), "List") || dig(body, "items") == nil {
 		return []map[string]any{body}, nil
 	}
+	items, isList := dig(body, "items").([]any)
+	if !isList {
+		// `items: {}` is a List with nothing readable in it, which is not the
+		// same as a List with nothing in it.
+		return nil, []string{"a List whose items are not a sequence"}
+	}
 	var out []map[string]any
 	var skipped []string
-	for i, item := range seq(body, "items") {
+	for i, item := range items {
 		m, ok := item.(map[string]any)
 		if !ok {
 			skipped = append(skipped, fmt.Sprintf("item %d of a List is not an object", i))
@@ -689,14 +695,30 @@ func widen(into, extra map[string]any) map[string]any {
 			into[key] = value
 			continue
 		}
-		a, aok := current.(string)
-		bs, bok := value.(string)
-		if !aok || !bok || a == bs || strings.Contains(a, bs) {
+		have, haveOK := current.(string)
+		add, addOK := value.(string)
+		if !haveOK || !addOK {
 			continue
 		}
-		into[key] = a + ", " + bs
+		// Compared as whole values, not as text. "8080" contains "80", and a
+		// substring test would drop a port because another one spells it.
+		if partsOf(have)[add] {
+			continue
+		}
+		into[key] = have + ", " + add
 	}
 	return into
+}
+
+// partsOf splits a joined attribute back into the values it was built from.
+func partsOf(joined string) map[string]bool {
+	out := map[string]bool{}
+	for _, part := range strings.Split(joined, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out[part] = true
+		}
+	}
+	return out
 }
 
 func (b *builder) setAttr(id, key string, value any) {

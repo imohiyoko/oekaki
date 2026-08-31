@@ -159,3 +159,91 @@ func TestAPolicyWithAnUnreadableSelectorIsReported(t *testing.T) {
 		t.Fatalf("Unmatched = %v, want the policy nothing could be read from", r.Unmatched)
 	}
 }
+
+// Both ends naming each other is not enough. Traffic needs a port they agree
+// on, and two policies opening disjoint ports leave no path however
+// enthusiastically each names the other.
+func TestDisjointPortsAreNotReachable(t *testing.T) {
+	g := policyGraph(
+		restricts("networkpolicy/shop/p", "deployment/shop/db", "Ingress"),
+		core.Edge{From: "networkpolicy/shop/p", To: "deployment/shop/web", Kind: core.EdgeIACRef,
+			Relation: "allows-ingress", Attrs: map[string]any{"ports": "TCP/5432"}},
+		restricts("networkpolicy/shop/q", "deployment/shop/web", "Egress"),
+		core.Edge{From: "networkpolicy/shop/q", To: "deployment/shop/db", Kind: core.EdgeIACRef,
+			Relation: "allows-egress", Attrs: map[string]any{"ports": "TCP/8080"}},
+	)
+	if _, err := (Enricher{}).Enrich(g); err != nil {
+		t.Fatal(err)
+	}
+	if e := reachableEdge(g, "deployment/shop/web", "deployment/shop/db"); e != nil {
+		t.Errorf("a path with no shared port was drawn: %v", e.Attrs)
+	}
+}
+
+// Where the ends do overlap, the path is drawn on what they share rather than
+// on either end's whole list.
+func TestOverlappingPortsAreIntersected(t *testing.T) {
+	g := policyGraph(
+		restricts("networkpolicy/shop/p", "deployment/shop/db", "Ingress"),
+		core.Edge{From: "networkpolicy/shop/p", To: "deployment/shop/web", Kind: core.EdgeIACRef,
+			Relation: "allows-ingress", Attrs: map[string]any{"ports": "TCP/5432 TCP/8080"}},
+		restricts("networkpolicy/shop/q", "deployment/shop/web", "Egress"),
+		core.Edge{From: "networkpolicy/shop/q", To: "deployment/shop/db", Kind: core.EdgeIACRef,
+			Relation: "allows-egress", Attrs: map[string]any{"ports": "TCP/8080 TCP/9090"}},
+	)
+	if _, err := (Enricher{}).Enrich(g); err != nil {
+		t.Fatal(err)
+	}
+	e := reachableEdge(g, "deployment/shop/web", "deployment/shop/db")
+	if e == nil {
+		t.Fatal("a path with a shared port was not drawn")
+	}
+	if e.Attrs["ports"] != "TCP/8080" {
+		t.Errorf("ports = %v, want only what both ends allow", e.Attrs["ports"])
+	}
+}
+
+// A rule with ports and no peers allows every source, not only the internet
+// node the parser had to point its edge at. Reading it as the internet alone
+// loses every in-cluster path the rule permits.
+func TestAPeerlessRuleReachesEveryWorkload(t *testing.T) {
+	g := policyGraph(
+		restricts("networkpolicy/shop/p", "deployment/shop/db", "Ingress"),
+		core.Edge{From: "networkpolicy/shop/p", To: "external:internet", Kind: core.EdgeIACRef,
+			Relation: "allows-ingress",
+			Attrs:    map[string]any{"ports": "TCP/8080", "peer": "any source"}},
+	)
+	g.Nodes = append(g.Nodes, core.Node{ID: "external:internet", Type: "external_endpoint", Name: "Internet"})
+	if _, err := (Enricher{}).Enrich(g); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, from := range []string{"deployment/shop/web", "deployment/shop/stray", "external:internet"} {
+		if reachableEdge(g, from, "deployment/shop/db") == nil {
+			t.Errorf("%s was not drawn, though the rule allows every source", from)
+		}
+	}
+}
+
+// Two policies naming one peer are additive: the second widens what that peer
+// may use rather than replacing it.
+func TestPoliciesUnionTheirPorts(t *testing.T) {
+	g := policyGraph(
+		restricts("networkpolicy/shop/p", "deployment/shop/db", "Ingress"),
+		core.Edge{From: "networkpolicy/shop/p", To: "deployment/shop/web", Kind: core.EdgeIACRef,
+			Relation: "allows-ingress", Attrs: map[string]any{"ports": "TCP/5432"}},
+		restricts("networkpolicy/shop/q", "deployment/shop/db", "Ingress"),
+		core.Edge{From: "networkpolicy/shop/q", To: "deployment/shop/web", Kind: core.EdgeIACRef,
+			Relation: "allows-ingress", Attrs: map[string]any{"ports": "TCP/8080"}},
+	)
+	if _, err := (Enricher{}).Enrich(g); err != nil {
+		t.Fatal(err)
+	}
+	e := reachableEdge(g, "deployment/shop/web", "deployment/shop/db")
+	if e == nil {
+		t.Fatal("the path was not drawn")
+	}
+	if e.Attrs["ports"] != "TCP/5432 TCP/8080" {
+		t.Errorf("ports = %v, want both policies' ports", e.Attrs["ports"])
+	}
+}

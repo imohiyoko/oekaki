@@ -83,7 +83,15 @@ var table = []API{
 	{Group: "apps", Namespaced: true, Version: "v1", Kind: "DaemonSet", Since: "1.9", Recovers: []string{"configmap", "secret", "pvc", "serviceaccount", "owner"}},
 	{Group: "apps", Namespaced: true, Version: "v1", Kind: "ReplicaSet", Since: "1.9", Recovers: []string{"configmap", "secret", "pvc", "serviceaccount", "owner"}},
 	{Group: "apps", Namespaced: true, Version: "v1beta2", Kind: "Deployment", Since: "1.8", Removed: "1.16", Recovers: []string{"configmap", "secret", "pvc", "serviceaccount", "owner"}},
+	{Group: "apps", Namespaced: true, Version: "v1beta2", Kind: "StatefulSet", Since: "1.8", Removed: "1.16", Recovers: []string{"configmap", "secret", "pvc", "serviceaccount", "owner"}},
+	{Group: "apps", Namespaced: true, Version: "v1beta2", Kind: "DaemonSet", Since: "1.8", Removed: "1.16", Recovers: []string{"configmap", "secret", "pvc", "serviceaccount", "owner"}},
+	{Group: "apps", Namespaced: true, Version: "v1beta2", Kind: "ReplicaSet", Since: "1.8", Removed: "1.16", Recovers: []string{"configmap", "secret", "pvc", "serviceaccount", "owner"}},
 	{Group: "apps", Namespaced: true, Version: "v1beta1", Kind: "Deployment", Since: "1.6", Removed: "1.16", Recovers: []string{"configmap", "secret", "pvc", "serviceaccount", "owner"}},
+	{Group: "apps", Namespaced: true, Version: "v1beta1", Kind: "StatefulSet", Since: "1.6", Removed: "1.16", Recovers: []string{"configmap", "secret", "pvc", "serviceaccount", "owner"}},
+
+	{Group: "extensions", Namespaced: true, Version: "v1beta1", Kind: "Deployment", Since: "1.1", Removed: "1.16", Recovers: []string{"configmap", "secret", "pvc", "serviceaccount", "owner"}},
+	{Group: "extensions", Namespaced: true, Version: "v1beta1", Kind: "DaemonSet", Since: "1.1", Removed: "1.16", Recovers: []string{"configmap", "secret", "pvc", "serviceaccount", "owner"}},
+	{Group: "extensions", Namespaced: true, Version: "v1beta1", Kind: "ReplicaSet", Since: "1.2", Removed: "1.16", Recovers: []string{"configmap", "secret", "pvc", "serviceaccount", "owner"}},
 
 	{Group: "batch", Namespaced: true, Version: "v1", Kind: "Job", Since: "1.2", Recovers: []string{"configmap", "secret", "pvc", "serviceaccount", "owner"}},
 	{Group: "batch", Namespaced: true, Version: "v1", Kind: "CronJob", Since: "1.21", Recovers: []string{"configmap", "secret", "pvc", "serviceaccount", "owner"}},

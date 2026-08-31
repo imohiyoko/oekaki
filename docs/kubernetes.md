@@ -5,9 +5,9 @@
 Terraform parser does.
 
 ```console
-$ helm template ./chart | oekaki render - -o app.svg
-$ kubectl get all,ingress -n shop -o yaml | oekaki render - -f html -o shop.html
-$ cat manifests/*.yaml | oekaki graph - -o shop.json
+helm template ./chart | oekaki render - -o app.svg
+kubectl get all,ingress -n shop -o yaml | oekaki render - -f html -o shop.html
+cat manifests/*.yaml | oekaki graph - -o shop.json
 ```
 
 Nothing is read from a cluster by the parser itself and no kubeconfig is
@@ -36,7 +36,7 @@ relationship a manifest actually records:
 | `grants` | RoleBinding, ClusterRoleBinding | Role, ClusterRole | `roleRef` |
 | `binds` | RoleBinding, ClusterRoleBinding | ServiceAccount | `subjects[]` |
 | `restricts` | NetworkPolicy | workload | `spec.podSelector` matched against the pod template's labels |
-| `allows-ingress`, `allows-egress` | NetworkPolicy | workload, CIDR | `ingress[].from` and `egress[].to`. The direction is in the relation rather than an attribute: edges that agree on ends, kind and relation are merged without their attributes being read, so a peer allowed both ways would arrive as one edge naming one direction |
+| `allows-ingress`, `allows-egress` | NetworkPolicy | workload, CIDR | `ingress[].from` and `egress[].to`. The direction is part of the relation, so a peer allowed both ways keeps two edges. It cannot be an attribute: edges agreeing on ends, kind and relation are merged without their attributes being read, and one of the directions would be lost in the merge |
 
 A Namespace becomes a container on the network axis rather than a node, so
 `--axis network` nests workloads inside it.
@@ -79,7 +79,7 @@ reachable enricher, which is where security group reachability is derived too.
 Ask for it with `--reachable`:
 
 ```console
-$ oekaki render manifests.yaml --reachable --view reachability -f html -o reach.html
+oekaki render manifests.yaml --reachable --view reachability -f html -o reach.html
 ```
 
 A path is drawn when **every restricted end permits it and at least one end is
@@ -164,11 +164,15 @@ object still using it will not apply to a cluster at or past that release.
 | `v1` | Service | 1.0 | — | `selector` |
 | `v1` | ServiceAccount | 1.0 | — | `secret` |
 | `apps/v1` | DaemonSet | 1.9 | — | `configmap`, `secret`, `pvc`, `serviceaccount`, `owner` |
+| `apps/v1beta2` | DaemonSet | 1.8 | **1.16** | `configmap`, `secret`, `pvc`, `serviceaccount`, `owner` |
 | `apps/v1` | Deployment | 1.9 | — | `configmap`, `secret`, `pvc`, `serviceaccount`, `owner` |
 | `apps/v1beta2` | Deployment | 1.8 | **1.16** | `configmap`, `secret`, `pvc`, `serviceaccount`, `owner` |
 | `apps/v1beta1` | Deployment | 1.6 | **1.16** | `configmap`, `secret`, `pvc`, `serviceaccount`, `owner` |
 | `apps/v1` | ReplicaSet | 1.9 | — | `configmap`, `secret`, `pvc`, `serviceaccount`, `owner` |
+| `apps/v1beta2` | ReplicaSet | 1.8 | **1.16** | `configmap`, `secret`, `pvc`, `serviceaccount`, `owner` |
 | `apps/v1` | StatefulSet | 1.9 | — | `configmap`, `secret`, `pvc`, `serviceaccount`, `owner`, `governingService` |
+| `apps/v1beta2` | StatefulSet | 1.8 | **1.16** | `configmap`, `secret`, `pvc`, `serviceaccount`, `owner` |
+| `apps/v1beta1` | StatefulSet | 1.6 | **1.16** | `configmap`, `secret`, `pvc`, `serviceaccount`, `owner` |
 | `autoscaling/v2` | HorizontalPodAutoscaler | 1.23 | — | `scaleTarget`, `metricObject` |
 | `autoscaling/v1` | HorizontalPodAutoscaler | 1.2 | — | `scaleTarget` |
 | `autoscaling/v2beta2` | HorizontalPodAutoscaler | 1.12 | **1.26** | `scaleTarget`, `metricObject` |
@@ -176,8 +180,11 @@ object still using it will not apply to a cluster at or past that release.
 | `batch/v1` | CronJob | 1.21 | — | `configmap`, `secret`, `pvc`, `serviceaccount`, `owner` |
 | `batch/v1beta1` | CronJob | 1.8 | **1.25** | `configmap`, `secret`, `pvc`, `serviceaccount`, `owner` |
 | `batch/v1` | Job | 1.2 | — | `configmap`, `secret`, `pvc`, `serviceaccount`, `owner` |
+| `extensions/v1beta1` | DaemonSet | 1.1 | **1.16** | `configmap`, `secret`, `pvc`, `serviceaccount`, `owner` |
+| `extensions/v1beta1` | Deployment | 1.1 | **1.16** | `configmap`, `secret`, `pvc`, `serviceaccount`, `owner` |
 | `extensions/v1beta1` | Ingress | 1.2 | **1.22** | `backend` |
 | `extensions/v1beta1` | NetworkPolicy | 1.3 | **1.16** | `restricts`, `allows` |
+| `extensions/v1beta1` | ReplicaSet | 1.2 | **1.16** | `configmap`, `secret`, `pvc`, `serviceaccount`, `owner` |
 | `networking.k8s.io/v1` | Ingress | 1.19 | — | `backend`, `tls`, `ingressClass` |
 | `networking.k8s.io/v1beta1` | Ingress | 1.14 | **1.22** | `backend` |
 | `networking.k8s.io/v1` | IngressClass | 1.19 | — | — |
