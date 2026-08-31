@@ -53,9 +53,10 @@ type Options struct {
 type Result struct {
 	Graph *core.Graph
 
-	// Documents is how many YAML documents held an object. Empty documents,
-	// which `helm template` emits freely, are not counted.
-	Documents int
+	// Objects is how many objects were read. A List document holds several,
+	// and empty documents — which `helm template` emits freely — hold none,
+	// so this is not a count of YAML documents.
+	Objects int
 
 	// MinimumRelease is the oldest Kubernetes release that serves every
 	// apiVersion in the input. Empty when nothing recognised was found, and
@@ -129,24 +130,32 @@ func Parse(raw []byte, opts Options) (*Result, error) {
 	g.Metadata = &core.Metadata{Source: "kubernetes", Scope: opts.Scope}
 	g.Axes = []core.Axis{{ID: core.AxisNetwork, Label: "Namespace"}}
 
-	res := &Result{Graph: g, Documents: len(objects)}
-	b := &builder{g: g, opts: opts, all: objects, byID: map[string]*object{},
-		nsLabels: map[string]map[string]string{}, edges: map[string]bool{}}
-	for i := range objects {
-		o := &objects[i]
-		if first, clash := b.byID[o.id()]; clash {
-			_ = first
+	// The duplicates are dropped before anything else looks at the list. A
+	// second definition left in it would go on matching label selectors,
+	// which then draw edges to the first definition's node: an object that
+	// was not used deciding what an object that was used connects to.
+	unique := make([]object, 0, len(objects))
+	res := &Result{Graph: g, Objects: len(objects)}
+	seenID := map[string]bool{}
+	for _, o := range objects {
+		if seenID[o.id()] {
 			res.Duplicates = append(res.Duplicates, o.id())
 			continue
 		}
+		seenID[o.id()] = true
+		unique = append(unique, o)
+	}
+
+	b := &builder{g: g, opts: opts, all: unique, byID: map[string]*object{},
+		nsLabels: map[string]map[string]string{}, edges: map[string]bool{}}
+	for i := range unique {
+		o := &unique[i]
 		b.byID[o.id()] = o
 		if o.known && o.api.Removed != "" && !o.api.Served(SupportedThrough) {
 			res.Removed = append(res.Removed, o.id())
 		}
 		if !o.known {
 			res.Unknown = append(res.Unknown, o.id())
-		}
-		if !o.known {
 			continue
 		}
 		if compare(o.api.Since, res.Floor) > 0 {
@@ -166,15 +175,11 @@ func Parse(raw []byte, opts Options) (*Result, error) {
 	}
 	g.Metadata.SourceVersion = res.MinimumRelease
 
-	for i := range objects {
-		if b.byID[objects[i].id()] == &objects[i] {
-			b.add(&objects[i])
-		}
+	for i := range unique {
+		b.add(&unique[i])
 	}
-	for i := range objects {
-		if b.byID[objects[i].id()] == &objects[i] {
-			b.relate(&objects[i])
-		}
+	for i := range unique {
+		b.relate(&unique[i])
 	}
 
 	sort.Strings(res.Removed)

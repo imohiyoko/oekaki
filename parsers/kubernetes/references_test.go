@@ -187,3 +187,107 @@ data:
 		t.Errorf("Duplicates = %v, want the repeated object", res.Duplicates)
 	}
 }
+
+// A duplicate definition must not go on deciding anything. It is not drawn,
+// but if it stays in the list its labels still answer selectors, and the edge
+// that results points at the node the first definition made: an object nobody
+// drew deciding what a drawn object connects to.
+func TestADuplicateDoesNotAnswerSelectors(t *testing.T) {
+	res := parseString(t, `
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: api, namespace: shop}
+spec:
+  template:
+    metadata:
+      labels: {app: other}
+    spec:
+      containers: [{name: api, image: registry.example/api:1}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: api, namespace: shop}
+spec:
+  template:
+    metadata:
+      labels: {app: api}
+    spec:
+      containers: [{name: api, image: registry.example/api:1}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: api, namespace: shop}
+spec:
+  selector: {app: api}
+`)
+	// Only the first definition was drawn, and it carries app=other.
+	if hasEdge(res.Graph, "service/shop/api", "deployment/shop/api", "selects") {
+		t.Error("the ignored second definition answered the Service's selector")
+	}
+	if len(res.Duplicates) != 1 {
+		t.Errorf("Duplicates = %v", res.Duplicates)
+	}
+}
+
+// A selector that is present but is not a map is malformed, not empty. An
+// empty pod selector selects every pod in the namespace, so reading a typo as
+// one restricts a whole namespace on the strength of it.
+func TestAMalformedSelectorIsNotAnEmptyOne(t *testing.T) {
+	res := parseString(t, `
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: web, namespace: shop}
+spec:
+  template:
+    metadata: {labels: {app: web}}
+    spec:
+      containers: [{name: web, image: registry.example/web:1}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: broken, namespace: shop}
+spec:
+  podSelector: whatever
+  ingress: []
+`)
+	if hasEdge(res.Graph, "networkpolicy/shop/broken", "deployment/shop/web", "restricts") {
+		t.Error("a malformed pod selector restricted the namespace as if it were empty")
+	}
+	got, _ := nodeAttrString(res, "networkpolicy/shop/broken", "restricts")
+	if got == "" {
+		t.Error("the policy does not say that its selector could not be read")
+	}
+}
+
+// The same shape on a Service: a selector that cannot be read must not become
+// a selector that matches everything.
+func TestAMalformedServiceSelectorMatchesNothing(t *testing.T) {
+	res := parseString(t, `
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: web, namespace: shop}
+spec:
+  template:
+    metadata: {labels: {app: web}}
+    spec:
+      containers: [{name: web, image: registry.example/web:1}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: web, namespace: shop}
+spec:
+  selector: whatever
+`)
+	if hasEdge(res.Graph, "service/shop/web", "deployment/shop/web", "selects") {
+		t.Error("a malformed selector selected a workload")
+	}
+}
+
+func nodeAttrString(res *Result, id, key string) (string, bool) {
+	n, ok := res.Graph.Node(id)
+	if !ok {
+		return "", false
+	}
+	s, _ := n.Attrs[key].(string)
+	return s, true
+}

@@ -994,7 +994,7 @@ func loadManifests(env Env, path string, raw []byte, scope string) (*core.Graph,
 		res.Graph.Metadata.Generator = "oekaki/" + version()
 	}
 
-	fmt.Fprintf(env.Stderr, "kubernetes: %d objects", res.Documents)
+	fmt.Fprintf(env.Stderr, "kubernetes: %d objects", res.Objects)
 	if res.MinimumRelease != "" {
 		fmt.Fprintf(env.Stderr, ", oldest cluster that serves them all: %s", res.MinimumRelease)
 	}

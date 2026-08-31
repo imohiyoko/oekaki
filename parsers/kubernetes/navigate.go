@@ -56,9 +56,16 @@ func strMap(v any, path ...string) map[string]string {
 // map against another has to know: losing a pair from a selector widens what
 // it matches, and the extra matches look exactly like the intended ones.
 func strMapAll(v any, path ...string) (map[string]string, bool) {
-	m, ok := dig(v, path...).(map[string]any)
-	if !ok {
+	got := dig(v, path...)
+	if got == nil {
+		// Absent, which is a readable answer: there is no map here.
 		return nil, true
+	}
+	m, ok := got.(map[string]any)
+	if !ok {
+		// Present and not a map. Reading it as an empty map would turn a
+		// malformed selector into one that matches everything.
+		return nil, false
 	}
 	out := make(map[string]string, len(m))
 	whole := true

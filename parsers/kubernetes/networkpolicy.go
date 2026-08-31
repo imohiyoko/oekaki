@@ -171,6 +171,12 @@ func labelSelector(v any, path ...string) (match map[string]string, everything, 
 	if sel == nil {
 		return nil, false, true
 	}
+	if _, isMap := sel.(map[string]any); !isMap {
+		// `podSelector: something` is not a selector. An empty selector
+		// selects every pod in the namespace, so reading a malformed one as
+		// empty would restrict the whole namespace on the strength of a typo.
+		return nil, false, false
+	}
 	if len(seq(sel, "matchExpressions")) > 0 {
 		return nil, false, false
 	}
