@@ -319,3 +319,61 @@ spec:
 		t.Errorf("ingress ports = %q, want both rules' ports", ports)
 	}
 }
+
+// The same rule shape on the way out. An egress section with no `to` allows
+// every destination, and the direction it is recorded under is what decides
+// whether the derivation ever looks at it.
+func TestPeerlessEgressRuleIsRecordedOutbound(t *testing.T) {
+	res := parseString(t, policyFixture+`
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: outbound, namespace: shop}
+spec:
+  podSelector: {matchLabels: {app: web}}
+  egress:
+  - ports: [{protocol: TCP, port: 443}]
+`)
+	const np = "networkpolicy/shop/outbound"
+
+	attrs := edgeAttrs(res, np, external, "allows-egress")
+	if attrs == nil {
+		t.Fatal("a peerless egress rule was not recorded outbound")
+	}
+	if attrs["peer"] != "any source" {
+		t.Errorf("attrs = %v, want the marker the derivation expands", attrs)
+	}
+	if err := res.Graph.Validate(); err != nil {
+		t.Fatalf("invalid graph: %v", err)
+	}
+}
+
+// An empty peer list is the same statement as no peer list: every source.
+// Reading one and not the other would make two spellings of one policy draw
+// different pictures.
+func TestAnEmptyPeerListIsTheSameAsNone(t *testing.T) {
+	written := parseString(t, policyFixture+`
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: p, namespace: shop}
+spec:
+  podSelector: {matchLabels: {app: db}}
+  ingress: [{from: [], ports: [{port: 80}]}]
+`)
+	omitted := parseString(t, policyFixture+`
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: p, namespace: shop}
+spec:
+  podSelector: {matchLabels: {app: db}}
+  ingress: [{ports: [{port: 80}]}]
+`)
+	for _, res := range []*Result{written, omitted} {
+		attrs := edgeAttrs(res, "networkpolicy/shop/p", external, "allows-ingress")
+		if attrs == nil || attrs["peer"] != "any source" {
+			t.Errorf("attrs = %v, want the same marker for both spellings", attrs)
+		}
+	}
+}

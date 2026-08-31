@@ -247,3 +247,30 @@ func TestPoliciesUnionTheirPorts(t *testing.T) {
 		t.Errorf("ports = %v, want both policies' ports", e.Attrs["ports"])
 	}
 }
+
+// The expansion has to work outbound too. A workload whose egress is
+// restricted to "any destination on 443" reaches every workload in the graph
+// on that port, not only the internet node the parser pointed the edge at.
+func TestAPeerlessEgressRuleReachesEveryWorkload(t *testing.T) {
+	g := policyGraph(
+		restricts("networkpolicy/shop/p", "deployment/shop/web", "Egress"),
+		core.Edge{From: "networkpolicy/shop/p", To: "external:internet", Kind: core.EdgeIACRef,
+			Relation: "allows-egress",
+			Attrs:    map[string]any{"ports": "TCP/443", "peer": "any source"}},
+	)
+	g.Nodes = append(g.Nodes, core.Node{ID: "external:internet", Type: "external_endpoint", Name: "Internet"})
+	if _, err := (Enricher{}).Enrich(g); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, to := range []string{"deployment/shop/db", "deployment/shop/stray", "external:internet"} {
+		e := reachableEdge(g, "deployment/shop/web", to)
+		if e == nil {
+			t.Errorf("web -> %s was not drawn, though the rule allows every destination", to)
+			continue
+		}
+		if e.Attrs["ports"] != "TCP/443" {
+			t.Errorf("web -> %s ports = %v", to, e.Attrs["ports"])
+		}
+	}
+}
