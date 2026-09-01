@@ -112,6 +112,44 @@ func TestAPlaceNoPageCameFromIsStillShownAsChosen(t *testing.T) {
 	}
 }
 
+// Matching folds case, so the control has to mark the option that is doing the
+// narrowing. Showing "any" over a narrowed listing is the form lying about
+// what is on screen.
+func TestANameTypedInAnotherCaseIsStillShownAsChosen(t *testing.T) {
+	s := sourced(t)
+	if got, want := listed(t, s, "?source=CHECKOUT", nil),
+		[]string{"checkout.html", "estate.html"}; !same(got, want) {
+		t.Fatalf("another case narrowed to %v, want %v", got, want)
+	}
+	body := ask(t, s, http.MethodGet, "/layouts?source=CHECKOUT", "", nil).Body.String()
+	if !strings.Contains(body, `<option value="checkout" selected`) {
+		t.Error("the listing is narrowed but the control says any")
+	}
+}
+
+// A name too long to be a condition is not offered as one. Offered, it would
+// arrive back clipped, fail the whole-name match, and empty the listing under
+// a control claiming to have narrowed to it.
+func TestANameTooLongToNarrowByIsNotOffered(t *testing.T) {
+	long := strings.Repeat("a", conditionMax+1)
+	s := testSite(t)
+	if err := os.WriteFile(filepath.Join(s.pages, "wide.html"),
+		[]byte(builtFrom(long+",checkout")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	body := ask(t, s, http.MethodGet, "/layouts", "", nil).Body.String()
+	if strings.Contains(body, `<option value="`+long+`"`) {
+		t.Error("a name no condition can carry is offered as one")
+	}
+	if !strings.Contains(body, `<option value="checkout"`) {
+		t.Error("a name beside it was dropped too")
+	}
+	// The page still says it, so the text box still finds it.
+	if got := listed(t, s, "?q="+long[:conditionMax], nil); len(got) != 1 {
+		t.Errorf("text search found %v, want the page that named it", got)
+	}
+}
+
 // Nowhere to narrow to is not a control with nothing in it.
 func TestNoPlacesMeansNoControl(t *testing.T) {
 	body := ask(t, testSite(t), http.MethodGet, "/layouts", "", nil).Body.String()

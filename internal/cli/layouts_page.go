@@ -310,20 +310,29 @@ func (sc screen) keeps(r row) bool {
 	return true
 }
 
-// sourcesIn is every input any page in the listing named, once each.
+// sourcesIn is every input any page in the listing named that this page can
+// narrow by, once each.
 //
 // Case is kept as the graph wrote it, because that is what the option value
 // has to be for the condition to match, and folded only for deciding whether
 // two spellings are the same name. The first spelling seen wins, so the list
 // is the same on every request rather than depending on which page happened
 // to be read first — the pages arrive sorted, and this keeps that order.
+//
+// A name longer than a condition may be is left out. Offering it would put the
+// whole name in the option, and choosing it would send a url that arrives
+// clipped, so the whole-name match would fail and the listing would come back
+// empty under a control saying it had narrowed to that name. A name missing
+// from the control is visible; one that answers nothing is not. The page still
+// carries it and the text box still finds it, because that condition is a
+// substring match and a clipped one still lands inside the longer name.
 func sourcesIn(rows []row) []string {
 	var out []string
 	seen := map[string]bool{}
 	for _, at := range rows {
 		for _, name := range at.page.Inputs {
 			key := strings.ToLower(name)
-			if seen[key] {
+			if seen[key] || len(name) > conditionMax {
 				continue
 			}
 			seen[key] = true
@@ -591,10 +600,21 @@ func (s *site) screenForm(b *strings.Builder, sc screen, sources []string, r *ht
 	// there is nothing here to narrow by.
 	switch {
 	case len(sources) > 0:
-		var opts strings.Builder
-		opts.WriteString(`<select name=source>` + option("", "any", sc.Source))
+		// Matching folds case; marking an option does not. Somebody who typed
+		// a name in another case has narrowed the listing, so the control has
+		// to show the spelling that did the narrowing rather than "any" — the
+		// same reason the fallback below exists, one step earlier.
+		chosen := sc.Source
 		for _, name := range sources {
-			opts.WriteString(option(name, name, sc.Source))
+			if strings.EqualFold(name, sc.Source) {
+				chosen = name
+				break
+			}
+		}
+		var opts strings.Builder
+		opts.WriteString(`<select name=source>` + option("", "any", chosen))
+		for _, name := range sources {
+			opts.WriteString(option(name, name, chosen))
 		}
 		if sc.Source != "" && !holds(sources, sc.Source) {
 			// Same reason as the kind above: a condition that is narrowing
