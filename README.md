@@ -550,10 +550,16 @@ the listing can be screened on it:
 | positions | all land, some land nowhere, or nothing saved yet |
 
 A screening is a url, so it works with no script running and can be sent to
-somebody else. Naming one keeps it, filed under whoever kept it and shown to
-nobody else — a screening is one person's way through a listing rather than a
-statement about it. Keeping one is not written to the journal, for the same
-reason saving a layout is not: it changes nothing anybody else can see.
+somebody else. Naming one keeps it, filed under whoever kept it — a screening is
+one person's way through a listing rather than a statement about it. Keeping one
+is not written to the journal, for the same reason saving a layout is not: it
+changes nothing anybody else can see.
+
+Whoever kept it is the name they gave, and nothing has checked it: two people
+offering the same name are one person here, and everybody who has offered none
+is anonymous together. That separates one person's screenings from another's on
+a machine where people bother to say who they are. It is not somewhere to put
+something that would matter if the wrong person read it.
 
 A condition this build does not recognise is dropped rather than carried, so a
 kept screening widens instead of turning into a link nobody read. Nothing is

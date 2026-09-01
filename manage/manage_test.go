@@ -817,6 +817,22 @@ func TestAScreeningThatWouldGrowTheFileWithoutEndIsRefused(t *testing.T) {
 	if _, err := s.SaveScreen(who, "one-too-many", "?q=a"); !errors.Is(err, ErrRefused) {
 		t.Fatalf("the limit did not hold: %v", err)
 	}
+
+	// Capping one person's share while letting anybody invent a new person
+	// leaves the total unbounded, and every save rewrites the whole map.
+	fresh := store(t)
+	for i := range subjectsMax {
+		if _, err := fresh.SaveScreen(Actor{Name: fmt.Sprintf("github:p%d", i)}, "mine", "?q=a"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := fresh.SaveScreen(Actor{Name: "github:one-more"}, "mine", "?q=a"); !errors.Is(err, ErrRefused) {
+		t.Fatalf("a caller could invent people without end: %v", err)
+	}
+	// Somebody already in the file is not new and must still be able to write.
+	if _, err := fresh.SaveScreen(Actor{Name: "github:p0"}, "another", "?q=b"); err != nil {
+		t.Fatalf("an existing person was refused at the limit: %v", err)
+	}
 	// Replacing one that is already there is not growth and must still work,
 	// or somebody at the limit can never change a screening again.
 	if _, err := s.SaveScreen(who, "kept0", "?q=b"); err != nil {

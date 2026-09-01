@@ -17,6 +17,16 @@ const screensFile = "screens.json"
 const (
 	screenQueryMax    = 2048
 	screensPerSubject = 64
+
+	// subjectsMax bounds the file, which the other two do not.
+	//
+	// A subject is whatever name the caller gave for itself, so capping one
+	// person's share while letting anybody invent a new person leaves the
+	// total unbounded — and every save reads, re-serializes and rewrites the
+	// whole map, so the cost of saving grows with it. Three bounds give a
+	// worst case that can be worked out: 64 x 64 x 2048 is about eight
+	// megabytes, the same order as the single layout body already accepted.
+	subjectsMax = 64
 )
 
 // Screen is a set of conditions somebody wants back tomorrow.
@@ -54,6 +64,15 @@ func (s *Store) AllScreens() (map[string][]Screen, error) {
 // A person who kept nothing gets an empty list rather than a missing one:
 // having no screenings is where everybody starts, and it is not a condition
 // any caller should have to tell apart from a failure.
+//
+// "One person" is the name the caller gave, and nothing has checked it. Two
+// callers offering the same name are one person here, and everybody who has
+// offered none is Anonymous together — which on the only mode that runs, bound
+// to loopback and authorizing nobody, is the ordinary case rather than a leak
+// between strangers. This separates one person's screenings from another's; it
+// is not a place to put something that would matter if the wrong person read
+// it. When an identity provider decides who the caller is, this key becomes
+// worth what the provider is worth, and nothing here changes.
 func (s *Store) Screens(who Actor) ([]Screen, error) {
 	all, err := s.AllScreens()
 	if err != nil {
@@ -90,7 +109,11 @@ func (s *Store) SaveScreen(who Actor, name, query string) (Screen, error) {
 		return Screen{}, err
 	}
 	subject := who.who()
-	kept := all[subject]
+	kept, known := all[subject]
+	if !known && len(all) >= subjectsMax {
+		return Screen{}, refuse("%d people already keep screenings here, which is the most; "+
+			"forget somebody's before adding another", subjectsMax)
+	}
 
 	out := Screen{Name: name, Query: query,
 		Claim: &Claim{SetBy: subject, Origin: who.origin(), SetAt: stamp()}}
