@@ -8,7 +8,9 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
+	"github.com/imohiyoko/oekaki/catalog"
 	"github.com/imohiyoko/oekaki/internal/serve"
 	"github.com/imohiyoko/oekaki/manage"
 )
@@ -229,10 +231,10 @@ func TestTheHeaderBeatsTheCookie(t *testing.T) {
 	}
 }
 
-// Saying your own name is not a change anybody else can see, and it is the one
-// thing somebody refused everything has to be able to do to be granted a role.
+// Saying your own name is not a change anybody else can see, so where nothing
+// is enforced it asks nothing of the caller.
 func TestNamingYourselfNeedsNothingAndIsRecordedAsSelfAsserted(t *testing.T) {
-	s := enforcing(t)
+	s := testSite(t)
 	got := ask(t, s, http.MethodPost, "/api/whoami", `{"name":"github:reader"}`, nil)
 	if got.Code != http.StatusOK {
 		t.Fatalf("a caller with no roles could not name themselves: %d %s", got.Code, got.Body.String())
@@ -281,4 +283,124 @@ func TestANameThatWouldBreakTheCookieIsRefused(t *testing.T) {
 
 func quote(s string) string {
 	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s) + `"`
+}
+
+// Where decisions are enforced, who somebody is stops being theirs to say.
+//
+// The header has the same weakness, but it has to be re-asserted on every
+// request by whatever is driving. This cookie persists and is handed out by an
+// endpoint that asks nothing, so leaving it live under enforcement would make
+// holding an admin grant a matter of typing that subject's name into a box.
+func TestWhereItIsEnforcedNobodyNamesThemselves(t *testing.T) {
+	s := enforcing(t)
+	if got := ask(t, s, http.MethodPost, "/api/whoami", `{"name":"github:reader"}`, nil); got.Code != http.StatusForbidden {
+		t.Fatalf("self-naming was allowed under enforcement: %d %s", got.Code, got.Body.String())
+	}
+
+	// And one set before enforcement was switched on is still in the browser
+	// afterwards, so the gate has to be on reading it too.
+	stolen := map[string]string{"Cookie": ActorCookie + "=github:reader"}
+	if got := ask(t, s, http.MethodGet, "/layouts", "", stolen); got.Code != http.StatusForbidden {
+		t.Fatalf("a cookie stood in for a granted subject: %d", got.Code)
+	}
+}
+
+// A tag is free text nobody validates, so one with a space in it has to be
+// screenable. Splitting on whitespace made every such tag unmatchable: the
+// page says "tagged needs review", asking for it returns nothing, and the
+// listing looks broken by the one action it was inviting.
+func TestATagWithASpaceInItCanStillBeScreenedFor(t *testing.T) {
+	s := screened(t)
+	if _, err := s.store.Annotate("network", manage.Meta{Tags: []string{"needs review"}},
+		manage.Actor{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, query := range []string{"?tag=needs+review", "?tag=needs%20review"} {
+		if got := listed(t, s, query, nil); !same(got, []string{"network.html"}) {
+			t.Errorf("%s: got %v", query, got)
+		}
+	}
+	// A comma still separates, because the form is what joins them with one.
+	if got := listed(t, s, "?tag=prod,staging", nil); !same(got, []string{"billing.html"}) {
+		t.Errorf("comma: got %v", got)
+	}
+}
+
+// A name the store would never file an annotation under is not an annotation
+// that failed to be read. serve.go says the same thing about the permission
+// check: refusing there turns a file with a space in its name into a 403.
+func TestAPageNamedSomethingUnannotatableIsNotReportedAsUnreadable(t *testing.T) {
+	s := screened(t)
+	if err := os.WriteFile(filepath.Join(s.pages, "my diagram.html"), []byte(servedPage), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	body := ask(t, s, http.MethodGet, "/layouts", "", nil).Body.String()
+	if strings.Contains(body, "could not be read") {
+		t.Fatalf("a name no annotation can exist under was reported as unreadable:\n%s", body)
+	}
+	if !strings.Contains(body, "my diagram.html") {
+		t.Fatalf("the page was dropped entirely:\n%s", body)
+	}
+}
+
+// Every condition here is positive except two — nothing settled, nothing saved
+// — and those are satisfied by exactly the zero value a failed read leaves
+// behind. A page whose state cannot be read must not be gathered up by the
+// condition asking for absence.
+func TestWhatCouldNotBeReadDoesNotAnswerTheConditionsAskingForAbsence(t *testing.T) {
+	s := screened(t)
+	// A directory where the layout folder has to go: listing what is saved for
+	// this page cannot succeed.
+	if err := os.WriteFile(filepath.Join(s.state, "layouts", "network"), []byte("in the way"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := listed(t, s, "?fit=none", nil); len(got) != 0 {
+		t.Fatalf("a page whose saved versions could not be listed answered \"nothing saved\": %v", got)
+	}
+	// It is still in the plain listing, and the page says why.
+	body := ask(t, s, http.MethodGet, "/layouts", "", nil).Body.String()
+	if !strings.Contains(body, "could not be read") {
+		t.Fatalf("nothing said the listing was incomplete:\n%s", body)
+	}
+}
+
+// The bound is in bytes; the cut has to be between runes. This program's own
+// interface text is Japanese, so a condition long enough to be clipped is
+// exactly the case that would split one.
+func TestClippingALongConditionDoesNotSplitARune(t *testing.T) {
+	long := strings.Repeat("あ", 200)
+	got := clip(long)
+	if len(got) > conditionMax {
+		t.Fatalf("not clipped: %d bytes", len(got))
+	}
+	if !utf8.ValidString(got) {
+		t.Fatalf("clipped through a rune: %q", got)
+	}
+	if got == "" || !strings.HasPrefix(long, got) {
+		t.Fatalf("%q is not a prefix of what was typed", got)
+	}
+}
+
+// A kind narrows whether or not the catalog listed it, so a form that cannot
+// show the control still has to carry the condition. Dropping it means typing
+// in the text box and pressing narrow silently widens the listing.
+func TestAKindTheFormCannotShowIsStillCarried(t *testing.T) {
+	s := screened(t)
+	s.cfg.Catalog = &catalog.Catalog{Items: []catalog.Rule{{Match: "billing.html", Kind: "finance"}}}
+
+	if got := listed(t, s, "?kind=finance", nil); !same(got, []string{"billing.html"}) {
+		t.Fatalf("the condition itself does not work: %v", got)
+	}
+	body := ask(t, s, http.MethodGet, "/layouts?kind=finance", "", nil).Body.String()
+	if !strings.Contains(body, `<input type=hidden name=kind value="finance">`) {
+		t.Fatalf("the form threw the condition away:\n%s", body)
+	}
+
+	// With kinds listed but the asked-for one absent, the select must not sit
+	// on "any" while the listing is narrowed.
+	s.cfg.Catalog.Kinds = []catalog.Kind{{ID: "network", Label: "Network"}}
+	body = ask(t, s, http.MethodGet, "/layouts?kind=finance", "", nil).Body.String()
+	if !strings.Contains(body, `<option value="finance" selected>`) {
+		t.Fatalf("the form showed a state it is not in:\n%s", body)
+	}
 }

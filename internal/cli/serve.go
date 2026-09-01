@@ -180,7 +180,15 @@ var actorName = regexp.MustCompile(`\A[A-Za-z0-9][A-Za-z0-9._:-]{0,63}\z`)
 // must not be able to rename a caller that named itself.
 func (s *site) actor(r *http.Request) manage.Actor {
 	name := r.Header.Get("X-Actor")
-	if name == "" {
+	// Where decisions are actually enforced, a name somebody handed
+	// themselves is not one to act on. The header has the same problem, but a
+	// header has to be re-asserted on every request by whatever is driving,
+	// while this cookie persists and is issued by an endpoint that asks
+	// nothing — so under enforcement it would turn holding an admin grant into
+	// typing that subject's name into a box and pressing a button. The gate
+	// goes here as well as on the endpoint, because a cookie set before
+	// enforcement was switched on is still in the browser afterwards.
+	if name == "" && !s.mode.Enforce {
 		if c, err := r.Cookie(ActorCookie); err == nil && actorName.MatchString(c.Value) {
 			name = c.Value
 		}
@@ -552,6 +560,15 @@ func (s *site) screens(w http.ResponseWriter, r *http.Request, name string) {
 // What it hands back is exactly as good as the header it stands in for:
 // self-asserted, and recorded as such wherever it lands.
 func (s *site) whoami(w http.ResponseWriter, r *http.Request) {
+	// Where decisions are enforced, who somebody is stops being theirs to say.
+	// Nothing can enforce anything today — every mode wanting an identity
+	// provider refuses to start — so this guards a door that is not yet
+	// reachable, which is the only time it is cheap to put one up.
+	if s.mode.Enforce {
+		http.Error(w, "who you are is not yours to say where this is enforced; "+
+			"it comes from whatever checked you", http.StatusForbidden)
+		return
+	}
 	switch r.Method {
 	case http.MethodPost:
 		var body struct {

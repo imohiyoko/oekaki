@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"unicode"
+	"unicode/utf8"
 
 	"github.com/imohiyoko/oekaki/authz"
 	"github.com/imohiyoko/oekaki/catalog"
@@ -70,12 +70,15 @@ func screenFrom(q url.Values) screen {
 	}
 	seen := map[string]bool{}
 	for _, raw := range q["tag"] {
-		// A person typing two tags separates them the way they separate words.
-		// Accepting only repeated parameters would work for the form and be a
-		// surprise for anybody editing the url.
-		for _, t := range strings.FieldsFunc(raw, func(r rune) bool {
-			return r == ',' || unicode.IsSpace(r)
-		}) {
+		// Split on commas and nothing else. A tag is free text that nobody
+		// validates — `POST /api/meta/<item>` takes {"tags":["needs review"]}
+		// — so splitting on whitespace too would make every tag with a space
+		// in it unmatchable: the page shows "tagged needs review", clicking it
+		// asks for two tags that do not exist, and the listing comes back
+		// empty looking broken. A comma is the one separator a person cannot
+		// have meant as part of the tag they typed into the form, because the
+		// form is what joins them with one.
+		for _, t := range strings.Split(raw, ",") {
 			t = clip(t)
 			if t == "" || seen[strings.ToLower(t)] || len(sc.Tags) >= tagsMax {
 				continue
@@ -87,10 +90,21 @@ func screenFrom(q url.Values) screen {
 	return sc
 }
 
+// clip bounds a condition, cutting between runes rather than through one.
+//
+// The bound is in bytes because what it is protecting is the size of what gets
+// stored and echoed. Cutting there directly would split a multi-byte rune —
+// this program's own interface text is Japanese, so a note long enough to need
+// clipping is exactly the case — and the half-rune left behind would be
+// escaped into the form's value and into the canonical url, matching nothing.
 func clip(s string) string {
 	s = strings.TrimSpace(s)
 	if len(s) > conditionMax {
-		s = strings.TrimSpace(s[:conditionMax])
+		cut := conditionMax
+		for cut > 0 && !utf8.RuneStart(s[cut]) {
+			cut--
+		}
+		s = strings.TrimSpace(s[:cut])
 	}
 	return s
 }
@@ -154,16 +168,34 @@ type row struct {
 
 	saved   []serve.Layout
 	trouble string // why the above is less than the whole truth
+
+	// Set when the answer to a condition is not "no" but "this could not be
+	// read". Every condition here is positive except two — nothing settled,
+	// nothing saved — and those two are satisfied by exactly the zero value a
+	// failed read leaves behind. Without this, a page whose state is
+	// unreadable is not merely missed by a screening: it is gathered up by the
+	// one asking for absence, which is the loudest possible way to be wrong.
+	stateUnknown bool
+	savedUnknown bool
 }
 
-// gather reads everything attached to a page, and remembers what it could not
-// read rather than treating it as absent.
+// gather assembles one page out of state that was read once for the whole
+// listing.
 //
-// An unreadable annotation is the difference between a page that has no tags
-// and a page whose tags cannot be seen, and a screening on tags puts those two
-// in the same place — out of the listing, with nothing saying so.
-func (s *site) gather(p serve.Page) row {
-	out := row{page: p, entry: s.cfg.Catalog.Describe(p.Rel)}
+// It is handed the annotations and the defaults rather than fetching them.
+// Asking per page meant this file read defaults.json twice and the page's
+// annotation once more on top of what the permission check had already read —
+// five reads a page on a listing whose whole premise is that it grows with the
+// pipeline.
+//
+// An unreadable annotation is not this function's to report. The permission
+// check ahead of it fails closed on exactly that file, so a page whose
+// annotation cannot be read never arrives here; what does arrive and is
+// missing from the map is a page nobody annotated.
+func (s *site) gather(p serve.Page, meta map[string]manage.Meta,
+	defaults map[string]manage.Default, stateUnknown bool) row {
+	out := row{page: p, entry: s.cfg.Catalog.Describe(p.Rel),
+		meta: meta[p.Name], stateUnknown: stateUnknown}
 	if out.entry.Name == "" {
 		// The catalog asks for this one to be left out of its own listing.
 		// This page is not that listing: it is what is saved, and a page
@@ -171,28 +203,18 @@ func (s *site) gather(p serve.Page) row {
 		// hide the layouts with it. Describe it as itself instead.
 		out.entry = catalog.Entry{Name: p.Rel, Title: p.Rel}
 	}
-	var trouble []string
-	if m, err := s.store.Meta(p.Name); err != nil {
-		trouble = append(trouble, err.Error())
-	} else {
-		out.meta = m
-	}
-	if d, ok, err := s.store.DefaultFor(p.Name); err != nil {
-		trouble = append(trouble, err.Error())
-	} else if ok {
+	if d, ok := defaults[p.Name]; ok {
 		out.current = d.Version
-	}
-	if stale, err := s.store.StaleDefault(p.Name); err != nil {
-		trouble = append(trouble, err.Error())
-	} else {
-		out.stale = stale
+		if !s.store.Honours(p.Name, d.Version) {
+			out.stale = d.Version
+		}
 	}
 	saved, err := serve.Layouts(s.pages, s.state, p)
 	if err != nil {
-		trouble = append(trouble, err.Error())
+		out.trouble = err.Error()
+		out.savedUnknown = true
 	}
 	out.saved = saved
-	out.trouble = strings.Join(trouble, "; ")
 	return out
 }
 
@@ -240,6 +262,9 @@ func (sc screen) keeps(r row) bool {
 	if sc.Kind != "" && !strings.EqualFold(r.entry.Kind, sc.Kind) {
 		return false
 	}
+	if sc.State != "" && r.stateUnknown {
+		return false
+	}
 	switch sc.State {
 	case statePromoted:
 		if r.current == "" || r.stale != "" {
@@ -253,6 +278,9 @@ func (sc screen) keeps(r row) bool {
 		if r.stale == "" {
 			return false
 		}
+	}
+	if sc.Fit != "" && r.savedUnknown {
+		return false
 	}
 	switch sc.Fit {
 	case fitNone:
@@ -308,6 +336,28 @@ func (s *site) index(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Read once for the whole listing rather than once per page. Both of these
+	// are single files describing every page, and asking them per page is how
+	// a listing that grows with the pipeline turns into a pile of reads of the
+	// same two files.
+	//
+	// Neither failure takes the page away. An unreadable file here is reported
+	// and the conditions that depended on it stop answering, which is the same
+	// shape /roles uses: the listing somebody asked for is still worth showing,
+	// and what is missing from it has to be said out loud rather than shown as
+	// an absence.
+	var unreadable []string
+	meta, err := s.store.AllMeta()
+	if err != nil {
+		unreadable = append(unreadable, err.Error())
+	}
+	defaults, err := s.store.Defaults()
+	if err != nil {
+		unreadable = append(unreadable, err.Error())
+		defaults = map[string]manage.Default{}
+	}
+	stateUnknown := err != nil
+
 	// The same rule as /manage, and it is applied before any screening: a page
 	// somebody may not open is not one whose saved versions they should be
 	// reading the names of, and a condition that happened to exclude it anyway
@@ -317,12 +367,11 @@ func (s *site) index(w http.ResponseWriter, r *http.Request) {
 		if d := s.may(r, authz.Read, p.Name); !d.Allowed {
 			continue
 		}
-		rows = append(rows, s.gather(p))
+		rows = append(rows, s.gather(p, meta, defaults, stateUnknown))
 	}
 
 	sc := screenFrom(r.URL.Query())
 	kept := make([]row, 0, len(rows))
-	var unreadable []string
 	for _, at := range rows {
 		if at.trouble != "" {
 			unreadable = append(unreadable, at.page.Rel)
@@ -456,9 +505,21 @@ func (s *site) screenForm(b *strings.Builder, sc screen, r *http.Request) {
 		`" placeholder="all of them">`)
 	field(b, "person", `<input name=who value="`+html.EscapeString(sc.Who)+
 		`" placeholder="maintainer">`)
-	if s.cfg != nil && s.cfg.Catalog != nil && len(s.cfg.Catalog.Kinds) > 0 {
-		// Only offered where the deployment said what its groups are. An empty
-		// list of kinds would be a control that cannot narrow anything.
+	// A kind narrows whether or not there is a control for it. The catalog's
+	// kinds list is optional and a rule's kind does not have to appear in it,
+	// so `?kind=finance` can be a working condition on a deployment that named
+	// no kinds at all — and a form that neither showed it nor carried it would
+	// throw it away the moment somebody typed in the text box and pressed
+	// narrow. A control that silently drops the state it is displaying is
+	// worse than no control.
+	var kinds []string
+	if s.cfg != nil && s.cfg.Catalog != nil {
+		for _, k := range s.cfg.Catalog.Kinds {
+			kinds = append(kinds, k.ID)
+		}
+	}
+	switch {
+	case len(kinds) > 0:
 		var opts strings.Builder
 		opts.WriteString(`<select name=kind>` + option("", "any", sc.Kind))
 		for _, k := range s.cfg.Catalog.Kinds {
@@ -468,8 +529,17 @@ func (s *site) screenForm(b *strings.Builder, sc screen, r *http.Request) {
 			}
 			opts.WriteString(option(k.ID, label, sc.Kind))
 		}
+		if sc.Kind != "" && !holds(kinds, sc.Kind) {
+			// Narrowing by a kind the catalog never listed. Leaving it out
+			// would show "any" while the listing is narrowed, which is the
+			// form lying about what is on screen.
+			opts.WriteString(option(sc.Kind, sc.Kind+" (not in the catalog)", sc.Kind))
+		}
 		opts.WriteString(`</select>`)
 		field(b, "kind", opts.String())
+	case sc.Kind != "":
+		b.WriteString(`<input type=hidden name=kind value="` +
+			html.EscapeString(sc.Kind) + `">`)
 	}
 	field(b, "drawn with", `<select name=state>`+
 		option("", "any", sc.State)+
