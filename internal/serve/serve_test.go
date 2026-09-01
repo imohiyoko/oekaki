@@ -184,3 +184,32 @@ func TestOnlyAnOverlayCanBeSavedAsOne(t *testing.T) {
 		t.Fatal("a layout was accepted as an overlay")
 	}
 }
+
+// A file where a folder of saved documents has to go is something wrong, not
+// an empty folder — and it has to read that way on every platform.
+//
+// os.ReadDir reports ENOTDIR for this on Unix and a not-found error on
+// Windows, so checking os.IsNotExist alone made this "nothing saved here" on
+// Windows only. A listing then reports the page as having nothing saved
+// instead of as unreadable, which is the fail-open direction: the condition
+// asking for pages with nothing saved collects the ones it cannot read.
+func TestAFileWhereSavedDocumentsGoIsNotAnEmptyFolder(t *testing.T) {
+	pages, state := t.TempDir(), t.TempDir()
+	at := Page{Rel: "core.html", Name: "core"}
+	write(t, filepath.Join(pages, "core.html"), page)
+	for _, dir := range []string{Dir, OverlayDir} {
+		write(t, filepath.Join(state, dir, "core"), "in the way")
+	}
+	if _, err := Layouts(pages, state, at); err == nil {
+		t.Error("Layouts called a file an empty folder")
+	}
+	if _, err := Overlays(state, at); err == nil {
+		t.Error("Overlays called a file an empty folder")
+	}
+
+	// A folder nobody has written to yet is still the ordinary empty case.
+	clean := t.TempDir()
+	if got, err := Layouts(pages, clean, at); err != nil || len(got) != 0 {
+		t.Errorf("an untouched store: %#v %v", got, err)
+	}
+}

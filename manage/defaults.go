@@ -162,14 +162,34 @@ func (s *Store) LayoutFor(page string) (string, error) {
 	if err != nil || !ok {
 		return "", err
 	}
+	if !s.Honours(page, d.Version) {
+		return "", nil
+	}
 	path, err := serve.Path(s.root, page, d.Version)
 	if err != nil {
 		return "", nil
 	}
-	if _, err := os.Stat(path); err != nil {
-		return "", nil
-	}
 	return path, nil
+}
+
+// Honours reports whether the version a default names is still on disk.
+//
+// It is the one question that separates a decision being followed from one
+// pointing at nothing, and it is asked from three places — what to draw with,
+// what to say is stale, and what to show in a listing. Having it written once
+// is what stops those three from drifting into disagreeing about the same
+// page.
+//
+// It takes the version rather than reading the default itself, so a caller
+// that already holds the whole map can ask about every page without reading
+// that file again per page.
+func (s *Store) Honours(page, version string) bool {
+	path, err := serve.Path(s.root, page, version)
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(path)
+	return err == nil
 }
 
 // StaleDefault is the name of a promoted version whose file has gone, or
@@ -183,11 +203,7 @@ func (s *Store) StaleDefault(page string) (string, error) {
 	if err != nil || !ok {
 		return "", err
 	}
-	path, err := serve.Path(s.root, page, d.Version)
-	if err != nil {
-		return d.Version, nil
-	}
-	if _, err := os.Stat(path); err != nil {
+	if !s.Honours(page, d.Version) {
 		return d.Version, nil
 	}
 	return "", nil

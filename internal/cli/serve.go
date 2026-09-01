@@ -6,13 +6,13 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"html"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -151,15 +151,49 @@ type site struct {
 	mode  authz.Mode
 }
 
+// ActorCookie is where a browser keeps the name somebody typed for themselves.
+//
+// A header is how a program says who it is, and it is the only way a page
+// fetched by a script can. A plain navigation cannot set one, so without this
+// every person clicking around is the same nameless caller — which is fine
+// while nothing is filed under a name, and stops being fine the moment
+// something is.
+const ActorCookie = "oekaki-actor"
+
+// actorName is what somebody may call themselves. Colon is allowed because a
+// subject is written provider:name and a person granted a role has to be able
+// to type the name they were granted it under. Everything else is kept out so
+// that a name cannot break the cookie it travels in.
+var actorName = regexp.MustCompile(`\A[A-Za-z0-9][A-Za-z0-9._:-]{0,63}\z`)
+
 // actor is who is asking.
 //
 // This is the only place that decides. Today it reads a header the caller
-// filled in themselves, which is worth exactly what it sounds like — hence the
-// origin travelling with it, so that a record written now cannot later be
-// mistaken for one an identity provider vouched for. When there is a provider,
-// this function changes and nothing else does.
+// filled in themselves, or a cookie they set themselves, which is worth
+// exactly what it sounds like — hence the origin travelling with it, so that a
+// record written now cannot later be mistaken for one an identity provider
+// vouched for. When there is a provider, this function changes and nothing
+// else does.
+//
+// The header wins. A program driving this said so explicitly on the request;
+// the cookie is whatever the browser happened to be carrying, and a stale one
+// must not be able to rename a caller that named itself.
 func (s *site) actor(r *http.Request) manage.Actor {
-	return manage.Actor{Name: r.Header.Get("X-Actor"), Origin: manage.Unverified}
+	name := r.Header.Get("X-Actor")
+	// Where decisions are actually enforced, a name somebody handed
+	// themselves is not one to act on. The header has the same problem, but a
+	// header has to be re-asserted on every request by whatever is driving,
+	// while this cookie persists and is issued by an endpoint that asks
+	// nothing — so under enforcement it would turn holding an admin grant into
+	// typing that subject's name into a box and pressing a button. The gate
+	// goes here as well as on the endpoint, because a cookie set before
+	// enforcement was switched on is still in the browser afterwards.
+	if name == "" && !s.mode.Enforce {
+		if c, err := r.Cookie(ActorCookie); err == nil && actorName.MatchString(c.Value) {
+			name = c.Value
+		}
+	}
+	return manage.Actor{Name: name, Origin: manage.Unverified}
 }
 
 // policy is the roles from configuration joined to the grants from state.
@@ -289,6 +323,10 @@ func (s *site) api(w http.ResponseWriter, r *http.Request) {
 		s.grants(w, r, tail)
 	case "meta":
 		s.meta(w, r, tail)
+	case "screens":
+		s.screens(w, r, tail)
+	case "whoami":
+		s.whoami(w, r)
 	default:
 		http.Error(w, "no such endpoint", http.StatusNotFound)
 	}
@@ -465,6 +503,99 @@ func (s *site) meta(w http.ResponseWriter, r *http.Request, item string) {
 	}
 }
 
+// screens keeps and forgets the conditions somebody narrowed a listing with.
+//
+// Reading is the gate, not writing. A screening changes what one person sees
+// of a listing they are already allowed to read and changes nothing for
+// anybody else — and the person with the most to gain from narrowing a long
+// list is exactly the one who may only look at it.
+func (s *site) screens(w http.ResponseWriter, r *http.Request, name string) {
+	if d := s.may(r, authz.Read, ""); !d.Allowed {
+		http.Error(w, d.Because, http.StatusForbidden)
+		return
+	}
+	switch r.Method {
+	case http.MethodPost:
+		var body struct {
+			Name  string `json:"name"`
+			Query string `json:"query"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		kept, err := s.store.SaveScreen(s.actor(r), strings.TrimSpace(body.Name), body.Query)
+		if err != nil {
+			refused(w, err)
+			return
+		}
+		fmt.Fprintf(w, "kept as %s", kept.Name)
+	case http.MethodDelete:
+		if name == "" {
+			http.Error(w, "want /api/screens/<name>", http.StatusBadRequest)
+			return
+		}
+		did, err := s.store.ForgetScreen(s.actor(r), name)
+		if err != nil {
+			refused(w, err)
+			return
+		}
+		if !did {
+			fmt.Fprintf(w, "there was no %s to forget", name)
+			return
+		}
+		fmt.Fprintf(w, "forgot %s", name)
+	default:
+		http.Error(w, "POST to keep, DELETE to forget", http.StatusMethodNotAllowed)
+	}
+}
+
+// whoami is somebody saying what to call them.
+//
+// Nothing is asked of the caller first. Saying your own name is not a change
+// to anything anybody else can see, and gating it on read would mean a person
+// refused everything could not even name themselves to be granted a role —
+// the one thing they need to do to stop being refused.
+//
+// What it hands back is exactly as good as the header it stands in for:
+// self-asserted, and recorded as such wherever it lands.
+func (s *site) whoami(w http.ResponseWriter, r *http.Request) {
+	// Where decisions are enforced, who somebody is stops being theirs to say.
+	// Nothing can enforce anything today — every mode wanting an identity
+	// provider refuses to start — so this guards a door that is not yet
+	// reachable, which is the only time it is cheap to put one up.
+	if s.mode.Enforce {
+		http.Error(w, "who you are is not yours to say where this is enforced; "+
+			"it comes from whatever checked you", http.StatusForbidden)
+		return
+	}
+	switch r.Method {
+	case http.MethodPost:
+		var body struct {
+			Name string `json:"name"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&body); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		name := strings.TrimSpace(body.Name)
+		if !actorName.MatchString(name) {
+			http.Error(w, "a name here is letters, digits, dot, underscore, dash and colon, "+
+				"up to 64 — a subject is written provider:name", http.StatusBadRequest)
+			return
+		}
+		http.SetCookie(w, &http.Cookie{Name: ActorCookie, Value: name, Path: "/",
+			HttpOnly: true, SameSite: http.SameSiteLaxMode})
+		fmt.Fprintf(w, "you are %s here until you say otherwise, and nothing checked that", name)
+	case http.MethodDelete:
+		http.SetCookie(w, &http.Cookie{Name: ActorCookie, Value: "", Path: "/",
+			MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteLaxMode})
+		fmt.Fprint(w, "you are nobody here now")
+	default:
+		http.Error(w, "POST to say, DELETE to stop saying", http.StatusMethodNotAllowed)
+	}
+}
+
 // page serves a file, and when it is one of ours, applies the layout asked for
 // and tells it where to save.
 //
@@ -635,72 +766,4 @@ func (s *site) graph(w http.ResponseWriter, r *http.Request, full, page, name st
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = w.Write(enriched)
-}
-
-func (s *site) index(w http.ResponseWriter, r *http.Request) {
-	// Reading covers seeing what is saved for a diagram, and this page is a
-	// list of exactly that: which pages exist, what has been saved for each,
-	// and how much of it lands. /manage and /roles ask; this one did not.
-	if d := s.may(r, authz.Read, ""); !d.Allowed {
-		http.Error(w, d.Because, http.StatusForbidden)
-		return
-	}
-	pages, err := serve.Pages(s.pages)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	var b strings.Builder
-	b.WriteString(`<!doctype html><meta charset="utf-8"><title>layouts</title>` + s.css() + `<h1>layouts</h1>`)
-	if len(pages) == 0 {
-		b.WriteString(`<p class=m>No rendered pages under this directory.</p>`)
-	}
-	for _, p := range pages {
-		// The same rule as /manage: a page somebody may not open is not one
-		// whose saved versions they should be reading the names of.
-		if d := s.may(r, authz.Read, p.Name); !d.Allowed {
-			continue
-		}
-		b.WriteString(`<h2><a href="/` + html.EscapeString(p.Rel) + `">` + html.EscapeString(p.Rel) + `</a></h2>`)
-		saved, err := serve.Layouts(s.pages, s.state, p)
-		if err != nil {
-			b.WriteString(`<p class=m>` + html.EscapeString(err.Error()) + `</p>`)
-			continue
-		}
-		if len(saved) == 0 {
-			b.WriteString(`<p class=m>None saved yet. Open the page, switch to Edit, ` +
-				`move things or press 整列, then Save. The page comes back to what ` +
-				`you saved; 既定にする is what makes everybody else get it too.</p>`)
-			continue
-		}
-		b.WriteString(`<table><tr><th>saved<th>positions<th>placed<th>not in this graph`)
-		for _, l := range saved {
-			href := "/" + p.Rel + "?layout=" + url.QueryEscape(l.Name)
-			missing := "—"
-			if n := len(l.Missing); n > 0 {
-				missing = fmt.Sprintf("%d (%s)", n, strings.Join(l.Missing[:min(3, n)], ", "))
-			}
-			paired := ""
-			if l.Paired {
-				// The box somebody drew lives in the overlay; without it the
-				// layout has a position for something that does not exist.
-				href += "&overlay=" + url.QueryEscape(l.Name)
-				paired = ` <small>+ what it asserts</small>`
-			}
-			b.WriteString(`<tr><td><a href="` + html.EscapeString(href) + `">` +
-				html.EscapeString(l.Name) + `</a>` + paired + `<td>` + fmt.Sprint(l.Nodes) +
-				`<td>` + fmt.Sprint(l.Placed) + `<td>` + html.EscapeString(missing))
-		}
-		b.WriteString(`</table>`)
-	}
-	b.WriteString(`<p class=m>A box drawn in the browser has two facts about it: that it ` +
-		`exists, which an overlay carries, and where it sits, which a layout carries. ` +
-		`Saving one without the other loses the box, so both are saved together and ` +
-		`opened together.</p>`)
-	b.WriteString(`<p class=m>A layout applies to whatever the page carries now. ` +
-		`Positions that match nothing are kept in the file and listed here rather ` +
-		`than dropped, so a layout shared with a narrower view does not lose them.</p>`)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	_, _ = io.WriteString(w, b.String())
 }

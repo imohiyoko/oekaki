@@ -703,3 +703,161 @@ func TestAFailedAuditDoesNotLeaveADefaultPointingAtNothing(t *testing.T) {
 		t.Fatal("the default outlived the version it named because the journal failed")
 	}
 }
+
+// A screening is filed under whoever kept it, and two people narrowing the
+// same listing must not be able to see or tidy away each other's.
+func TestScreeningsAreOnePersonsAndNotAnothers(t *testing.T) {
+	s := store(t)
+	alice := Actor{Name: "github:alice", Origin: Unverified}
+	bob := Actor{Name: "github:bob", Origin: Unverified}
+
+	if _, err := s.SaveScreen(alice, "mine", "?q=core"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SaveScreen(bob, "mine", "?q=other"); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.Screens(alice)
+	if err != nil || len(got) != 1 || got[0].Query != "?q=core" {
+		t.Fatalf("alice got %#v %v", got, err)
+	}
+	if got, err := s.Screens(bob); err != nil || len(got) != 1 || got[0].Query != "?q=other" {
+		t.Fatalf("bob got %#v %v", got, err)
+	}
+
+	// Forgetting is the same story: bob dropping his does not touch hers.
+	if did, err := s.ForgetScreen(bob, "mine"); err != nil || !did {
+		t.Fatalf("forget: %v %v", did, err)
+	}
+	if got, err := s.Screens(alice); err != nil || len(got) != 1 {
+		t.Fatalf("alice lost hers: %#v %v", got, err)
+	}
+	if got, err := s.Screens(bob); err != nil || len(got) != 0 {
+		t.Fatalf("bob kept his: %#v %v", got, err)
+	}
+}
+
+// Keeping a screening under a name somebody already used replaces it. The
+// alternative is two entries with one name, where the link a person clicks is
+// whichever the sort happened to put first.
+func TestKeepingAScreeningTwiceUnderOneNameReplacesIt(t *testing.T) {
+	s := store(t)
+	who := actor()
+	if _, err := s.SaveScreen(who, "wide", "?q=first"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SaveScreen(who, "wide", "?q=second"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Screens(who)
+	if err != nil || len(got) != 1 || got[0].Query != "?q=second" {
+		t.Fatalf("%#v %v", got, err)
+	}
+}
+
+// Somebody who never said their name still gets their own screenings, because
+// on a server that authorizes nobody that is everybody, and refusing to keep
+// anything until a person names themselves makes the feature useless in the
+// one mode that runs.
+func TestSomebodyWithNoNameStillKeepsScreenings(t *testing.T) {
+	s := store(t)
+	if _, err := s.SaveScreen(Actor{}, "mine", "?state=plain"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Screens(Actor{})
+	if err != nil || len(got) != 1 {
+		t.Fatalf("%#v %v", got, err)
+	}
+	if got[0].Claim == nil || got[0].Claim.SetBy != Anonymous {
+		t.Fatalf("filed under %#v", got[0].Claim)
+	}
+	all, err := s.AllScreens()
+	if err != nil || len(all[Anonymous]) != 1 {
+		t.Fatalf("%#v %v", all, err)
+	}
+}
+
+// The journal is for changes somebody other than the person making them can
+// see. Narrowing a listing changes nobody else's picture, so it belongs with
+// saving a layout — not recorded — rather than with promoting one.
+func TestKeepingAScreeningIsNotSomethingTheJournalRecords(t *testing.T) {
+	s := store(t)
+	who := actor()
+	if _, err := s.SaveScreen(who, "mine", "?q=core"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ForgetScreen(who, "mine"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.History("", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("the journal filled up with private things: %#v", got)
+	}
+}
+
+// A screening is written by whoever is looking, which on a server that
+// authorizes nobody means anybody. Something has to stop the file growing
+// without end, and the refusal has to say which limit was met.
+func TestAScreeningThatWouldGrowTheFileWithoutEndIsRefused(t *testing.T) {
+	s := store(t)
+	who := actor()
+
+	if _, err := s.SaveScreen(who, "long", "?q="+strings.Repeat("x", screenQueryMax)); !errors.Is(err, ErrRefused) {
+		t.Fatalf("a query past the limit was taken: %v", err)
+	}
+	for i := range screensPerSubject {
+		if _, err := s.SaveScreen(who, fmt.Sprintf("kept%d", i), "?q=a"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.SaveScreen(who, "one-too-many", "?q=a"); !errors.Is(err, ErrRefused) {
+		t.Fatalf("the limit did not hold: %v", err)
+	}
+
+	// Capping one person's share while letting anybody invent a new person
+	// leaves the total unbounded, and every save rewrites the whole map.
+	fresh := store(t)
+	for i := range subjectsMax {
+		if _, err := fresh.SaveScreen(Actor{Name: fmt.Sprintf("github:p%d", i)}, "mine", "?q=a"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := fresh.SaveScreen(Actor{Name: "github:one-more"}, "mine", "?q=a"); !errors.Is(err, ErrRefused) {
+		t.Fatalf("a caller could invent people without end: %v", err)
+	}
+	// Somebody already in the file is not new and must still be able to write.
+	if _, err := fresh.SaveScreen(Actor{Name: "github:p0"}, "another", "?q=b"); err != nil {
+		t.Fatalf("an existing person was refused at the limit: %v", err)
+	}
+	// Replacing one that is already there is not growth and must still work,
+	// or somebody at the limit can never change a screening again.
+	if _, err := s.SaveScreen(who, "kept0", "?q=b"); err != nil {
+		t.Fatalf("replacing at the limit was refused: %v", err)
+	}
+}
+
+// A name that could leave its folder is refused here even though a screening
+// is not a file of its own, because the name is shown, put in a url, and used
+// to address a delete.
+func TestAScreeningNameTheStoreWillNotTakeIsRefused(t *testing.T) {
+	s := store(t)
+	for _, name := range []string{"", "../escape", "has space", strings.Repeat("a", 70)} {
+		if _, err := s.SaveScreen(actor(), name, "?q=a"); !errors.Is(err, ErrRefused) {
+			t.Fatalf("%q was taken: %v", name, err)
+		}
+	}
+}
+
+// Forgetting something nobody kept is not a change and not an error; the
+// caller is told there was nothing there.
+func TestForgettingAScreeningNobodyKeptIsNotAFailure(t *testing.T) {
+	s := store(t)
+	did, err := s.ForgetScreen(actor(), "imaginary")
+	if err != nil || did {
+		t.Fatalf("%v %v", did, err)
+	}
+}

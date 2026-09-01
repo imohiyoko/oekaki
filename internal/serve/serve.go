@@ -155,12 +155,33 @@ func OverlayPath(root, page, name string) (string, error) {
 	return filepath.Join(overlayFolder(root, page), name+overlaySuffix), nil
 }
 
-// Overlays lists the overlays saved for a page.
-func Overlays(root string, page Page) ([]string, error) {
-	entries, err := os.ReadDir(overlayFolder(root, page.Name))
+// savedIn lists a folder of saved documents, telling "nothing here yet" apart
+// from "something is wrong here" the same way on every platform.
+//
+// os.ReadDir on a path that is a file reports ENOTDIR on Unix and a not-found
+// error on Windows, so os.IsNotExist alone answers "there is nothing saved" on
+// one of them and nothing at all on the other. A caller that reads no saved
+// versions as none existing then fails open on exactly one platform: a file
+// sitting where the folder goes is reported as a page with nothing saved,
+// rather than as a page that could not be read. manage.AllMeta carries the
+// same guard for the same reason.
+func savedIn(dir string) ([]os.DirEntry, error) {
+	info, err := os.Stat(dir)
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("%s is where these are saved and it is not a directory", dir)
+	}
+	return os.ReadDir(dir)
+}
+
+// Overlays lists the overlays saved for a page.
+func Overlays(root string, page Page) ([]string, error) {
+	entries, err := savedIn(overlayFolder(root, page.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -247,10 +268,7 @@ func Path(root, page, name string) (string, error) {
 // page, which is regenerated. Handing the same path to both is fine and is
 // what a caller keeping them together does.
 func Layouts(pages, state string, page Page) ([]Layout, error) {
-	entries, err := os.ReadDir(folder(state, page.Name))
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
+	entries, err := savedIn(folder(state, page.Name))
 	if err != nil {
 		return nil, err
 	}
