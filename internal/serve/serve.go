@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -84,6 +85,15 @@ var ErrDocument = errors.New("not a document this can store")
 type Page struct {
 	Rel  string // path relative to the root, e.g. "runs/abc/core.html"
 	Name string // the stem, which names the folder its layouts live in
+
+	// Inputs is what the graph said it was built from, as the page carries it.
+	//
+	// It is read from the page rather than from the graph because a
+	// self-contained page has no graph beside it, and because the listing has
+	// the page's bytes in hand already. A page rendered before this was
+	// written carries nothing, which reads as "did not say" — not as "came
+	// from nowhere". Nothing is narrowed away by a page that did not say.
+	Inputs []string
 }
 
 // Layout is one saved layout and how much of it this page can use.
@@ -125,11 +135,75 @@ func Pages(root string) ([]Page, error) {
 			return err
 		}
 		out = append(out, Page{Rel: filepath.ToSlash(rel),
-			Name: strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))})
+			Name:   strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)),
+			Inputs: inputsIn(body)})
 		return nil
 	})
 	sort.Slice(out, func(i, j int) bool { return out[i].Rel < out[j].Rel })
 	return out, err
+}
+
+// inputsAttr finds what a page says it was built from.
+//
+// The renderer writes the names into an attribute of the body element, which
+// the template escapes, so what comes back out has to be unescaped before it
+// is compared with anything.
+var inputsAttr = regexp.MustCompile(`data-inputs="([^"]*)"`)
+
+// bodyTag is the page's body element, opening angle bracket to closing one.
+//
+// Everything here is read out of that tag rather than out of the file, for two
+// reasons that happen to have the same answer.
+//
+// A page can carry a stylesheet somebody supplied, and selecting on a data
+// attribute of the body is this tool's own idiom — app.css ships
+// body[data-mode="edit"] — so `data-inputs="..."` is a string that can honestly
+// appear in the style element above. Searching the file would find that one
+// first and report a name no graph ever named. The style element is the only
+// place a stylesheet reaches, and the renderer refuses one that writes
+// "</style", so the first "</style>" is the end of everything it could have
+// written. A page whose assets are external has no style element at all, and a
+// stylesheet it merely links to is not in the document to be read.
+//
+// The other reason is what a page rendered before any of this costs. It has no
+// attribute, and looking for one in the whole file means reading every byte of
+// a self-contained page — the graph, the layout engine, the canvas library —
+// on every listing, to conclude what the first tag already said.
+func bodyTag(body []byte) []byte {
+	from := 0
+	if end := bytes.Index(body, []byte("</style>")); end >= 0 {
+		from = end
+	}
+	start := bytes.Index(body[from:], []byte("<body"))
+	if start < 0 {
+		return nil
+	}
+	start += from
+	end := bytes.IndexByte(body[start:], '>')
+	if end < 0 {
+		return nil
+	}
+	return body[start : start+end]
+}
+
+// inputsIn reads those names out of a page.
+//
+// Whitespace around a name is dropped and an empty one is skipped, because the
+// separator is written unconditionally: a page with nothing to say carries an
+// empty attribute rather than none, and splitting that yields one empty
+// string, which is not a name anybody can narrow by.
+func inputsIn(body []byte) []string {
+	m := inputsAttr.FindSubmatch(bodyTag(body))
+	if m == nil {
+		return nil
+	}
+	var out []string
+	for _, name := range strings.Split(html.UnescapeString(string(m[1])), ",") {
+		if name = strings.TrimSpace(name); name != "" {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 // CheckName rejects anything that would escape the layout folder.

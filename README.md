@@ -546,8 +546,17 @@ the listing can be screened on it:
 | tags | all of them, not any of them |
 | person | a maintainer, or whoever wrote it down |
 | kind | the catalog's grouping |
+| built from | one of the inputs the page's graph named |
 | drawn with | a version somebody chose, none, or one that has since gone |
 | positions | all land, some land nowhere, or nothing saved yet |
+
+**built from** is the one condition nobody writes down. A graph built with
+several `--repo` inputs records what they were, and the page carries those names
+so a listing can ask which pages came from a particular repository without
+opening a graph beside each one — which a self-contained page does not have. A
+page whose graph named nothing is not offered as coming from anywhere, and the
+control does not appear at all where no page said. A name is matched whole, the
+way a tag is: it is a name the graph chose rather than text somebody typed.
 
 A screening is a url, so it works with no script running and can be sent to
 somebody else. Naming one keeps it, filed under whoever kept it — a screening is
