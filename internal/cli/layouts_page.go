@@ -5,6 +5,7 @@ import (
 	"html"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -43,12 +44,13 @@ const (
 // tagged, whether anybody settled on a version, whether that version still
 // lands — and none of it was reachable except by reading the whole page.
 type screen struct {
-	Text  string   // anywhere in what is attached to the page
-	Tags  []string // every one of them, not any
-	Who   string   // maintainer, or whoever wrote it down
-	Kind  string   // the catalog's grouping
-	State string   // one of statePromoted, statePlain, stateStale
-	Fit   string   // one of fitComplete, fitPartial, fitNone
+	Text   string   // anywhere in what is attached to the page
+	Tags   []string // every one of them, not any
+	Who    string   // maintainer, or whoever wrote it down
+	Kind   string   // the catalog's grouping
+	Source string   // one of the inputs the page's graph named
+	State  string   // one of statePromoted, statePlain, stateStale
+	Fit    string   // one of fitComplete, fitPartial, fitNone
 }
 
 // screenFrom reads the conditions out of a query string, keeping only what
@@ -62,11 +64,12 @@ type screen struct {
 // into a link unexamined would not be.
 func screenFrom(q url.Values) screen {
 	sc := screen{
-		Text:  clip(q.Get("q")),
-		Who:   clip(q.Get("who")),
-		Kind:  clip(q.Get("kind")),
-		State: oneOf(q.Get("state"), statePromoted, statePlain, stateStale),
-		Fit:   oneOf(q.Get("fit"), fitComplete, fitPartial, fitNone),
+		Text:   clip(q.Get("q")),
+		Who:    clip(q.Get("who")),
+		Kind:   clip(q.Get("kind")),
+		Source: clip(q.Get("source")),
+		State:  oneOf(q.Get("state"), statePromoted, statePlain, stateStale),
+		Fit:    oneOf(q.Get("fit"), fitComplete, fitPartial, fitNone),
 	}
 	seen := map[string]bool{}
 	for _, raw := range q["tag"] {
@@ -124,7 +127,7 @@ func oneOf(v string, allowed ...string) string {
 
 func (sc screen) empty() bool {
 	return sc.Text == "" && len(sc.Tags) == 0 && sc.Who == "" &&
-		sc.Kind == "" && sc.State == "" && sc.Fit == ""
+		sc.Kind == "" && sc.Source == "" && sc.State == "" && sc.Fit == ""
 }
 
 // values is the canonical form: the conditions this page understood, and
@@ -132,7 +135,7 @@ func (sc screen) empty() bool {
 func (sc screen) values() url.Values {
 	v := url.Values{}
 	for key, at := range map[string]string{"q": sc.Text, "who": sc.Who,
-		"kind": sc.Kind, "state": sc.State, "fit": sc.Fit} {
+		"kind": sc.Kind, "source": sc.Source, "state": sc.State, "fit": sc.Fit} {
 		if at != "" {
 			v.Set(key, at)
 		}
@@ -235,6 +238,7 @@ func (r row) stray() bool {
 func (r row) searchable() string {
 	parts := []string{r.page.Rel, r.page.Name, r.entry.Title, r.entry.About,
 		r.entry.Label, r.meta.Title, r.meta.Note, r.meta.CreatedBy, r.current}
+	parts = append(parts, r.page.Inputs...)
 	parts = append(parts, r.meta.Tags...)
 	parts = append(parts, r.meta.Maintainers...)
 	for _, l := range r.saved {
@@ -260,6 +264,13 @@ func (sc screen) keeps(r row) bool {
 		return false
 	}
 	if sc.Kind != "" && !strings.EqualFold(r.entry.Kind, sc.Kind) {
+		return false
+	}
+	// An input is a name the graph chose for one of the things it was built
+	// from, so it is matched whole the way a tag is. A page that named no
+	// inputs is narrowed away rather than kept: the question is which pages
+	// came from this input, and "it did not say" is not an answer of yes.
+	if sc.Source != "" && !holds(r.page.Inputs, sc.Source) {
 		return false
 	}
 	if sc.State != "" && r.stateUnknown {
@@ -297,6 +308,32 @@ func (sc screen) keeps(r row) bool {
 		}
 	}
 	return true
+}
+
+// sourcesIn is every input any page in the listing named, once each.
+//
+// Case is kept as the graph wrote it, because that is what the option value
+// has to be for the condition to match, and folded only for deciding whether
+// two spellings are the same name. The first spelling seen wins, so the list
+// is the same on every request rather than depending on which page happened
+// to be read first — the pages arrive sorted, and this keeps that order.
+func sourcesIn(rows []row) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, at := range rows {
+		for _, name := range at.page.Inputs {
+			key := strings.ToLower(name)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, name)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return strings.ToLower(out[i]) < strings.ToLower(out[j])
+	})
+	return out
 }
 
 func holds(all []string, want string) bool {
@@ -370,6 +407,12 @@ func (s *site) index(w http.ResponseWriter, r *http.Request) {
 		rows = append(rows, s.gather(p, meta, defaults, stateUnknown))
 	}
 
+	// Collected before the screening, not after. A control built from what
+	// survived would lose every option except the one already chosen, so
+	// narrowing by one input would make the others look as though no page had
+	// ever come from them.
+	sources := sourcesIn(rows)
+
 	sc := screenFrom(r.URL.Query())
 	kept := make([]row, 0, len(rows))
 	for _, at := range rows {
@@ -383,7 +426,7 @@ func (s *site) index(w http.ResponseWriter, r *http.Request) {
 
 	var b strings.Builder
 	s.chrome(&b, "layouts")
-	s.screenForm(&b, sc, r)
+	s.screenForm(&b, sc, sources, r)
 
 	if len(unreadable) > 0 {
 		// A condition asked about something that could not be read answers
@@ -497,7 +540,7 @@ func (s *site) writeRow(b *strings.Builder, at row) {
 // It is a plain form that navigates, so narrowing works with no script at all
 // and every screening is a url somebody can send to somebody else. Only
 // keeping one needs the browser to do anything.
-func (s *site) screenForm(b *strings.Builder, sc screen, r *http.Request) {
+func (s *site) screenForm(b *strings.Builder, sc screen, sources []string, r *http.Request) {
 	b.WriteString(`<form class=screen method=get action="/layouts">`)
 	field(b, "text", `<input type=search name=q value="`+html.EscapeString(sc.Text)+
 		`" placeholder="path, note, saved name">`)
@@ -540,6 +583,30 @@ func (s *site) screenForm(b *strings.Builder, sc screen, r *http.Request) {
 	case sc.Kind != "":
 		b.WriteString(`<input type=hidden name=kind value="` +
 			html.EscapeString(sc.Kind) + `">`)
+	}
+	// Unlike the kinds, which a person wrote in the catalog, these come from
+	// the pages themselves — so the control appears only where something was
+	// rendered from a graph that named what it was built from. A deployment
+	// whose graphs name nothing gets no control, which is the honest reading:
+	// there is nothing here to narrow by.
+	switch {
+	case len(sources) > 0:
+		var opts strings.Builder
+		opts.WriteString(`<select name=source>` + option("", "any", sc.Source))
+		for _, name := range sources {
+			opts.WriteString(option(name, name, sc.Source))
+		}
+		if sc.Source != "" && !holds(sources, sc.Source) {
+			// Same reason as the kind above: a condition that is narrowing
+			// the listing has to be visible in the control that claims to
+			// show it, or pressing narrow silently widens the results.
+			opts.WriteString(option(sc.Source, sc.Source+" (no page says so)", sc.Source))
+		}
+		opts.WriteString(`</select>`)
+		field(b, "built from", opts.String())
+	case sc.Source != "":
+		b.WriteString(`<input type=hidden name=source value="` +
+			html.EscapeString(sc.Source) + `">`)
 	}
 	field(b, "drawn with", `<select name=state>`+
 		option("", "any", sc.State)+

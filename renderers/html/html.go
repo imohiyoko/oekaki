@@ -304,6 +304,8 @@ func Render(g *core.Graph, opts Options) ([]byte, error) {
 	}
 	sort.Strings(kinds)
 
+	inputs := inputNames(g)
+
 	icons := builtinIcons
 	if opts.IconDir != "" {
 		var err error
@@ -322,6 +324,7 @@ func Render(g *core.Graph, opts Options) ([]byte, error) {
 		RankDir  string
 		Lines    string
 		Kinds    string
+		Inputs   string
 		Graph    template.JS
 		Layout   template.JS
 		ELK      template.JS
@@ -342,6 +345,7 @@ func Render(g *core.Graph, opts Options) ([]byte, error) {
 		RankDir:  opts.RankDir,
 		Lines:    opts.Lines,
 		Kinds:    strings.Join(kinds, ","),
+		Inputs:   strings.Join(inputs, ","),
 		Graph:    graph,
 		Layout:   layout,
 		ELK:      template.JS(elkJS),
@@ -361,4 +365,34 @@ func Render(g *core.Graph, opts Options) ([]byte, error) {
 		return nil, err
 	}
 	return out.Bytes(), nil
+}
+
+// inputNames is what the graph says it was built from.
+//
+// The names are already in the document, and a page that carries them says so
+// about itself. That matters for anything holding a directory of pages: it can
+// ask which of them came from a particular repository without opening the
+// graph beside each one, and a graph beside each one is exactly what a
+// self-contained page does not have.
+//
+// A name with a comma in it is left out rather than written down. The
+// attribute separates on commas, so keeping it would put two names on the page
+// that were never in the graph — and the reader has no way to tell that pair
+// from two real ones. One name missing is visible in the graph it came from;
+// two invented ones are not visible anywhere.
+func inputNames(g *core.Graph) []string {
+	if g == nil || g.Metadata == nil {
+		return nil
+	}
+	out := make([]string, 0, len(g.Metadata.Inputs))
+	seen := map[string]bool{}
+	for _, in := range g.Metadata.Inputs {
+		if in.ID == "" || strings.Contains(in.ID, ",") || seen[in.ID] {
+			continue
+		}
+		seen[in.ID] = true
+		out = append(out, in.ID)
+	}
+	sort.Strings(out)
+	return out
 }

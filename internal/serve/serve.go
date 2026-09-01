@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -84,6 +85,15 @@ var ErrDocument = errors.New("not a document this can store")
 type Page struct {
 	Rel  string // path relative to the root, e.g. "runs/abc/core.html"
 	Name string // the stem, which names the folder its layouts live in
+
+	// Inputs is what the graph said it was built from, as the page carries it.
+	//
+	// It is read from the page rather than from the graph because a
+	// self-contained page has no graph beside it, and because the listing has
+	// the page's bytes in hand already. A page rendered before this was
+	// written carries nothing, which reads as "did not say" — not as "came
+	// from nowhere". Nothing is narrowed away by a page that did not say.
+	Inputs []string
 }
 
 // Layout is one saved layout and how much of it this page can use.
@@ -125,11 +135,39 @@ func Pages(root string) ([]Page, error) {
 			return err
 		}
 		out = append(out, Page{Rel: filepath.ToSlash(rel),
-			Name: strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))})
+			Name:   strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)),
+			Inputs: inputsIn(body)})
 		return nil
 	})
 	sort.Slice(out, func(i, j int) bool { return out[i].Rel < out[j].Rel })
 	return out, err
+}
+
+// inputsAttr finds what a page says it was built from.
+//
+// The renderer writes the names into an attribute of the body element, which
+// the template escapes, so what comes back out has to be unescaped before it
+// is compared with anything.
+var inputsAttr = regexp.MustCompile(`data-inputs="([^"]*)"`)
+
+// inputsIn reads those names out of a page.
+//
+// Whitespace around a name is dropped and an empty one is skipped, because the
+// separator is written unconditionally: a page with nothing to say carries an
+// empty attribute rather than none, and splitting that yields one empty
+// string, which is not a name anybody can narrow by.
+func inputsIn(body []byte) []string {
+	m := inputsAttr.FindSubmatch(body)
+	if m == nil {
+		return nil
+	}
+	var out []string
+	for _, name := range strings.Split(html.UnescapeString(string(m[1])), ",") {
+		if name = strings.TrimSpace(name); name != "" {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 // CheckName rejects anything that would escape the layout folder.

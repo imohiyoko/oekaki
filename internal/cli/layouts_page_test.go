@@ -38,6 +38,98 @@ func listed(t *testing.T, s *site, query string, headers map[string]string) []st
 	return out
 }
 
+// builtFrom is a served page that says what its graph was combined from.
+func builtFrom(names string) string {
+	return strings.Replace(servedPage, `data-mode="read"`,
+		`data-mode="read" data-inputs="`+names+`"`, 1)
+}
+
+// sourced is a listing where the pages came from different places: one from
+// each of two repositories, one from both, and one that says nothing.
+func sourced(t *testing.T) *site {
+	t.Helper()
+	s := testSite(t)
+	for name, from := range map[string]string{
+		"checkout.html": "checkout",
+		"payments.html": "payments",
+		"estate.html":   "checkout,payments",
+	} {
+		if err := os.WriteFile(filepath.Join(s.pages, name), []byte(builtFrom(from)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return s // core.html, written by testSite, names nothing
+}
+
+// The question is which pages came from a particular place, so a page that
+// never said is not an answer of yes.
+func TestNarrowingByWhatAPageWasBuiltFrom(t *testing.T) {
+	s := sourced(t)
+
+	if got, want := listed(t, s, "?source=checkout", nil),
+		[]string{"checkout.html", "estate.html"}; !same(got, want) {
+		t.Errorf("built from checkout: %v, want %v", got, want)
+	}
+	if got, want := listed(t, s, "?source=payments", nil),
+		[]string{"estate.html", "payments.html"}; !same(got, want) {
+		t.Errorf("built from payments: %v, want %v", got, want)
+	}
+	if got := listed(t, s, "?source=ordering", nil); len(got) != 0 {
+		t.Errorf("a place no page came from kept %v", got)
+	}
+}
+
+// A name is one the graph chose, so it is matched whole rather than by part —
+// the same rule as a tag, and for the same reason.
+func TestAPlaceIsMatchedWholeNotByPart(t *testing.T) {
+	s := sourced(t)
+	if got := listed(t, s, "?source=check", nil); len(got) != 0 {
+		t.Errorf("half a name kept %v", got)
+	}
+}
+
+// The control offers every place any page came from, whether or not the
+// listing is already narrowed to one of them. Building it from what survived
+// would make narrowing by one place hide that the others exist.
+func TestTheControlOffersEveryPlaceNotOnlyTheKeptOnes(t *testing.T) {
+	s := sourced(t)
+	body := ask(t, s, http.MethodGet, "/layouts?source=checkout", "", nil).Body.String()
+	for _, want := range []string{`<option value="checkout"`, `<option value="payments"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the control does not offer %s", want)
+		}
+	}
+}
+
+// A condition that is narrowing the listing has to be visible in the control
+// claiming to show it. Otherwise the form reads "any" over a narrowed listing,
+// and pressing narrow silently widens it.
+func TestAPlaceNoPageCameFromIsStillShownAsChosen(t *testing.T) {
+	s := sourced(t)
+	body := ask(t, s, http.MethodGet, "/layouts?source=ordering", "", nil).Body.String()
+	if !strings.Contains(body, `<option value="ordering" selected`) {
+		t.Error("the chosen place is missing from the control that is applying it")
+	}
+}
+
+// Nowhere to narrow to is not a control with nothing in it.
+func TestNoPlacesMeansNoControl(t *testing.T) {
+	body := ask(t, testSite(t), http.MethodGet, "/layouts", "", nil).Body.String()
+	if strings.Contains(body, "name=source") {
+		t.Error("a listing whose pages named nothing still offers to narrow by it")
+	}
+}
+
+// The free text box looks where a person would expect it to, and where a page
+// came from is part of what is attached to it.
+func TestFreeTextFindsWhereAPageCameFrom(t *testing.T) {
+	s := sourced(t)
+	if got, want := listed(t, s, "?q=payments", nil),
+		[]string{"estate.html", "payments.html"}; !same(got, want) {
+		t.Errorf("text search found %v, want %v", got, want)
+	}
+}
+
 // screened is three pages that differ in every way a condition can ask about.
 //
 //	core     annotated, a version somebody settled on, every position lands

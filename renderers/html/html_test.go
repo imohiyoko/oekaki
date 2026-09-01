@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -59,6 +60,49 @@ func render(t *testing.T, g *core.Graph, opts Options) string {
 		t.Fatalf("Render: %v", err)
 	}
 	return string(out)
+}
+
+// The graph records what it was combined from. The page says the same thing
+// about itself, so that whatever is holding a directory of pages can tell
+// which of them came from where without opening anything else — and a
+// self-contained page has nothing else to open.
+func TestPageSaysWhatItWasBuiltFrom(t *testing.T) {
+	g := fixture()
+	g.Metadata = &core.Metadata{Inputs: []core.InputRef{
+		{ID: "payments", Path: "../payments", Kind: "repository"},
+		{ID: "checkout", Path: "../checkout", Kind: "repository"},
+	}}
+
+	if out := render(t, g, Options{}); !strings.Contains(out, `data-inputs="checkout,payments"`) {
+		t.Error("the page does not say what it was built from")
+	}
+}
+
+// Sorted, once each, and nothing that cannot survive the separator.
+func TestTheNamesAPageCarriesAreTheOnesItCanCarry(t *testing.T) {
+	g := fixture()
+	g.Metadata = &core.Metadata{Inputs: []core.InputRef{
+		{ID: "payments"},
+		{ID: "payments"},
+		{ID: ""},
+		// A comma is the separator. Written down, this one name would be read
+		// back as two that were never in the graph, and nothing on the page
+		// would say which.
+		{ID: "orders,refunds"},
+		{ID: "checkout"},
+	}}
+
+	if got, want := inputNames(g), []string{"checkout", "payments"}; !slices.Equal(got, want) {
+		t.Errorf("carried %v, want %v", got, want)
+	}
+}
+
+// A graph that says nothing leaves the attribute empty rather than absent, so
+// that a reader never has to tell "no attribute" from "no inputs".
+func TestAGraphThatNamesNothingStillSaysSo(t *testing.T) {
+	if out := render(t, fixture(), Options{}); !strings.Contains(out, `data-inputs=""`) {
+		t.Error("the attribute is missing, so a reader cannot tell it apart from an older page")
+	}
 }
 
 // A page that fetched a sibling file would need a web server, because Chrome

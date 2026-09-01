@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -40,6 +41,56 @@ func layoutFor(ids ...string) string {
 	}
 	b.WriteString(`],"claim":{"origin":"human"}}`)
 	return b.String()
+}
+
+// What a page says it was built from is read from the page, because a listing
+// already has its bytes and a self-contained page has no graph beside it.
+func TestAPageCarriesWhatItWasBuiltFrom(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "core.html"),
+		strings.Replace(page, `data-mode="read"`,
+			`data-mode="read" data-inputs="checkout, payments"`, 1))
+	write(t, filepath.Join(root, "plain.html"), page)
+	write(t, filepath.Join(root, "empty.html"),
+		strings.Replace(page, `data-mode="read"`, `data-mode="read" data-inputs=""`, 1))
+
+	pages, err := Pages(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string][]string{}
+	for _, p := range pages {
+		got[p.Rel] = p.Inputs
+	}
+	if want := []string{"checkout", "payments"}; !slices.Equal(got["core.html"], want) {
+		t.Errorf("core.html was built from %v, want %v", got["core.html"], want)
+	}
+	// Both of these mean "did not say", and neither may become a name: an
+	// empty attribute splits into one empty string, and narrowing by "" is
+	// not a question anybody asked.
+	if len(got["plain.html"]) != 0 {
+		t.Errorf("a page with no attribute named %v", got["plain.html"])
+	}
+	if len(got["empty.html"]) != 0 {
+		t.Errorf("an empty attribute named %v", got["empty.html"])
+	}
+}
+
+// A name that arrived escaped has to come back as it was written, or it will
+// not match the graph it came from.
+func TestANameIsUnescapedOnTheWayBack(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "core.html"),
+		strings.Replace(page, `data-mode="read"`,
+			`data-mode="read" data-inputs="orders &amp; refunds"`, 1))
+
+	pages, err := Pages(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"orders & refunds"}; !slices.Equal(pages[0].Inputs, want) {
+		t.Errorf("read %v, want %v", pages[0].Inputs, want)
+	}
 }
 
 // A directory can hold anything. Only the pages this tool rendered can carry a

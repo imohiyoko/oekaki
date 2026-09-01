@@ -6,7 +6,7 @@
 <title>{{.Title}}</title>
 {{if .External}}<link rel="stylesheet" href="{{.CSSSrc}}">{{else}}<style>{{.CSS}}</style>{{end}}
 </head>
-<body data-mode="read" data-axis="{{.Axis}}" data-rankdir="{{.RankDir}}" data-lines="{{.Lines}}" data-kinds="{{.Kinds}}"{{if .External}} data-graph="{{.GraphSrc}}" data-app="{{.AppSrc}}"{{end}}>
+<body data-mode="read" data-axis="{{.Axis}}" data-rankdir="{{.RankDir}}" data-lines="{{.Lines}}" data-kinds="{{.Kinds}}" data-inputs="{{.Inputs}}"{{if .External}} data-graph="{{.GraphSrc}}" data-app="{{.AppSrc}}"{{end}}>
 
 <header id="bar">
   <h1>{{.Title}}</h1>
