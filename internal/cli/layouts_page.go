@@ -345,6 +345,26 @@ func sourcesIn(rows []row) []string {
 	return out
 }
 
+// canonical is the offered spelling of what somebody asked for.
+//
+// Every condition here is matched with case folded, and an option is marked
+// with it compared exactly. A person who typed a name in another case has
+// narrowed the listing, so leaving every option unmarked would show "any" over
+// a narrowed listing — and pressing narrow would then send the condition back
+// as nothing and widen the results without saying so.
+//
+// A name nothing offers comes back as it was typed. The caller has its own
+// answer for that one: an option saying so, which is a different thing to show
+// and a different thing to mean.
+func canonical(offered []string, want string) string {
+	for _, name := range offered {
+		if strings.EqualFold(name, want) {
+			return name
+		}
+	}
+	return want
+}
+
 func holds(all []string, want string) bool {
 	for _, at := range all {
 		if strings.EqualFold(at, want) {
@@ -572,14 +592,20 @@ func (s *site) screenForm(b *strings.Builder, sc screen, sources []string, r *ht
 	}
 	switch {
 	case len(kinds) > 0:
+		// Matching folds case, and marking an option does not, so the spelling
+		// that did the narrowing is the one to mark. Without this the control
+		// reads "any" over a listing that is narrowed, and pressing narrow
+		// drops the condition — the failure the fallback below is here to
+		// prevent, one step earlier.
+		chosen := canonical(kinds, sc.Kind)
 		var opts strings.Builder
-		opts.WriteString(`<select name=kind>` + option("", "any", sc.Kind))
+		opts.WriteString(`<select name=kind>` + option("", "any", chosen))
 		for _, k := range s.cfg.Catalog.Kinds {
 			label := k.Label
 			if label == "" {
 				label = k.ID
 			}
-			opts.WriteString(option(k.ID, label, sc.Kind))
+			opts.WriteString(option(k.ID, label, chosen))
 		}
 		if sc.Kind != "" && !holds(kinds, sc.Kind) {
 			// Narrowing by a kind the catalog never listed. Leaving it out
@@ -600,17 +626,7 @@ func (s *site) screenForm(b *strings.Builder, sc screen, sources []string, r *ht
 	// there is nothing here to narrow by.
 	switch {
 	case len(sources) > 0:
-		// Matching folds case; marking an option does not. Somebody who typed
-		// a name in another case has narrowed the listing, so the control has
-		// to show the spelling that did the narrowing rather than "any" — the
-		// same reason the fallback below exists, one step earlier.
-		chosen := sc.Source
-		for _, name := range sources {
-			if strings.EqualFold(name, sc.Source) {
-				chosen = name
-				break
-			}
-		}
+		chosen := canonical(sources, sc.Source)
 		var opts strings.Builder
 		opts.WriteString(`<select name=source>` + option("", "any", chosen))
 		for _, name := range sources {

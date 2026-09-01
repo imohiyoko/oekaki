@@ -76,6 +76,46 @@ func TestAPageCarriesWhatItWasBuiltFrom(t *testing.T) {
 	}
 }
 
+// A stylesheet somebody supplied is written into the page above the body tag,
+// and selecting on a data attribute of the body is this tool's own idiom. What
+// the page was built from is what the graph said, not what a rule above it
+// happens to spell.
+func TestAStylesheetCannotSayWhereAPageCameFrom(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "core.html"),
+		`<!doctype html><html><head><style>`+
+			`body[data-inputs="ghost"] { color: red; }`+
+			`</style></head><body data-mode="read" data-inputs="checkout">`+
+			`<script type="application/json" id="oekaki-graph">`+graph+`</script></body></html>`)
+
+	pages, err := Pages(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"checkout"}; !slices.Equal(pages[0].Inputs, want) {
+		t.Errorf("read %v, want %v — a stylesheet was believed over the graph", pages[0].Inputs, want)
+	}
+}
+
+// Only the body tag is read, so nothing further down the document can answer
+// for it either — and a page that has no attribute is not a reason to read the
+// rest of a self-contained one.
+func TestNothingBelowTheBodyTagAnswersForIt(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "core.html"),
+		`<!doctype html><html><head></head><body data-mode="read">`+
+			`<script type="application/json" id="oekaki-graph">`+graph+`</script>`+
+			`<!-- data-inputs="ghost" --></body></html>`)
+
+	pages, err := Pages(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pages[0].Inputs) != 0 {
+		t.Errorf("something below the body tag answered: %v", pages[0].Inputs)
+	}
+}
+
 // A name that arrived escaped has to come back as it was written, or it will
 // not match the graph it came from.
 func TestANameIsUnescapedOnTheWayBack(t *testing.T) {

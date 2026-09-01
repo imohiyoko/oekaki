@@ -150,6 +150,42 @@ func Pages(root string) ([]Page, error) {
 // is compared with anything.
 var inputsAttr = regexp.MustCompile(`data-inputs="([^"]*)"`)
 
+// bodyTag is the page's body element, opening angle bracket to closing one.
+//
+// Everything here is read out of that tag rather than out of the file, for two
+// reasons that happen to have the same answer.
+//
+// A page can carry a stylesheet somebody supplied, and selecting on a data
+// attribute of the body is this tool's own idiom — app.css ships
+// body[data-mode="edit"] — so `data-inputs="..."` is a string that can honestly
+// appear in the style element above. Searching the file would find that one
+// first and report a name no graph ever named. The style element is the only
+// place a stylesheet reaches, and the renderer refuses one that writes
+// "</style", so the first "</style>" is the end of everything it could have
+// written. A page whose assets are external has no style element at all, and a
+// stylesheet it merely links to is not in the document to be read.
+//
+// The other reason is what a page rendered before any of this costs. It has no
+// attribute, and looking for one in the whole file means reading every byte of
+// a self-contained page — the graph, the layout engine, the canvas library —
+// on every listing, to conclude what the first tag already said.
+func bodyTag(body []byte) []byte {
+	from := 0
+	if end := bytes.Index(body, []byte("</style>")); end >= 0 {
+		from = end
+	}
+	start := bytes.Index(body[from:], []byte("<body"))
+	if start < 0 {
+		return nil
+	}
+	start += from
+	end := bytes.IndexByte(body[start:], '>')
+	if end < 0 {
+		return nil
+	}
+	return body[start : start+end]
+}
+
 // inputsIn reads those names out of a page.
 //
 // Whitespace around a name is dropped and an empty one is skipped, because the
@@ -157,7 +193,7 @@ var inputsAttr = regexp.MustCompile(`data-inputs="([^"]*)"`)
 // empty attribute rather than none, and splitting that yields one empty
 // string, which is not a name anybody can narrow by.
 func inputsIn(body []byte) []string {
-	m := inputsAttr.FindSubmatch(body)
+	m := inputsAttr.FindSubmatch(bodyTag(body))
 	if m == nil {
 		return nil
 	}

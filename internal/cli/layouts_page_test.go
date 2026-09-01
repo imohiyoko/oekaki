@@ -127,6 +127,23 @@ func TestANameTypedInAnotherCaseIsStillShownAsChosen(t *testing.T) {
 	}
 }
 
+// The kind control is the same shape and was already there, so it gets the
+// same answer: the spelling that narrowed the listing is the one marked.
+func TestAKindTypedInAnotherCaseIsStillShownAsChosen(t *testing.T) {
+	s := screened(t)
+	s.cfg.Catalog = &catalog.Catalog{
+		Kinds: []catalog.Kind{{ID: "diagram", Label: "diagram"}},
+		Items: []catalog.Rule{{Match: "core.html", Kind: "diagram"}},
+	}
+	if got, want := listed(t, s, "?kind=DIAGRAM", nil), []string{"core.html"}; !same(got, want) {
+		t.Fatalf("another case narrowed to %v, want %v", got, want)
+	}
+	body := ask(t, s, http.MethodGet, "/layouts?kind=DIAGRAM", "", nil).Body.String()
+	if !strings.Contains(body, `<option value="diagram" selected`) {
+		t.Error("the listing is narrowed but the control says any")
+	}
+}
+
 // A name too long to be a condition is not offered as one. Offered, it would
 // arrive back clipped, fail the whole-name match, and empty the listing under
 // a control claiming to have narrowed to it.
