@@ -326,6 +326,23 @@ local model adapter through `enrichers/ai.Generate`, validate its candidate
 document, and then apply it. The deterministic graph path only reads the
 validated result.
 
+### Too much in one picture
+
+A hundred boxes is enough to make a diagram unreadable, and no amount of layout
+tuning fixes it: the problem is the amount of information, not its arrangement.
+
+```console
+$ oekaki render plan.json --fold -o architecture.svg
+96 boxes folded to 23: 8 folds (8 chain) standing for 81
+```
+
+A run of boxes that only passes something along becomes one box saying how far
+it is; boxes that are the same thing in the same place joined to the same
+things become one saying how many there were; a halo of attachments becomes a
+number. A fold is not a deletion — the box says what it stands for — and rules
+run only until the drawing is inside its budget, so nothing is folded that did
+not need to be. See [docs/folding.md].
+
 ### An interactive view
 
 ```console
@@ -650,6 +667,7 @@ The binaries embed Graphviz, which is EPL-2.0. Every release archive carries
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) with the full attribution.
 
 [docs/kubernetes.md]: docs/kubernetes.md
+[docs/folding.md]: docs/folding.md
 [docs/roadmap.md]: docs/roadmap.md
 [docs/notebook.md]: docs/notebook.md
 [docs/schema.md]: docs/schema.md
