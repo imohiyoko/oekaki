@@ -95,6 +95,35 @@ func ParsePathKey(key string) ([]string, bool) {
 	return nodes, true
 }
 
+// QualifySubject rewrites an observation's subject through a renaming of node
+// ids, and reports whether it was a path key.
+//
+// A path key is not an id: it is an encoding of several. Putting a scope in
+// front of the whole string produces something that is neither an id nor a
+// key, so a document combined from two repositories ends up with readings
+// about routes that do not exist — which the validator catches, turning a
+// second repository into a hard error rather than a bigger diagram.
+func QualifySubject(subject string, qualify func(string) string) (string, bool) {
+	nodes, ok := ParsePathKey(subject)
+	if !ok {
+		return subject, false
+	}
+	renamed := make([]string, 0, len(nodes))
+	for _, id := range nodes {
+		renamed = append(renamed, qualify(id))
+	}
+	return PathKey(renamed), true
+}
+
+// QualifyPaths rewrites every participant through a renaming of node ids.
+func (g *Graph) QualifyPaths(qualify func(string) string) {
+	for i := range g.Paths {
+		for j := range g.Paths[i].Nodes {
+			g.Paths[i].Nodes[j] = qualify(g.Paths[i].Nodes[j])
+		}
+	}
+}
+
 // Key is this path's name as an observation subject.
 func (p Path) Key() string { return PathKey(p.Nodes) }
 
@@ -138,7 +167,15 @@ func (g *Graph) normalizePaths() {
 		if ak, bk := a.Key(), b.Key(); ak != bk {
 			return ak < bk
 		}
-		return claimLess(claimOrParser(a.Claim), claimOrParser(b.Claim))
+		// The best claim first, on the same terms an edge is ranked by:
+		// human, then ai, then parser. Ordering by the origin's spelling
+		// instead — which is what comparing claims alone does — would put an
+		// "ai" claim ahead of a "human" one, and the fold keeps the first.
+		ac, bc := claimOrParser(a.Claim), claimOrParser(b.Claim)
+		if ac.Origin.Rank() != bc.Origin.Rank() {
+			return ac.Origin.Rank() > bc.Origin.Rank()
+		}
+		return claimLess(ac, bc)
 	})
 
 	folded := g.Paths[:0]

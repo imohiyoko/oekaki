@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -51,7 +52,7 @@ func runPaths(env Env, args []string) error {
 	// A document that carries declared routes has better ones than anything
 	// derived here, so the derivation only fills a gap and never argues with
 	// what somebody wrote down.
-	derived := 0
+	derived, attempted := 0, false
 	if *declare {
 		written := false
 		for _, p := range g.Paths {
@@ -61,6 +62,7 @@ func runPaths(env Env, args []string) error {
 			}
 		}
 		if !written {
+			attempted = true
 			routes := views.DeclarePaths(g, views.DeclareOptions{})
 			derived = len(routes)
 			g.Paths = append(g.Paths, routes...)
@@ -82,9 +84,17 @@ func runPaths(env Env, args []string) error {
 		findings = kept
 	}
 
-	if derived > 0 {
+	switch {
+	case derived > 0:
 		fmt.Fprintf(env.Stderr,
 			"%d declared route%s derived by following references; nothing wrote them down\n", derived, plural(derived))
+	case attempted:
+		// Silence here reads as "everything observed is a surprise", which is
+		// exactly what the listing then says. The usual reason is that every
+		// way in is also called by something else: an estate whose entry
+		// point sits in a cycle has nowhere for a route to start.
+		fmt.Fprintln(env.Stderr,
+			"no declared routes could be derived: nothing here is called only from outside, so there is nowhere a route starts. Write the routes down in an overlay, or every observed route will read as unannounced")
 	}
 
 	// A graph with no routes in it is the ordinary case until somebody runs a
@@ -166,8 +176,10 @@ func resolveSince(since string, now func() time.Time) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("--since %q: want an RFC3339 time, or a span like 30d, 12h or 90m", since)
 	}
-	var n int
-	if _, err := fmt.Sscanf(since[:len(since)-1], "%d", &n); err != nil || n <= 0 {
+	// The whole prefix has to be the number. Scanning it leaves whatever
+	// followed unread, so "3xd" would quietly mean three days.
+	n, err := strconv.Atoi(since[:len(since)-1])
+	if err != nil || n <= 0 {
 		return "", fmt.Errorf("--since %q: want an RFC3339 time, or a span like 30d, 12h or 90m", since)
 	}
 	return now().UTC().Add(-time.Duration(n) * scale).Format(time.RFC3339), nil

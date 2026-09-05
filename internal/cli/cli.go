@@ -1117,6 +1117,7 @@ func loadGraphs(env Env, paths []string, opts terraform.Options, sourceOpts sour
 		}
 		combined.Groups = append(combined.Groups, g.Groups...)
 		combined.Edges = append(combined.Edges, g.Edges...)
+		combined.Paths = append(combined.Paths, g.Paths...)
 		combined.Observations = append(combined.Observations, g.Observations...)
 		combined.LogRecords = append(combined.LogRecords, g.LogRecords...)
 		combined.Conflicts = append(combined.Conflicts, g.Conflicts...)
@@ -1281,7 +1282,15 @@ func qualifyGraph(g *core.Graph, scope string) {
 		g.Edges[i].From = qualify(g.Edges[i].From)
 		g.Edges[i].To = qualify(g.Edges[i].To)
 	}
+	g.QualifyPaths(qualify)
 	for i := range g.Observations {
+		// A path key encodes several ids; a scope in front of the whole
+		// string produces neither an id nor a key, and the reading is then
+		// about a route the document does not have.
+		if renamed, isPath := core.QualifySubject(g.Observations[i].Subject, qualify); isPath {
+			g.Observations[i].Subject = renamed
+			continue
+		}
 		g.Observations[i].Subject = qualify(g.Observations[i].Subject)
 	}
 	for i := range g.LogRecords {

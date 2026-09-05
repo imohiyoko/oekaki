@@ -1456,4 +1456,15 @@ func (g *Graph) ApplyScope(scope string) {
 		g.Edges[i].From = qualify(g.Edges[i].From)
 		g.Edges[i].To = qualify(g.Edges[i].To)
 	}
+	g.QualifyPaths(qualify)
+	// A reading names what it is about, and after a rename that name is a
+	// different string. Leaving it alone leaves the document pointing at ids
+	// that no longer exist.
+	for i := range g.Observations {
+		if renamed, isPath := QualifySubject(g.Observations[i].Subject, qualify); isPath {
+			g.Observations[i].Subject = renamed
+			continue
+		}
+		g.Observations[i].Subject = qualify(g.Observations[i].Subject)
+	}
 }

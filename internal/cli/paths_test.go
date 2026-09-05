@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/imohiyoko/oekaki/core"
 )
 
 // An estate a request enters at the gateway, and the traces of what actually
@@ -132,9 +134,74 @@ func TestSinceAcceptsATimeOrASpan(t *testing.T) {
 			t.Errorf("%q became %q, want %q", in, got, want)
 		}
 	}
-	for _, bad := range []string{"soon", "30", "0d", "-5d", "yesterday"} {
+	for _, bad := range []string{"soon", "30", "0d", "-5d", "yesterday", "3xd", "1 d"} {
 		if got, err := resolveSince(bad, now); err == nil {
 			t.Errorf("%q was accepted as %q", bad, got)
 		}
+	}
+}
+
+// Two repositories, each carrying routes of its own. The combined document has
+// to keep both, with every participant and every reading renamed into its
+// repository — a route is a list of ids, and a reading about one names it by
+// an encoding of those ids.
+func TestRoutesSurviveCombiningTwoRepositories(t *testing.T) {
+	dir := t.TempDir()
+	var inputs []string
+	for i, service := range []string{"ledger", "search"} {
+		g := core.New()
+		g.Nodes = []core.Node{
+			{ID: "gateway", Type: "service", Name: "gateway"},
+			{ID: service, Type: "service", Name: service},
+		}
+		g.Edges = []core.Edge{{From: "gateway", To: service, Kind: core.EdgeObserved, Relation: "calls"}}
+		g.Paths = []core.Path{{Nodes: []string{"gateway", service}, Kind: core.EdgeObserved}}
+		count := float64(i + 1)
+		g.Observations = []core.Observation{{
+			Subject: core.PathKey([]string{"gateway", service}), Metric: "path_requests", Value: &count,
+		}}
+		g.Normalize()
+		raw, err := g.MarshalIndent()
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(dir, service+".json")
+		if err := os.WriteFile(path, raw, 0600); err != nil {
+			t.Fatal(err)
+		}
+		inputs = append(inputs, path)
+	}
+
+	out := mustRun(t, "", "graph", "--repo", inputs[0], "--repo", inputs[1]).stdout
+	g, err := core.Decode(strings.NewReader(out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Paths) != 2 {
+		t.Fatalf("got %d routes, want both repositories' own: %#v", len(g.Paths), g.Paths)
+	}
+	for _, p := range g.Paths {
+		for _, id := range p.Nodes {
+			if !strings.Contains(id, ":") {
+				t.Fatalf("a participant was not renamed into its repository: %q", id)
+			}
+			if _, ok := g.Node(id); !ok {
+				t.Fatalf("the route walks %q, which the combined document does not have", id)
+			}
+		}
+	}
+	readings := 0
+	for _, o := range g.Observations {
+		nodes, isPath := core.ParsePathKey(o.Subject)
+		if !isPath {
+			continue
+		}
+		readings++
+		if _, ok := g.Path(nodes, core.EdgeObserved); !ok {
+			t.Fatalf("a reading is about %v, which is not a route this document carries", nodes)
+		}
+	}
+	if readings != 2 {
+		t.Fatalf("got %d readings about routes, want 2", readings)
 	}
 }

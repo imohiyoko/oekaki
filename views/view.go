@@ -168,9 +168,29 @@ func Apply(in *core.Graph, opts Options) (*core.Graph, error) {
 			out.Groups = append(out.Groups, g)
 		}
 	}
+	// A route survives a projection only when every participant does. One
+	// with a hop removed is a different route, and a route naming a box this
+	// drawing no longer has is a dangling reference — which the validator
+	// refuses, so the projection would fail rather than lose a line.
+	out.Paths = out.Paths[:0]
+	routes := map[string]bool{}
+	for _, path := range in.Paths {
+		whole := true
+		for _, id := range path.Nodes {
+			if !keep[id] {
+				whole = false
+				break
+			}
+		}
+		if !whole {
+			continue
+		}
+		out.Paths = append(out.Paths, path)
+		routes[path.Key()] = true
+	}
 	out.Observations = out.Observations[:0]
 	for _, observation := range in.Observations {
-		if keep[observation.Subject] {
+		if keep[observation.Subject] || routes[observation.Subject] {
 			out.Observations = append(out.Observations, observation)
 		}
 	}

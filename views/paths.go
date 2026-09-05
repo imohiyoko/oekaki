@@ -3,6 +3,7 @@ package views
 import (
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/imohiyoko/oekaki/core"
 )
@@ -49,10 +50,18 @@ func compare(p core.Path, observed []core.Path, readings map[string]*reading, si
 	last := ""
 	var count *float64
 
+	// The two answers are kept apart on purpose. A route walked in full is
+	// answered by the walks of the whole route; how far a *different* walk got
+	// along it says nothing about when this one last ran, and letting a prefix
+	// overwrite the full walk's reading reported a route walked yesterday as
+	// having stopped in January.
+	var partialLast string
+	var partialCount *float64
+
 	for _, o := range observed {
 		if containsRun(o.Nodes, p.Nodes) {
 			walked = true
-			if at := readings[o.Key()]; at != nil && at.last >= last {
+			if at := readings[o.Key()]; at != nil && !before(at.last, last) {
 				last, count = at.last, at.count
 			}
 			continue
@@ -69,14 +78,14 @@ func compare(p core.Path, observed []core.Path, readings map[string]*reading, si
 		// walked is the actionable half of the finding: requests stopped
 		// reaching the archive in May is a different story from stopped
 		// yesterday.
-		if at := readings[o.Key()]; at != nil && (n > longest || at.last >= last) {
-			last, count = at.last, at.count
+		if at := readings[o.Key()]; at != nil && (n > longest || !before(at.last, partialLast)) {
+			partialLast, partialCount = at.last, at.count
 		}
 		longest = n
 	}
 
 	switch {
-	case walked && since != "" && last != "" && last < since:
+	case walked && since != "" && last != "" && before(last, since):
 		return []Finding{{
 			Kind: Quiet, Path: p, Key: key, Claim: p.Claim,
 			LastSeen: last, Requests: count,
@@ -87,7 +96,7 @@ func compare(p core.Path, observed []core.Path, readings map[string]*reading, si
 	case longest >= 2:
 		return []Finding{{
 			Kind: Partial, Path: p, Key: key, Claim: p.Claim,
-			LastSeen: last, Requests: count,
+			LastSeen: partialLast, Requests: partialCount,
 			Reason: fmt.Sprintf("walked as far as %s; nothing has been seen going on to %s",
 				p.Nodes[longest-1], p.Nodes[longest]),
 		}}
@@ -153,6 +162,33 @@ func ValidPathFinding(name string) bool {
 		}
 	}
 	return false
+}
+
+// before compares two moments as moments.
+//
+// Comparing the strings would be nearly right, and wrong exactly where it
+// matters: the trace collector writes RFC3339 with nanoseconds while a
+// relative cutoff is written to the second, and "." sorts before "Z", so a
+// walk at 10:00:00.5Z lands before a cutoff of 10:00:00Z and a route walked
+// seconds ago is reported as having stopped. An offset like +09:00 goes wrong
+// the same way.
+//
+// An empty moment is before every real one: a reading with nothing to say
+// about when is the oldest thing there is. Anything that does not parse falls
+// back to comparing the text, which is at least stable.
+func before(a, b string) bool {
+	if a == b {
+		return false
+	}
+	if a == "" || b == "" {
+		return a == ""
+	}
+	at, aerr := time.Parse(time.RFC3339, a)
+	bt, berr := time.Parse(time.RFC3339, b)
+	if aerr != nil || berr != nil {
+		return a < b
+	}
+	return at.Before(bt)
 }
 
 // reading is what the observations say about one route: when it was last
@@ -223,7 +259,7 @@ func Paths(g *core.Graph, opts PathOptions) ([]Finding, error) {
 			at = &reading{}
 			readings[o.Subject] = at
 		}
-		if o.ObservedAt >= at.last {
+		if !before(o.ObservedAt, at.last) {
 			at.last = o.ObservedAt
 			at.count = o.Value
 		}
