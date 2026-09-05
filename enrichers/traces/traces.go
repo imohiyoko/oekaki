@@ -35,7 +35,19 @@ func (e Enricher) Enrich(g *core.Graph) (*enrichers.Report, error) {
 		// this graph happens to know: a walk with a hop removed is a
 		// different walk, and one silently repaired here would be compared
 		// against the declared set as though somebody had observed it.
-		paths, counts := d.Paths()
+		paths, counts, unordered := d.Paths()
+		for _, id := range unordered {
+			// A trace whose entry span was sampled away, or whose spans carry
+			// no ids while one service is reached by two callers, cannot be
+			// turned into an order. Reporting it is the difference between a
+			// route nothing walked and a route this could not read.
+			r.Unmatched = append(r.Unmatched, enrichers.Unmatched{
+				Selector: map[string]string{"trace_id": id},
+				Assert:   "path",
+				Reason:   "trace cannot be ordered: no entry span, or spans without ids reaching a service from two callers",
+				Action:   "reported",
+			})
+		}
 		for i, path := range paths {
 			missing := ""
 			for _, id := range path.Nodes {

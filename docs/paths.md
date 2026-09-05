@@ -69,7 +69,24 @@ caller — a trace whose entry span was sampled away is skipped rather than
 rooted at whichever service sorted first.
 
 The same route in a thousand traces is one path carrying a count of a thousand.
-Traffic moves the number, not the size of the document.
+Traffic moves the number, not the size of the document — and a service called
+twice in one trace was called twice.
+
+### Give the spans their ids
+
+`span_id` and `parent_span_id` are optional on a span, and worth providing.
+The tree has to be built from span identity, not from service names: a cache
+called by both auth and checkout is one *service* with two callers, and joining
+its children to its name produces `gateway → checkout → cache → redis` when
+redis was only ever reached through auth. That is a route nobody walked,
+invented by the collector, in a document whose whole purpose is telling apart
+what was claimed from what was seen.
+
+So when the ids are there, the walk follows them. When they are not, the fold
+happens only where names cannot be ambiguous — no service with two different
+callers — and a trace that cannot be ordered is **reported** rather than
+guessed at, as an unmatched assertion naming its trace id. A trace nothing
+could read and a route nothing walked are different facts.
 
 **Declared** routes are best written down — in an overlay, from an API
 definition, from a routing table. Until something does, `oekaki paths` derives
@@ -114,6 +131,12 @@ in code — a fourth permission below `read` is where it would go, denied unless
 a role says otherwise.
 
 ## Determinism
+
+Timestamps are compared as moments, not as text. The collector writes RFC3339
+with nanoseconds while a relative cutoff is written to the second, and `.`
+sorts before `Z` — so a string comparison puts a walk at `10:00:00.5Z` before a
+cutoff of `10:00:00Z`, and reports a route walked seconds ago as having
+stopped.
 
 `views.Paths` reads no clock. `--since 30d` is resolved by the command, against
 the caller's clock, and the resolved moment is written into the JSON output —

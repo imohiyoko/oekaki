@@ -9,7 +9,16 @@ import (
 )
 
 type Span struct {
-	TraceID       string  `json:"trace_id"`
+	TraceID string `json:"trace_id"`
+
+	// SpanID and ParentSpanID are this span's own identity, when the exporter
+	// records it. They are optional because the documents people already have
+	// do not always carry them — but without them a service that two callers
+	// reach cannot be placed in the tree, and the routes through it cannot be
+	// recovered. See Document.Paths.
+	SpanID       string `json:"span_id,omitempty"`
+	ParentSpanID string `json:"parent_span_id,omitempty"`
+
 	Service       string  `json:"service"`
 	ParentService string  `json:"parent_service,omitempty"`
 	Operation     string  `json:"operation,omitempty"`
