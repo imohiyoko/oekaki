@@ -33,13 +33,16 @@ const ObservationsID = "https://raw.githubusercontent.com/imohiyoko/oekaki/main/
 //go:embed graph.schema.json
 var GraphSchema []byte
 
-// LegacyGraphSchema is the frozen version 0.4 contract used only to validate
-// an input before core migrates its untyped conflict targets. Keeping the exact
-// old schema prevents Go's omitempty behavior from laundering invalid legacy
-// fields while re-encoding the migrated document.
+// LegacyGraphSchema and LegacyGraphSchemaV05 are the frozen contracts of the
+// versions Decode still reads, used to validate an input before core migrates
+// it. Keeping the exact old schema prevents Go's omitempty behavior from
+// laundering invalid legacy fields while re-encoding the migrated document.
 //
 //go:embed graph-v0.4.schema.json
 var LegacyGraphSchema []byte
+
+//go:embed graph-v0.5.schema.json
+var LegacyGraphSchemaV05 []byte
 
 //go:embed ai-candidates.schema.json
 var AICandidatesSchema []byte
@@ -63,20 +66,29 @@ var compile = sync.OnceValues(func() (*jsonschema.Schema, error) {
 	return sch, nil
 })
 
+// Each frozen document intentionally retains the canonical graph schema ID.
+// Each is compiled in its own compiler, so they cannot collide with each other
+// or with the current version.
 var compileLegacyGraph = sync.OnceValues(func() (*jsonschema.Schema, error) {
+	return compileFrozen(LegacyGraphSchema, "0.4")
+})
+
+var compileLegacyGraphV05 = sync.OnceValues(func() (*jsonschema.Schema, error) {
+	return compileFrozen(LegacyGraphSchemaV05, "0.5")
+})
+
+func compileFrozen(doc []byte, version string) (*jsonschema.Schema, error) {
 	c := jsonschema.NewCompiler()
 	c.Draft = jsonschema.Draft2020
-	// The frozen document intentionally retains the canonical graph schema ID.
-	// It is compiled in its own compiler, so it cannot collide with version 0.5.
-	if err := c.AddResource(ID, bytes.NewReader(LegacyGraphSchema)); err != nil {
-		return nil, fmt.Errorf("registering embedded legacy graph schema: %w", err)
+	if err := c.AddResource(ID, bytes.NewReader(doc)); err != nil {
+		return nil, fmt.Errorf("registering embedded IR %s schema: %w", version, err)
 	}
 	sch, err := c.Compile(ID)
 	if err != nil {
-		return nil, fmt.Errorf("compiling embedded legacy graph schema: %w", err)
+		return nil, fmt.Errorf("compiling embedded IR %s schema: %w", version, err)
 	}
 	return sch, nil
-})
+}
 
 var compileAICandidates = sync.OnceValues(func() (*jsonschema.Schema, error) {
 	c := jsonschema.NewCompiler()
@@ -144,11 +156,25 @@ func Validate(doc []byte) error {
 	return nil
 }
 
-// ValidateLegacyGraph checks a version 0.4 document against the exact contract
-// that preceded the current schema. It exists for Decode's migration path;
-// new producers must use Validate and emit the current version instead.
-func ValidateLegacyGraph(doc []byte) error {
-	sch, err := compileLegacyGraph()
+// ValidateLegacyGraph checks a document against the exact contract of the
+// version it declares. It exists for Decode's migration path; new producers
+// must use Validate and emit the current version instead.
+//
+// The old contract is applied rather than the current one because a document
+// has to be judged by the promise it was written to. Reading a broken 0.4
+// document against a later schema would let a field that was invalid then pass
+// now, and the migration would launder it on the way through.
+func ValidateLegacyGraph(version string, doc []byte) error {
+	var compile func() (*jsonschema.Schema, error)
+	switch version {
+	case "0.4":
+		compile = compileLegacyGraph
+	case "0.5":
+		compile = compileLegacyGraphV05
+	default:
+		return fmt.Errorf("IR %s is not a version this build can read", version)
+	}
+	sch, err := compile()
 	if err != nil {
 		return err
 	}
@@ -158,7 +184,7 @@ func ValidateLegacyGraph(doc []byte) error {
 		return fmt.Errorf("parsing legacy document: %w", err)
 	}
 	if err := sch.Validate(v); err != nil {
-		return fmt.Errorf("document does not match the IR 0.4 schema: %w", err)
+		return fmt.Errorf("document does not match the IR %s schema: %w", version, err)
 	}
 	return nil
 }

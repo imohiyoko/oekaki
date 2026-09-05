@@ -902,18 +902,27 @@ func runValidate(env Env, args []string) error {
 		return nil
 	}
 
-	// Both checks run because they catch different things: the schema covers
-	// shape, and Decode covers the referential integrity JSON Schema cannot
-	// express, such as an edge pointing at a node that is not there.
-	if err := schema.Validate(raw); err != nil {
-		return err
+	// Decode is the whole check. It applies the contract of the version the
+	// document declares — which is the only fair one to judge it by, and is
+	// why an older document is not rejected here for being older — and then
+	// the referential integrity JSON Schema cannot express, such as an edge
+	// pointing at a node that is not there.
+	var declared struct {
+		Version string `json:"version"`
 	}
+	_ = json.Unmarshal(raw, &declared)
+
 	g, err := core.Decode(strings.NewReader(string(raw)))
 	if err != nil {
 		return err
 	}
 
-	fmt.Fprintf(env.Stdout, "ok: %d nodes, %d edges, %d groups\n", len(g.Nodes), len(g.Edges), len(g.Groups))
+	read := ""
+	if declared.Version != "" && declared.Version != core.Version {
+		read = fmt.Sprintf(" (read as IR %s and migrated to %s)", declared.Version, core.Version)
+	}
+	fmt.Fprintf(env.Stdout, "ok: %d nodes, %d edges, %d groups%s\n",
+		len(g.Nodes), len(g.Edges), len(g.Groups), read)
 	return nil
 }
 

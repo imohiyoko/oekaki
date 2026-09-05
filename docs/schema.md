@@ -5,18 +5,19 @@ them know about each other; they only agree on this. The machine-readable
 version is [`schema/graph.schema.json`](../schema/graph.schema.json), which is
 also embedded in the binary and printed by `oekaki schema`.
 
-Current version: **0.5**. It will change again before v1.0 freezes it.
+Current version: **0.6**. It will change again before v1.0 freezes it.
 
 ## Shape
 
 ```json
 {
-  "version": "0.5",
+  "version": "0.6",
   "metadata": { "generator": "oekaki/0.2.0", "source": "terraform" },
   "axes":   [ … ],
   "nodes":  [ … ],
   "edges":  [ … ],
-  "groups": [ … ]
+  "groups": [ … ],
+  "paths":  [ … ]
 }
 ```
 
@@ -338,10 +339,24 @@ any other separator collision-free for implementations in any language.
 The displayed value is first. Ranking is human over ai over parser, and it is a
 total order so that the choice does not depend on which overlay was read first.
 
-Writers and `oekaki encode` emit only version 0.5. `Decode` first validates
-the original bytes against the frozen version 0.4 schema, then migrates
-unambiguous conflict targets. It rejects an old target that could name both an
-entity and an edge (or more than one edge) instead of guessing.
+Writers and `oekaki encode` emit only version 0.6. `Decode` still reads two
+older versions, and validates the original bytes against the frozen schema of
+whichever the document declares — the only contract it is fair to judge it by,
+and the thing that stops a field that was invalid then from being laundered
+into validity by the migration.
+
+From 0.4 it migrates unambiguous conflict targets, rejecting an old target that
+could name both an entity and an edge (or more than one edge) instead of
+guessing. From 0.5 there is nothing to migrate: 0.6 adds `paths` and changes
+nothing else, so a 0.5 document is already the right shape. It is still checked
+against the 0.5 contract and re-stamped rather than waved through, because
+"shaped like the current version" and "declared as it" are different claims and
+only the second one has been checked.
+
+The version moved for `paths` because the top-level shape changed and every
+published schema says `additionalProperties: false`. A 0.5 validator shown a
+document carrying routes would reject it, so the two shapes cannot share a
+version number, however additive the change looks from inside this repository.
 
 ## metadata.overlays
 

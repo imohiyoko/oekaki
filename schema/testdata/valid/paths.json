@@ -1,0 +1,35 @@
+{
+  "version": "0.6",
+  "axes": [],
+  "nodes": [
+    { "id": "gateway", "type": "service", "name": "gateway" },
+    { "id": "checkout", "type": "service", "name": "checkout" },
+    { "id": "ledger", "type": "service", "name": "ledger" }
+  ],
+  "edges": [
+    { "from": "gateway", "to": "checkout", "kind": "iac_ref", "relation": "calls" },
+    { "from": "checkout", "to": "ledger", "kind": "iac_ref", "relation": "calls" }
+  ],
+  "groups": [],
+  "paths": [
+    {
+      "nodes": ["gateway", "checkout", "ledger"],
+      "kind": "iac_ref",
+      "label": "checkout"
+    },
+    {
+      "nodes": ["gateway", "checkout", "ledger"],
+      "kind": "observed",
+      "claim": { "origin": "parser", "note": "request traces" }
+    }
+  ],
+  "observations": [
+    {
+      "subject": "path:Z2F0ZXdheQ.Y2hlY2tvdXQ.bGVkZ2Vy",
+      "metric": "path_requests",
+      "value": 1284,
+      "unit": "requests",
+      "observed_at": "2026-09-02T10:00:01Z"
+    }
+  ]
+}

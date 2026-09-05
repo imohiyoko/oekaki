@@ -12,7 +12,7 @@ import (
 // A page as this tool renders one: the graph is what a layout lands on and
 // what an overlay changes, so the fixture has to be a document core can read
 // rather than something merely shaped like one.
-const graph = `{"version":"0.5","axes":[{"id":"network"}],` +
+const graph = `{"version":"0.6","axes":[{"id":"network"}],` +
 	`"nodes":[{"id":"a","type":"aws_vpc","name":"a"},{"id":"b","type":"aws_vpc","name":"b"}],` +
 	`"edges":[],"groups":[{"id":"g","axis":"network","type":"aws_region","label":"g"}]}`
 
