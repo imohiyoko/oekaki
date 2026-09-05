@@ -71,6 +71,24 @@ would otherwise produce a document nobody can open. `Limit` caps the number of
 diagrams and `Depth` caps a call chain. A reader who needs that estate needs a
 filtered graph first, not a bigger atlas.
 
+The cost is worth knowing before it surprises somebody. Every page is a
+standalone graph document, so an element that appears on several of them is
+copied onto each, and so is the evidence attached to it. Measured on a
+synthetic estate of 96 services in 8 namespaces, with 288 readings and 96
+classified log records:
+
+| | |
+| --- | --- |
+| the graph | 121 KB |
+| its atlas, 193 diagrams | 1.6 MB — about 13× |
+| readings, copied across pages | 2745, about 9× |
+
+That is the shape of the growth: a few times the graph, not a few percent, and
+driven by how many pages an element appears on rather than by how big the
+estate is. It is bounded — `Limit` stops at 400 diagrams by default — and it is
+the price of every page being a document that stands on its own. Lower
+`--atlas-limit` on a big estate, or narrow the graph first.
+
 ---
 
 # Planned: paths as first-class subjects

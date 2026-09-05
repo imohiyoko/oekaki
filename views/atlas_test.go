@@ -502,3 +502,49 @@ func TestANearMissIsNotContainment(t *testing.T) {
 		}
 	}
 }
+
+// A coverage finding points at the bucket the logs go to, and core.Validate
+// refuses a document that names a node it does not have. A level that draws
+// the workload and not the bucket beside it therefore used to fail validation
+// — and on this path that is not a page missing a link but no page at all,
+// because the error travels out of BuildAtlas and the render writes nothing.
+func TestACoverageSinkOffThePageDoesNotStopTheRender(t *testing.T) {
+	g := cluster()
+	g.Nodes = append(g.Nodes, core.Node{ID: "logs:bucket", Type: "bucket", Name: "logs",
+		Groups: map[string]string{core.AxisNetwork: "ns:pay"}})
+	for i := range g.Nodes {
+		if g.Nodes[i].ID != "svc:api" {
+			continue
+		}
+		g.Nodes[i].Coverage = &core.Coverage{
+			State:    core.CoverageFlowing,
+			Evidence: []core.Evidence{{Kind: core.EvidenceDeclared, Sink: "logs:bucket"}},
+		}
+	}
+	g.Normalize()
+
+	a, err := BuildAtlas(g, AtlasOptions{})
+	if err != nil {
+		t.Fatalf("a sink drawn on another page stopped the atlas: %v", err)
+	}
+
+	// The finding survives; only the pointer to a box this page does not have
+	// is dropped, and the graph it was derived from is left alone.
+	tier := find(a, levelID("ns:shop/tier"))
+	for _, n := range tier.Graph.Nodes {
+		if n.ID != "svc:api" {
+			continue
+		}
+		if n.Coverage == nil || n.Coverage.State != core.CoverageFlowing {
+			t.Fatalf("the coverage finding was thrown away: %#v", n.Coverage)
+		}
+		if len(n.Coverage.Evidence) != 1 || n.Coverage.Evidence[0].Sink != "" {
+			t.Fatalf("the dangling sink survived: %#v", n.Coverage.Evidence)
+		}
+	}
+	for _, n := range g.Nodes {
+		if n.ID == "svc:api" && n.Coverage.Evidence[0].Sink != "logs:bucket" {
+			t.Fatal("the projection edited the graph it was derived from")
+		}
+	}
+}

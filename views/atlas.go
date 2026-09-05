@@ -786,14 +786,14 @@ func liftEdges(in []core.Edge, at map[string]string) []core.Edge {
 		// those is what it is built from. A denied reference is only the
 		// representative while nothing else has been seen for this pair, and
 		// is replaced by the first real one that arrives.
-		at := merged[k]
-		if at != nil && (!at.Suppressed || e.Suppressed) {
+		standing := merged[k]
+		if standing != nil && (!standing.Suppressed || e.Suppressed) {
 			continue
 		}
 		lifted := e
 		lifted.From, lifted.To = from, to
 		lifted.Attrs = cloneAttrs(e.Attrs)
-		if at == nil {
+		if standing == nil {
 			order = append(order, k)
 		}
 		merged[k] = &lifted
@@ -850,6 +850,47 @@ func carry(in, out *core.Graph) {
 	out.LogStatus = in.LogStatus
 	out.Conflicts = append(out.Conflicts, in.Conflicts...)
 	filterConflicts(out)
+	trimSinks(out, present)
+}
+
+// trimSinks drops the pointer from a coverage finding to a log destination
+// this page has no box for.
+//
+// The finding stays. "Somebody looked and found no destination" is about the
+// node it is on, and it is still true on a page that draws that node and not
+// the bucket next to it — but the id would be a dangling reference, and
+// core.Validate rejects the whole document for one, which on this path means
+// the render produces nothing rather than a page missing a link.
+//
+// The coverage is copied before it is changed. Nodes are copied by value and
+// their coverage is a pointer, so trimming in place would edit the graph this
+// projection was derived from, and every other page derived from it.
+func trimSinks(out *core.Graph, present map[string]bool) {
+	for i := range out.Nodes {
+		cov := out.Nodes[i].Coverage
+		if cov == nil {
+			continue
+		}
+		dangling := false
+		for _, e := range cov.Evidence {
+			if e.Sink != "" && !present[e.Sink] {
+				dangling = true
+				break
+			}
+		}
+		if !dangling {
+			continue
+		}
+		trimmed := *cov
+		trimmed.Evidence = make([]core.Evidence, len(cov.Evidence))
+		copy(trimmed.Evidence, cov.Evidence)
+		for j := range trimmed.Evidence {
+			if trimmed.Evidence[j].Sink != "" && !present[trimmed.Evidence[j].Sink] {
+				trimmed.Evidence[j].Sink = ""
+			}
+		}
+		out.Nodes[i].Coverage = &trimmed
+	}
 }
 
 func (b *builder) childGroups(path string) []string {

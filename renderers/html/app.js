@@ -1168,6 +1168,8 @@
   function edgeTooltip(e) {
     const parts = [`${e.from} → ${e.to}  (${e.kind})`];
     if (e.suppressed) parts.push('asserted not to exist');
+    const denied = (e.attrs || {}).suppressed_references;
+    if (denied) parts.push(`${denied} of the references behind this line are asserted not to exist`);
     if (e.claim) parts.push(claimLine(e.claim));
     return parts.join('\n');
   }
@@ -1619,6 +1621,15 @@
       s = `${from} の構成が ${to} を参照している。${to} を消すと ${from} が壊れる`;
     }
     if (attrs.references !== undefined) s += `。参照は ${attrs.references} 件`;
+    // A line that stands for several references may stand for denials too.
+    // They are not in the line's own suppressed flag — a pair with one real
+    // reference and three denied ones is a real relationship — so without
+    // this the drawing is identical to a pair nobody has denied anything
+    // about, and the denial is a fact that reached the document and stopped
+    // there.
+    if (attrs.suppressed_references !== undefined) {
+      s += `。うち ${attrs.suppressed_references} 件は存在しないと主張されている`;
+    }
     if (attrs.reason) s += ` — ${attrs.reason}`;
     if (e.suppressed) s = 'この線は存在しないと主張されている。' + s;
     return s;
