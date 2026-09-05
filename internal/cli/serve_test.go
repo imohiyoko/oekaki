@@ -16,7 +16,7 @@ import (
 	"github.com/imohiyoko/oekaki/manage"
 )
 
-const servedGraph = `{"version":"0.5","nodes":[{"id":"a","type":"aws_instance","name":"a"}]}`
+const servedGraph = `{"version":"0.6","nodes":[{"id":"a","type":"aws_instance","name":"a"}]}`
 
 const servedPage = `<!doctype html><body data-mode="read">` +
 	`<script type="application/json" id="oekaki-graph">` + servedGraph + `</script></body>`
@@ -616,7 +616,7 @@ func TestAPromotedVersionBringsBackTheBoxItPlaces(t *testing.T) {
 	// A whole graph rather than the shared fixture: applying an overlay reads
 	// the page's graph as IR, and the short one every other test uses here is
 	// not a document the schema accepts.
-	const whole = `{"version":"0.5","axes":[],"groups":[],"edges":[],` +
+	const whole = `{"version":"0.6","axes":[],"groups":[],"edges":[],` +
 		`"nodes":[{"id":"a","type":"aws_instance","name":"a","provider":"aws","groups":{}}]}`
 	page := `<!doctype html><body data-mode="read">` +
 		`<script type="application/json" id="oekaki-graph">` + whole + `</script></body>`

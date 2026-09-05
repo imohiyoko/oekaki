@@ -33,7 +33,7 @@ complete. That difference needs to be visible in the output, not buried here.
 
 ## v0.3 — claims, and the log coverage map ✅
 
-The current IR schema is v0.5; v0.3 describes the historical claims release.
+The current IR schema is v0.6; v0.3 describes the historical claims release.
 
 The release that admits code is not the whole truth.
 

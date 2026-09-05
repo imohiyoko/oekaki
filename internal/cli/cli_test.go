@@ -91,7 +91,7 @@ func TestFormatIsInferredFromTheExtension(t *testing.T) {
 		{"a.svg", "<svg"},
 		{"a.dot", "digraph oekaki"},
 		{"a.mmd", "flowchart LR"},
-		{"a.json", `"version": "0.5"`},
+		{"a.json", `"version": "0.6"`},
 	}
 
 	for _, tt := range tests {
@@ -371,7 +371,7 @@ func TestProbeEmitsNormalizedReachabilityDocument(t *testing.T) {
 }
 
 func TestValidateRejectsABrokenGraph(t *testing.T) {
-	const broken = `{"version":"0.5","axes":[],"nodes":[],"edges":[{"from":"a","to":"b","kind":"iac_ref"}],"groups":[]}`
+	const broken = `{"version":"0.6","axes":[],"nodes":[],"edges":[{"from":"a","to":"b","kind":"iac_ref"}],"groups":[]}`
 
 	r := run(t, broken, "validate", "-")
 	if r.code == 0 {

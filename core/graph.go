@@ -17,9 +17,21 @@ import (
 )
 
 // Version is the IR schema version this package reads and writes.
-const Version = "0.5"
+const Version = "0.6"
 
-const legacyVersion = "0.4"
+// The versions Decode still reads. Each is validated against the frozen
+// contract it was written to before it is migrated, so a document that was
+// invalid then does not become valid by being read now.
+//
+// 0.4 carries untyped conflict targets, which are resolved against the graph.
+// 0.5 differs only by not having paths, so reading one is a change of version
+// string and nothing else — but it is still listed rather than waved through,
+// because "shaped like the current version" and "declared as it" are different
+// claims and only the second one is checked.
+const (
+	legacyV04 = "0.4"
+	legacyV05 = "0.5"
+)
 
 // GroupSeparator joins group ids into the paths stored on Node.Groups.
 const GroupSeparator = "/"

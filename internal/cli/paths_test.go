@@ -26,7 +26,7 @@ func tracedEstate(t *testing.T) string {
 			t.Fatal(err)
 		}
 	}
-	write(estate, `{"version":"0.5","axes":[],"groups":[],
+	write(estate, `{"version":"0.6","axes":[],"groups":[],
 		"nodes":[
 			{"id":"gateway","type":"service","name":"gateway"},
 			{"id":"checkout","type":"service","name":"checkout"},

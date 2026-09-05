@@ -1,0 +1,11 @@
+{
+  "version": "0.6",
+  "axes": [],
+  "nodes": [
+    { "id": "gateway", "type": "service", "name": "gateway" },
+    { "id": "ledger", "type": "service", "name": "ledger" }
+  ],
+  "edges": [],
+  "groups": [],
+  "paths": [{ "nodes": ["gateway", "ledger"] }]
+}
