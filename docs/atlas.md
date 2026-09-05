@@ -91,66 +91,12 @@ the price of every page being a document that stands on its own. Lower
 
 ---
 
-# Planned: paths as first-class subjects
+# Paths
 
-Everything above draws structure. The questions that follow it are about
-*use*, and they share one missing noun: a **path** — "this API, then that one,
-then that one" — as something the IR can name, claim, and attach evidence to.
+Everything above draws structure. The questions that follow it are about *use*,
+and they share one noun the graph now has: a **path**. What it is, what the
+four findings mean, and how a count becomes an alert are in
+[paths.md](paths.md).
 
-A path is not a new kind of truth. It is an ordered list of node ids with a
-claim, exactly like every other entity here, and the sequence diagram above is
-already its picture. Making it an entity is what lets the following three
-things be one feature instead of three.
-
-## Which paths are never used
-
-An edge that is `reachable` but never `observed` is already the project's
-headline finding. A *path* that is declared but never observed is the same
-finding one level up, and it is the one an operator can act on: an API route
-nothing has walked in ninety days is a route to delete.
-
-This needs no new collector. It needs the observation window on the path and a
-listing that sorts by how long it has been quiet.
-
-## Spikes and silences
-
-Call counts per path arrive the way every other measurement does: a collector
-holds the credentials, reads Datadog or Prometheus, and writes an observations
-document. `collectors/datadog` and `collectors/prometheus` already do this for
-nodes; the subject becomes a path key rather than a node id.
-
-An alert is then a threshold on that observation, which
-`enrichers/observations` already evaluates — `state: abnormal` when the count
-crosses a bound. Two bounds matter and neither is a maximum: a **spike**
-against a declared baseline, and a **silence**, where the interesting value is
-zero and the ordinary threshold comparison reads it as healthy.
-
-## A path that fires when it should not
-
-Once the known paths are written down, an observed path that is not among them
-is an alert on its own — no threshold, no baseline. "This API called that one,
-and nothing ever said it would" is exactly the shape of a finding this graph
-can produce, and it is why the path has to be an entity: an unknown path is a
-claim origin disagreeing with the declared set, which is the machinery
-[`core.Conflict`](../core/graph.go) already has.
-
-Deriving the observed path needs the request correlated across services —
-a trace id, or a session. `collectors/traces` reads spans with a `trace_id`
-today and folds them into edges; folding them into ordered paths instead is
-the same input read one level up.
-
-## What is recorded, and who may see it
-
-The evidence needed for all of the above is metadata: which services, in which
-order, how many times, when last seen. Request and response **bodies are not
-required for any of it**, and the IR deliberately has no field that would hold
-one — `LogRecordSummary` exists precisely so that a graph can be shared without
-carrying customer data.
-
-If bodies are ever worth capturing, the rule that keeps that decision safe is:
-they do not enter the graph document. They stay wherever the collector put
-them, behind whatever that store's own access control is, and the graph
-carries a reference. Visibility is then a question for [`authz`](../authz),
-whose permission catalog is fixed in code — a fourth permission below `read`
-is where such a thing would go, denied unless a role says otherwise, on the
-same default-deny terms as everything else there.
+Still to connect: a sequence page should prefer a recorded path over the walk
+it derives, and say which of the two it is drawing.

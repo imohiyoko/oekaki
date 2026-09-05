@@ -257,12 +257,17 @@ type OverlayRef struct {
 
 // Graph is the whole IR document.
 type Graph struct {
-	Version      string               `json:"version"`
-	Metadata     *Metadata            `json:"metadata,omitempty"`
-	Axes         []Axis               `json:"axes"`
-	Nodes        []Node               `json:"nodes"`
-	Edges        []Edge               `json:"edges"`
-	Groups       []Group              `json:"groups"`
+	Version  string    `json:"version"`
+	Metadata *Metadata `json:"metadata,omitempty"`
+	Axes     []Axis    `json:"axes"`
+	Nodes    []Node    `json:"nodes"`
+	Edges    []Edge    `json:"edges"`
+	Groups   []Group   `json:"groups"`
+
+	// Paths are ordered walks: this one called that one, and that one called
+	// the next. See path.go for why an order is an entity here rather than a
+	// query somebody runs.
+	Paths        []Path               `json:"paths,omitempty"`
 	Observations []Observation        `json:"observations,omitempty"`
 	LogRecords   []LogRecordSummary   `json:"log_records,omitempty"`
 	LogStatus    *LogCollectionStatus `json:"log_status,omitempty"`
@@ -744,6 +749,7 @@ func (g *Graph) Normalize() {
 		}
 		return edgeAssertionLess(a, b)
 	})
+	g.normalizePaths()
 	sort.SliceStable(g.Observations, func(i, j int) bool {
 		a, b := g.Observations[i], g.Observations[j]
 		if a.Subject != b.Subject {
@@ -1254,11 +1260,21 @@ func (g *Graph) Validate() error {
 		problems = append(problems, checkClaim(n.Claim, fmt.Sprintf("node %q", n.ID))...)
 		problems = append(problems, g.checkCoverage(&n, ids)...)
 	}
+	problems = append(problems, g.checkPaths(nodeIDs)...)
+
+	// A measurement may be about a route rather than about one box, and a
+	// route is named by its key. The key is only a subject when the document
+	// carries the path it names: an observation about a walk nobody wrote
+	// down is a reading with nothing to attach it to.
+	pathKeys := make(map[string]bool, len(g.Paths))
+	for _, p := range g.Paths {
+		pathKeys[p.Key()] = true
+	}
 	for i, o := range g.Observations {
 		where := fmt.Sprintf("observation %d", i)
 		if o.Subject == "" {
 			problems = append(problems, where+": empty subject")
-		} else if !ids[o.Subject] {
+		} else if !ids[o.Subject] && !pathKeys[o.Subject] {
 			problems = append(problems, fmt.Sprintf("%s: unknown subject %q", where, o.Subject))
 		}
 		if o.Metric == "" {

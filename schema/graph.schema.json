@@ -78,6 +78,11 @@
       "type": "array",
       "items": { "$ref": "#/$defs/group" }
     },
+    "paths": {
+      "description": "Ordered walks through the estate: this one called that one, and that one called the next. An edge records one hop; a path records the order, which is what \"this route has not been used in ninety days\" and \"this route fired when nothing declared it\" are statements about. Kinds mean what they mean on an edge, so a declared path and an observed one can be compared.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/path" }
+    },
     "observations": {
       "description": "Time-scoped measurements and assessments attached to graph entities.",
       "type": "array",
@@ -238,6 +243,27 @@
           "type": "object"
         },
         "source": { "$ref": "#/$defs/source" },
+        "claim": { "$ref": "#/$defs/claim" }
+      }
+    },
+    "path": {
+      "type": "object",
+      "required": ["nodes", "kind"],
+      "additionalProperties": false,
+      "properties": {
+        "nodes": {
+          "description": "The walk, in order. At least two participants, because one node is not a path, and they are node ids rather than group ids because a container does not call anything. A repeat is legal: a real request can come back through something it already went through.",
+          "type": "array",
+          "minItems": 2,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "kind": {
+          "description": "iac_ref: the configuration says this route exists. reachable: the network permits it. observed: something walked it. The gap between the first and the last is the whole point of recording paths.",
+          "type": "string",
+          "enum": ["iac_ref", "reachable", "observed"]
+        },
+        "label": { "type": "string" },
+        "attrs": { "type": "object" },
         "claim": { "$ref": "#/$defs/claim" }
       }
     },

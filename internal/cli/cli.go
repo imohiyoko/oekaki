@@ -103,6 +103,8 @@ func Run(ctx context.Context, env Env, args []string) int {
 		err = runFocus(env, args[1:])
 	case "collapse":
 		err = runCollapse(env, args[1:])
+	case "paths":
+		err = runPaths(env, args[1:])
 	case "export":
 		err = runExport(env, args[1:])
 	case "validate":
@@ -139,6 +141,7 @@ Usage:
   oekaki probe  <graph> [flags]     probe explicitly named network targets
   oekaki focus  <graph> [flags]     keep one group whole, fold the rest to a box each
   oekaki collapse <graph> [flags]   fold every group to one box, lines carry their weight
+  oekaki paths  <graph> [flags]     list routes nothing walks, stopped walking, or nobody declared
   oekaki export <graph> [flags]     write the graph out as a table
   oekaki serve  [dir]               hand out rendered pages, their layouts and what was decided
   oekaki validate <graph.json>      check a graph against the IR schema
