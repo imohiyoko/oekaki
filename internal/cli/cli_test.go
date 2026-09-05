@@ -987,3 +987,19 @@ func TestInputKindNamesEveryParser(t *testing.T) {
 		}
 	}
 }
+
+// --atlas turns one page into a bound set: the page opens on a level, and the
+// levels below it travel with it rather than being drawn all at once.
+func TestAtlasPageOpensOnALevel(t *testing.T) {
+	out := mustRun(t, "", "render", plan, "-f", "html", "--atlas").stdout
+	if !strings.Contains(out, `id="oekaki-atlas"`) {
+		t.Fatal("--atlas produced a page with no atlas in it")
+	}
+	if !strings.Contains(out, `"root": "level:"`) {
+		t.Fatal("the page does not say which diagram it opens on")
+	}
+	plainPage := mustRun(t, "", "render", plan, "-f", "html").stdout
+	if strings.Contains(plainPage, `id="oekaki-atlas"`) {
+		t.Fatal("a page rendered without --atlas carries one anyway")
+	}
+}

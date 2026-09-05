@@ -271,6 +271,9 @@ type renderFlags struct {
 	overlay         overlayFlags
 	layout          string
 	layoutUnmatched string
+	atlas           bool
+	atlasDepth      int
+	atlasLimit      int
 }
 
 func runRender(ctx context.Context, env Env, args []string) error {
@@ -294,6 +297,9 @@ func runRender(ctx context.Context, env Env, args []string) error {
 	fs.StringVar(&f.iconDir, "icon-dir", "", "directory of .svg icons to use in HTML output instead of the built-in glyphs")
 	fs.StringVar(&f.css, "css", "", "stylesheet to add to HTML or SVG output; the two formats need different selectors, because their markup differs")
 	fs.StringVar(&f.layout, "layout", "", "apply a human-authored HTML layout document")
+	fs.BoolVar(&f.atlas, "atlas", false, "in HTML output, open on one level and let a box that has an inside open it, instead of drawing the whole estate nested on one canvas")
+	fs.IntVar(&f.atlasDepth, "atlas-depth", 0, "how far a derived call chain follows calls; 0 uses the default")
+	fs.IntVar(&f.atlasLimit, "atlas-limit", 0, "how many diagrams an atlas may hold; 0 uses the default")
 	fs.StringVar(&f.layoutUnmatched, "layout-unmatched", "report",
 		"what to do about positions naming nothing in this graph: report or error")
 	fs.BoolVar(&f.externalAssets, "external-assets", false, "in HTML output, write the graph and the shared runtime as separate files the page loads, instead of one self-contained file; needs -o and a server, because a fetch from file:// is blocked")
@@ -449,6 +455,27 @@ func runRender(ctx context.Context, env Env, args []string) error {
 		hopts := htmlrender.Options{
 			Title: f.title, Axis: f.axis, RankDir: f.rankdir, Lines: f.lines, Kinds: kinds,
 			IconDir: f.iconDir, Layout: layoutRaw, CSS: extraCSS,
+		}
+		if f.atlas {
+			// The page opens on the atlas's root level, so that is the graph
+			// it is rendered from: the estate as a whole is still in the
+			// document, spread across the pages that draw it.
+			var bound *views.Atlas
+			bound, err = views.BuildAtlas(g, views.AtlasOptions{Axis: f.axis, Depth: f.atlasDepth, Limit: f.atlasLimit})
+			if err != nil {
+				return err
+			}
+			var raw []byte
+			raw, err = json.MarshalIndent(bound, "", "  ")
+			if err != nil {
+				return err
+			}
+			hopts.Atlas = raw
+			for i := range bound.Diagrams {
+				if bound.Diagrams[i].ID == bound.Root {
+					g = bound.Diagrams[i].Graph
+				}
+			}
 		}
 		if f.externalAssets {
 			if f.output == "" {

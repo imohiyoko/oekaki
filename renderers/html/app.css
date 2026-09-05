@@ -40,8 +40,16 @@ body { display: flex; flex-direction: column; }
 }
 
 #bar h1 { font-size: 14px; font-weight: 600; margin: 0; }
-#breadcrumbs { display: flex; gap: 5px; align-items: center; color: var(--muted); }
+#breadcrumbs { display: flex; gap: 5px; align-items: center; color: var(--muted); flex-wrap: wrap; }
 #breadcrumbs button { padding: 2px 7px; }
+/* The page you are on is not a place you can go, so it is not a button. */
+#breadcrumbs .here { color: var(--ink); font-weight: 600; }
+/* What kind of drawing this is. A reader who descended three levels has lost
+   track of whether they are looking at containment or at a call chain. */
+#breadcrumbs .kind {
+  font-size: 11px; padding: 1px 6px; border-radius: 9px;
+  border: 1px solid var(--line); color: var(--muted);
+}
 .spacer { flex: 1; }
 #status { color: var(--muted); font-variant-numeric: tabular-nums; }
 

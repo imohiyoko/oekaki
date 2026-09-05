@@ -14,7 +14,7 @@ func cluster() *core.Graph {
 	g.Groups = []core.Group{
 		{ID: "ns:shop", Axis: core.AxisNetwork, Type: "namespace", Label: "shop"},
 		{ID: "ns:pay", Axis: core.AxisNetwork, Type: "namespace", Label: "pay"},
-		{ID: "ns:shop/tier", Axis: core.AxisNetwork, Type: "tier", Label: "tier", Parent: str("ns:shop")},
+		{ID: "tier", Axis: core.AxisNetwork, Type: "tier", Label: "tier", Parent: str("ns:shop")},
 	}
 	g.Nodes = []core.Node{
 		{ID: "svc:web", Type: "service", Name: "web", Groups: map[string]string{core.AxisNetwork: "ns:shop"}},
@@ -126,7 +126,7 @@ func TestOpeningAContainerArrivesAtItsOwnLevel(t *testing.T) {
 	for _, n := range shop.Graph.Nodes {
 		ids[n.ID] = true
 	}
-	if !ids["svc:web"] || !ids["ns:shop/tier"] {
+	if !ids["svc:web"] || !ids["tier"] {
 		t.Fatalf("shop should hold its own service and its child container: %#v", ids)
 	}
 	if ids["svc:api"] {
@@ -186,6 +186,35 @@ func TestPagesExistOnlyWhereThereIsSomethingToSee(t *testing.T) {
 	pay := find(a, levelID("ns:pay"))
 	if opening(pay, "svc:lonely") != nil {
 		t.Fatal("the level offers a door into that empty room")
+	}
+}
+
+// The trail back up is containment, not the route a reader happened to take.
+// app:checkout is derived while building the page for the workload that runs
+// it, and it still hangs off the level it lives in — otherwise the same
+// element reached from two neighbours would offer two different ways home.
+func TestDetailHangsOffItsOwnLevel(t *testing.T) {
+	a, err := BuildAtlas(cluster(), AtlasOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := find(a, detailID("app:checkout"))
+	if d == nil {
+		t.Fatal("no page for the application")
+	}
+	if want := levelID("ns:shop/tier"); d.Parent != want {
+		t.Fatalf("parent is %q, want %q", d.Parent, want)
+	}
+	// And the chain from there reaches the root without a gap in it.
+	seen := 0
+	for at := d; at != nil && at.Parent != ""; seen++ {
+		at = find(a, at.Parent)
+		if at == nil {
+			t.Fatalf("the trail names a diagram the atlas does not carry")
+		}
+		if seen > 8 {
+			t.Fatal("the trail does not reach the root")
+		}
 	}
 }
 

@@ -17,6 +17,17 @@ level:                 the estate: containers as boxes
        └ sequence:svc:api   one call chain, in order
 ```
 
+```console
+$ oekaki render plan.json -f html --atlas -o estate.html
+```
+
+The page opens on the root level. A box with a `⟩` has an inside: double-click
+it, or press the button in the detail panel. Backspace and the breadcrumbs go
+back up, the browser's own back button walks the pages it walked, and the open
+diagram is in the URL — so a link hands somebody the page you were on rather
+than the estate to search through. `--atlas-depth` bounds a call chain and
+`--atlas-limit` bounds the document.
+
 Derivation lives in [`views/atlas.go`](../views/atlas.go). Nothing there
 invents a relationship: a level is a projection of containment that a parser
 already recorded, and a sequence is an ordering imposed on edges that were

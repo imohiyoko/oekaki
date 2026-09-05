@@ -52,7 +52,9 @@
 </main>
 
 <footer id="hint">
-  <span class="hint-read">Click a box or a line for detail. Click a container's title to fold it.
+  <span class="hint-read">A box with a ⟩ has an inside: double-click it, or use the button in the
+  detail panel, to open it. Backspace goes back up, and so do the breadcrumbs.
+  Click a box or a line for detail. Click a container's title to fold it.
   Drag or scroll to move the view, pinch to zoom. Switch to Edit to move boxes and assert
   connections.</span>
   <span class="hint-edit">Drag a box to place it. Drag the canvas to draw a box round several,
@@ -62,6 +64,7 @@
 </footer>
 
 {{if .Layout}}<script type="application/json" id="oekaki-layout">{{.Layout}}</script>{{end}}
+{{if .Atlas}}<script type="application/json" id="oekaki-atlas">{{.Atlas}}</script>{{end}}
 {{if .External}}<script type="application/json" id="oekaki-graph"></script>
 <script src="{{.ELKSrc}}"></script>
 <script src="{{.MaxSrc}}"></script>

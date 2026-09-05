@@ -1177,3 +1177,33 @@ func TestTheLayoutsTriedAreNotAllTheSameLayout(t *testing.T) {
 		t.Error("laying out again keeps placements that would discard the routes it chose")
 	}
 }
+
+// A page given a bound set of diagrams carries it, and a page not given one
+// carries no empty block that the viewer would then have to tell apart from a
+// set with nothing in it.
+func TestAtlasReachesThePageOnlyWhenThereIsOne(t *testing.T) {
+	plain := render(t, fixture(), Options{})
+	if strings.Contains(plain, `id="oekaki-atlas"`) {
+		t.Error("a page with no atlas carries an atlas block")
+	}
+
+	out := render(t, fixture(), Options{Atlas: []byte(`{"version":"0.1","root":"level:","diagrams":[]}`)})
+	data := between(t, out, `<script type="application/json" id="oekaki-atlas">`, `</script>`)
+	if !strings.Contains(data, `"root":"level:"`) {
+		t.Errorf("the atlas did not arrive intact: %q", data)
+	}
+}
+
+// The same escaping the graph block gets, for the same reason: a resource
+// named "</script>" would otherwise end the block early and drop the rest of
+// the document into the page as markup.
+func TestAClosingTagInTheAtlasCannotEscape(t *testing.T) {
+	out := render(t, fixture(), Options{Atlas: []byte(`{"root":"</script><img src=x onerror=alert(1)>"}`)})
+	data := between(t, out, `<script type="application/json" id="oekaki-atlas">`, `</script>`)
+	if !strings.Contains(data, `<\/script>`) {
+		t.Error("the closing tag in the atlas was not escaped")
+	}
+	if !strings.Contains(data, "onerror") {
+		t.Error("the block was cut short, so the rest of the atlas is loose in the document")
+	}
+}

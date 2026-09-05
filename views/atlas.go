@@ -290,7 +290,7 @@ func (b *builder) level(path, parent, origin string) error {
 		}
 	}
 	for _, n := range nodes {
-		if err := b.detail(n.ID, id); err != nil {
+		if err := b.detail(n.ID); err != nil {
 			return err
 		}
 	}
@@ -313,8 +313,25 @@ func (b *builder) detailOpening(id string) (Opening, bool) {
 	return Opening{Element: id, Diagram: detailID(id), Kind: kind, Label: label}, true
 }
 
+// levelOf is the page an element belongs under: the level of the container it
+// sits in.
+//
+// A detail page's parent is that level and never the page a reader happened to
+// arrive from. Both are true statements about how the page was reached, and
+// only one of them is stable — deriving the same estate twice, or reaching the
+// same element from two neighbours, would otherwise produce two different
+// trails back up, and the trail is the one thing a reader who has descended
+// four times is relying on.
+func (b *builder) levelOf(id string) string {
+	n, ok := b.in.Node(id)
+	if !ok {
+		return levelID("")
+	}
+	return levelID(n.Groups[b.axis])
+}
+
 // detail builds one element's page: what it holds, and what it talks to.
-func (b *builder) detail(id, parent string) error {
+func (b *builder) detail(id string) error {
 	open, ok := b.detailOpening(id)
 	if !ok {
 		return nil
@@ -379,7 +396,7 @@ func (b *builder) detail(id, parent string) error {
 	d := Diagram{
 		ID: open.Diagram, Kind: open.Kind, Graph: g,
 		Title: orDefault(subject.Name, subject.ID), Subtitle: subject.Type,
-		Parent: parent, Origin: id,
+		Parent: b.levelOf(id), Origin: id,
 	}
 	for _, other := range dedupe(members) {
 		if nested, ok := b.detailOpening(other); ok {
@@ -395,7 +412,7 @@ func (b *builder) detail(id, parent string) error {
 		return err
 	}
 	for _, other := range dedupe(members) {
-		if err := b.detail(other, open.Diagram); err != nil {
+		if err := b.detail(other); err != nil {
 			return err
 		}
 	}
