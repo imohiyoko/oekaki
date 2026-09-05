@@ -187,6 +187,16 @@ type Options struct {
 	// Layout is an optional human-authored layout document embedded in the page.
 	Layout []byte
 
+	// Folds is an optional record of what folding stood for, as produced by
+	// views.Fold and marshalled.
+	//
+	// The graph passed to Render is the *unfolded* one. The page folds it
+	// itself from this record, which is what lets a fold open where it stands
+	// instead of sending the reader back to the command line — and the rules
+	// still run once, in Go, so the browser is a switch over a list rather
+	// than a second implementation of them.
+	Folds []byte
+
 	// Atlas is an optional bound set of diagrams, as produced by
 	// views.BuildAtlas and marshalled. When present the page opens on the
 	// atlas's root diagram and a box that has an inside opens it, instead of
@@ -309,6 +319,10 @@ func Render(g *core.Graph, opts Options) ([]byte, error) {
 	if len(opts.Atlas) > 0 {
 		atlas = template.JS(bytes.ReplaceAll(opts.Atlas, []byte("</"), []byte(`<\/`)))
 	}
+	var folds template.JS
+	if len(opts.Folds) > 0 {
+		folds = template.JS(bytes.ReplaceAll(opts.Folds, []byte("</"), []byte(`<\/`)))
+	}
 
 	title := opts.Title
 	if title == "" {
@@ -344,6 +358,7 @@ func Render(g *core.Graph, opts Options) ([]byte, error) {
 		Graph    template.JS
 		Layout   template.JS
 		Atlas    template.JS
+		Folds    template.JS
 		ELK      template.JS
 		Max      template.JS
 		App      template.JS
@@ -366,6 +381,7 @@ func Render(g *core.Graph, opts Options) ([]byte, error) {
 		Graph:    graph,
 		Layout:   layout,
 		Atlas:    atlas,
+		Folds:    folds,
 		ELK:      template.JS(elkJS),
 		Max:      template.JS(maxJS),
 		App:      template.JS(appJS),

@@ -427,10 +427,11 @@ func runRender(ctx context.Context, env Env, args []string) error {
 	// Folding comes after the view and the suppression, because it is about
 	// how much is left to draw. Folding first would spend the budget on boxes
 	// the drawing was never going to have.
-	var folds []views.Folded
+	var foldRecord []byte
 	if f.fold {
-		before := len(g.Nodes)
-		g, folds, err = views.Fold(g, views.FoldOptions{
+		var folded *core.Graph
+		var folds []views.Folded
+		folded, folds, err = views.Fold(g, views.FoldOptions{
 			Budget: f.foldBudget,
 			Rules:  splitList(f.foldRules),
 			Axis:   f.axis,
@@ -439,7 +440,20 @@ func runRender(ctx context.Context, env Env, args []string) error {
 		if err != nil {
 			return err
 		}
-		reportFolds(env, before, len(g.Nodes), folds)
+		reportFolds(env, len(g.Nodes), len(folded.Nodes), folds)
+
+		// Every other format is a picture, so it gets the folded graph. The
+		// page gets the graph and the record, because a fold there has to be
+		// able to open: everything folded is still in the document, and
+		// putting it back is a matter of not folding it.
+		if format == "html" && len(folds) > 0 {
+			foldRecord, err = json.MarshalIndent(folds, "", "  ")
+			if err != nil {
+				return err
+			}
+		} else {
+			g = folded
+		}
 	}
 	// The graph is settled here: views and suppression have run, so this is
 	// what the page will carry and what the layout will be applied to.
@@ -485,7 +499,7 @@ func runRender(ctx context.Context, env Env, args []string) error {
 	case "html":
 		hopts := htmlrender.Options{
 			Title: f.title, Axis: f.axis, RankDir: f.rankdir, Lines: f.lines, Kinds: kinds,
-			IconDir: f.iconDir, Layout: layoutRaw, CSS: extraCSS,
+			IconDir: f.iconDir, Layout: layoutRaw, CSS: extraCSS, Folds: foldRecord,
 		}
 		if f.atlas {
 			// The page opens on the atlas's root level, so that is the graph

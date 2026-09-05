@@ -158,11 +158,61 @@
     }
     return parts.join('/');
   };
+  /* ---- folding ---------------------------------------------------------
+     The page carries the whole graph and the record of what was folded, and
+     folds it here. The rules ran once, in Go, so this is not a second
+     implementation of them — it is a switch over a list, which is what lets a
+     fold open where it stands instead of sending the reader back to the
+     command line.
+
+     A fold that opens is not a different drawing: everything that was folded
+     is still in `graph`, and putting it back is a matter of not folding it. */
+
+  const foldElement = document.getElementById('oekaki-folds');
+  let foldRecords = [];
+  if (foldElement && foldElement.textContent.trim()) {
+    try {
+      foldRecords = JSON.parse(foldElement.textContent);
+    } catch {
+      // A record that cannot be read means the drawing is unfolded, which is
+      // the picture this page has always drawn. It is not a reason to show
+      // nothing.
+      foldRecords = [];
+    }
+  }
+  const opened = new Set();     // folds the reader has put back
+  let standFor = new Map();     // a folded box -> the box standing for it
+  let standIns = [];            // those boxes
+
+  function applyFolds() {
+    standFor = new Map();
+    standIns = [];
+    const byID = new Map(graph.nodes.map((n) => [n.id, n]));
+    for (const f of foldRecords) {
+      if (opened.has(f.stands)) continue;
+      const members = (f.members || []).map((id) => byID.get(id)).filter(Boolean);
+      // Fewer than two left means a filter or a view took the crowd away, and
+      // a box standing for one box is worse than the box.
+      if (members.length < 2) continue;
+      for (const m of members) standFor.set(m.id, f.stands);
+      standIns.push({
+        id: f.stands,
+        type: members[0].type,
+        name: f.label || `${members[0].name} ×${members.length}`,
+        groups: members[0].groups,
+        provider: members[0].provider,
+        attrs: {fold: f.kind, members: members.length},
+      });
+    }
+  }
+  const foldFor = (id) => foldRecords.find((f) => f.stands === id) || null;
+
   // Assertions made in this session are drawn, but they are not written into
   // `graph`: that object is what the input said, and the export is what makes
   // a claim real. So a box added here joins the drawing through allNodes and a
   // new label through nameOf, and neither edits what was found.
-  const allNodes = () => graph.nodes.concat(pending.map((p) => p.node).filter(Boolean));
+  const allNodes = () => graph.nodes.filter((n) => !standFor.has(n.id))
+    .concat(standIns, pending.map((p) => p.node).filter(Boolean));
   const nodesIn = (path) => allNodes().filter((n) => ((n.groups || {})[axis] || '') === path).sort(byId);
   const renamed = new Map();
   const nameOf = (n) => renamed.get(n.id) || n.name;
@@ -193,7 +243,8 @@
   // screen. One function rather than a scattering of assignments, so that a
   // new index cannot be added in one place and forgotten in the other.
   function bindGraph() {
-    nodes = new Map(graph.nodes.map((n) => [n.id, n]));
+    applyFolds();
+    nodes = new Map(graph.nodes.concat(standIns).map((n) => [n.id, n]));
     groups = new Map((graph.groups || []).filter((g) => g.axis === axis).map((g) => [g.id, g]));
     // Target text is not a namespace: an entity id may equal an encoded edge
     // key, so the discriminator decides which conflicts belong to a box.
@@ -394,6 +445,11 @@
     if (drawn.has('node:' + id)) return 'node:' + id;
     if (drawn.has('group:' + id)) return 'group:' + id;
 
+    // A line that pointed at a box now inside a fold arrives at the box
+    // standing for it, so folding summarises traffic instead of deleting it.
+    const stands = standFor.get(id);
+    if (stands && drawn.has('node:' + stands)) return 'node:' + stands;
+
     const n = nodes.get(id);
     if (n) {
       if (!visibleNode(n)) return null;
@@ -482,6 +538,14 @@
         t.textContent = line;
         parts.push(t);
       });
+
+      if (st.fold) {
+        const [sx, sy] = at(x + 4, y - 4);
+        parts.unshift(el('rect', {
+          x: sx, y: sy, width: w * s, height: h * s, rx: 6 * s, ry: 6 * s,
+          fill: 'none', stroke: this.stroke, 'stroke-width': 1 * s, opacity: 0.45,
+        }));
+      }
 
       if (st.opens) {
         const r = 5.5;
@@ -804,6 +868,9 @@
         // learn that a box has an inside is to try it, and a reader who tries
         // two boxes that have none stops trying the third.
         opens: openingFor(n.id) ? 1 : 0,
+        // Drawn as a stack. A box standing for twenty that looks like a box
+        // is a drawing a reader can be wrong about without knowing.
+        fold: n.attrs && n.attrs.fold ? 1 : 0,
         // A page about one element draws two different things: what is in it,
         // and what it talks to. The second is context for reading the first,
         // and drawing them identically answers the reader's question — "what
@@ -1232,6 +1299,36 @@
     sub.className = 'sub';
     sub.textContent = n.type;
     detail.append(h, sub);
+
+    const fold = foldFor(n.id);
+    if (fold) {
+      const s = section('畳まれているもの');
+      const button = document.createElement('button');
+      button.textContent = `${fold.members.length} 個を開く`;
+      button.addEventListener('click', () => {
+        opened.add(n.id);
+        applyFolds();
+        bindGraph();
+        selected = null;
+        detail.hidden = true;
+        render();
+      });
+      s.append(button);
+      const list = document.createElement('ul');
+      for (const id of fold.members.slice(0, 12)) {
+        const li = document.createElement('li');
+        const member = nodes.get(id);
+        li.textContent = member ? (nameOf(member) || id) : id;
+        list.append(li);
+      }
+      if (fold.members.length > 12) {
+        const li = document.createElement('li');
+        li.textContent = `… ほか ${fold.members.length - 12}`;
+        list.append(li);
+      }
+      s.append(list);
+      detail.append(s);
+    }
 
     // The chevron on the box says there is a way in; this is the control that
     // always works. A box on a diagram scaled to fit is a few pixels tall,
@@ -2014,6 +2111,19 @@
     if (!cell || !cell.isVertex()) return;
     evt.consume();
     const id = idOf(cell);
+    // A fold opens where it stands. It comes first because a box standing
+    // for twenty is the one thing on the canvas that is certainly not what
+    // the reader was looking for.
+    if (foldFor(id) && !editing) {
+      opened.add(id);
+      applyFolds();
+      bindGraph();
+      selected = null;
+      detail.hidden = true;
+      render();
+      return;
+    }
+
     // A box that has an inside opens it. This comes before every other
     // reading of a second click, because it is the one the reader means: the
     // question that brought them to a container is what is in it.
