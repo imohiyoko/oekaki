@@ -108,7 +108,8 @@ this repository will not carry a compatibility shim for one.
   describes the vantage point that ran the probe; it does not pretend to prove
   reachability from every replica.
 - **Not yet:** provider-specific live discovery and `oekaki diff`. See
-  [docs/roadmap.md].
+  [docs/roadmap.md] for the releases, and [docs/notebook.md] for what is being
+  considered and what has already been decided about it.
 
 ### Providers
 
@@ -650,6 +651,7 @@ The binaries embed Graphviz, which is EPL-2.0. Every release archive carries
 
 [docs/kubernetes.md]: docs/kubernetes.md
 [docs/roadmap.md]: docs/roadmap.md
+[docs/notebook.md]: docs/notebook.md
 [docs/schema.md]: docs/schema.md
 [docs/architecture.md]: docs/architecture.md
 [CONTRIBUTING.md]: CONTRIBUTING.md
