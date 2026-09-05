@@ -28,7 +28,7 @@ where contributions come in.
 | `renderers/graphviz/` | DOT → SVG, via Graphviz compiled to WebAssembly |
 | `renderers/mermaid/` | IR → Mermaid flowchart |
 | `renderers/html/` | IR → one self-contained interactive page |
-| `views/` | focused projections such as request paths and reachability |
+| `views/` | focused projections such as request paths and reachability, the atlas, and the path listing |
 | `renderers/style/` | Colours and shapes shared by every renderer |
 | `internal/cli/` | Command line |
 | `cmd/oekaki/` | `main` |
