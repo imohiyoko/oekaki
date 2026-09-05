@@ -68,6 +68,19 @@ func TestFoldKeepsWhatTheReaderIsLookingAt(t *testing.T) {
 	}
 }
 
+// The page gets the graph and the record; every other format gets the folded
+// graph, because a picture cannot be opened.
+func TestAFoldedPageCanBeUnfolded(t *testing.T) {
+	page := mustRun(t, "", "render", crowdedGraph(t), "-f", "html", "--fold", "--fold-budget", "5").stdout
+
+	if !strings.Contains(page, `id="oekaki-folds"`) {
+		t.Fatal("the page carries no record of what was folded, so nothing can be put back")
+	}
+	if !strings.Contains(page, `"pod:worker-c"`) {
+		t.Fatal("the page does not carry the boxes that were folded")
+	}
+}
+
 func TestUnknownFoldRuleIsRefused(t *testing.T) {
 	if r := run(t, "", "render", crowdedGraph(t), "-f", "json", "--fold", "--fold-rules", "squash"); r.code == 0 {
 		t.Error("an unknown fold rule was accepted")

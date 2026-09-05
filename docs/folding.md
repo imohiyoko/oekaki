@@ -99,9 +99,16 @@ once it has been used on enough real estates to trust the rules and the budget;
 the number in `DefaultFoldBudget` is a starting point taken from the diagrams in
 this repository, not a measured threshold.
 
-## Not yet: unfolding in place
+## Unfolding in place
 
-In the HTML viewer a fold should open where it is, the way a container does —
-that is why the record exists and why the rules run once, in Go, rather than
-being a second implementation in the browser. Today the page draws the folded
-picture and the way to see inside a fold is to render again without it.
+In the HTML viewer a fold opens where it stands: a stacked box takes a double
+click, or the button in the detail panel, and the boxes it stood for come back.
+
+That is why the record exists. The page carries the *unfolded* graph and the
+list of what was folded, and folds it itself — so opening one is a matter of
+not folding it, and nothing has to be fetched or regenerated. The rules still
+run once, in Go: the browser is a switch over a list rather than a second
+implementation of them, which is what keeps the page and the committed SVG the
+same drawing.
+
+Every other format gets the folded graph, because a picture cannot be opened.
