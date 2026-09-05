@@ -187,6 +187,18 @@ type Options struct {
 	// Layout is an optional human-authored layout document embedded in the page.
 	Layout []byte
 
+	// Atlas is an optional bound set of diagrams, as produced by
+	// views.BuildAtlas and marshalled. When present the page opens on the
+	// atlas's root diagram and a box that has an inside opens it, instead of
+	// drawing the whole estate nested on one canvas.
+	//
+	// It arrives marshalled rather than typed for the same reason Layout
+	// does: a renderer takes documents. The graph passed to Render remains
+	// the page's fallback and the source of the page's own attributes, so an
+	// atlas that fails to parse degrades to the drawing this renderer has
+	// always produced rather than to a blank canvas.
+	Atlas []byte
+
 	// IconDir is a directory of SVG files to use instead of the built-in
 	// glyphs: <resource_type>.svg where a type has its own, otherwise
 	// <category>.svg.
@@ -293,6 +305,10 @@ func Render(g *core.Graph, opts Options) ([]byte, error) {
 	if len(opts.Layout) > 0 {
 		layout = template.JS(bytes.ReplaceAll(opts.Layout, []byte("</"), []byte(`<\/`)))
 	}
+	var atlas template.JS
+	if len(opts.Atlas) > 0 {
+		atlas = template.JS(bytes.ReplaceAll(opts.Atlas, []byte("</"), []byte(`<\/`)))
+	}
 
 	title := opts.Title
 	if title == "" {
@@ -327,6 +343,7 @@ func Render(g *core.Graph, opts Options) ([]byte, error) {
 		Inputs   string
 		Graph    template.JS
 		Layout   template.JS
+		Atlas    template.JS
 		ELK      template.JS
 		Max      template.JS
 		App      template.JS
@@ -348,6 +365,7 @@ func Render(g *core.Graph, opts Options) ([]byte, error) {
 		Inputs:   strings.Join(inputs, ","),
 		Graph:    graph,
 		Layout:   layout,
+		Atlas:    atlas,
 		ELK:      template.JS(elkJS),
 		Max:      template.JS(maxJS),
 		App:      template.JS(appJS),

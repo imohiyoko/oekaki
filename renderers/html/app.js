@@ -9,7 +9,40 @@
 (() => {
   'use strict';
 
-  const graph = JSON.parse(document.getElementById('oekaki-graph').textContent);
+  // A page carries either one diagram or a bound set of them. The atlas is the
+  // set; `graph` is whichever of its pages is on screen. Everything below this
+  // reads one graph, and navigating swaps that graph and rebinds the indexes
+  // rather than teaching several hundred lines about pages.
+  //
+  // A set that cannot be read is not a reason to show nothing. The renderer
+  // promises that a page falls back to the drawing it has always produced,
+  // and that promise is only worth what this parse does: an atlas that is
+  // malformed, or whose root is not among its own diagrams, is treated as no
+  // atlas at all rather than as an empty one — an empty one would take the
+  // atlas path through every function below and leave the reader with a
+  // breadcrumb bar containing nothing and no way back.
+  const atlasElement = document.getElementById('oekaki-atlas');
+  let atlas = null;
+  let atlasBroken = '';
+  if (atlasElement && atlasElement.textContent.trim()) {
+    try {
+      atlas = JSON.parse(atlasElement.textContent);
+    } catch (err) {
+      atlasBroken = 'the set of diagrams in this page could not be read; showing the graph on its own';
+    }
+  }
+  const pages = new Map(((atlas && atlas.diagrams) || []).map((d) => [d.id, d]));
+  if (atlas && !pages.has(atlas.root)) {
+    atlasBroken = 'this page names a diagram it does not carry; showing the graph on its own';
+    atlas = null;
+  }
+  let page = atlas ? pages.get(atlas.root) : null;
+  let graph = page ? page.graph : JSON.parse(document.getElementById('oekaki-graph').textContent);
+  // Where a click leads, by element id. It is recorded by the derivation
+  // rather than worked out here, because whether a box has an inside is a
+  // property of what was drawn from, and a door into an empty room is worse
+  // than no door at all.
+  let opens = new Map();
   const layoutElement = document.getElementById('oekaki-layout');
   const savedLayout = layoutElement && layoutElement.textContent.trim()
     ? JSON.parse(layoutElement.textContent) : null;
@@ -66,13 +99,15 @@
 
   /* ---- the graph, indexed --------------------------------------------- */
 
-  const nodes = new Map(graph.nodes.map((n) => [n.id, n]));
-  const groups = new Map((graph.groups || []).filter((g) => g.axis === axis).map((g) => [g.id, g]));
+  // Rebound by bindGraph whenever the page turns. They are indexes of one
+  // graph, and the graph is no longer fixed for the life of the document.
+  let nodes = new Map();
+  let groups = new Map();
   // Target text is not a namespace: an entity id may equal an encoded edge
   // key. Keep the discriminator when deciding which nodes are contested so an
   // edge disagreement cannot decorate or populate the details of that entity.
-  const entityConflicts = (graph.conflicts || []).filter((c) => c.target_kind === 'entity');
-  const edgeConflicts = (graph.conflicts || []).filter((c) => c.target_kind === 'edge');
+  let entityConflicts = [];
+  let edgeConflicts = [];
   // The IR names an edge by base64url-encoding each part, so an id that
   // contains the separator cannot spell another edge's name. A conflict about
   // a line is recorded under that name, and so is the line on this canvas.
@@ -104,7 +139,7 @@
   let lineShape = ((savedLayout && savedLayout.lines) || document.body.dataset.lines) === 'orthogonal'
     ? 'orthogonal' : 'curved';
   const lineShapeOf = (key) => (edgeAnchors.get(key) || {}).line || lineShape;
-  const contestedEntities = new Set(entityConflicts.map((c) => c.target));
+  let contestedEntities = new Set();
 
   const state = (n) => (n.coverage ? n.coverage.state : null);
   const shortType = (t) => t.replace(/^[a-z0-9]+_/, '');
@@ -153,10 +188,26 @@
   let focus = null;
   let focusNodes = null;
   const labelsBySource = new Map();
-  for (const record of (graph.log_records || [])) {
-    if (!labelsBySource.has(record.source)) labelsBySource.set(record.source, new Set());
-    for (const label of (record.labels || [])) labelsBySource.get(record.source).add(label);
+
+  // Everything indexed from the graph, rebuilt for whichever page is on
+  // screen. One function rather than a scattering of assignments, so that a
+  // new index cannot be added in one place and forgotten in the other.
+  function bindGraph() {
+    nodes = new Map(graph.nodes.map((n) => [n.id, n]));
+    groups = new Map((graph.groups || []).filter((g) => g.axis === axis).map((g) => [g.id, g]));
+    // Target text is not a namespace: an entity id may equal an encoded edge
+    // key, so the discriminator decides which conflicts belong to a box.
+    entityConflicts = (graph.conflicts || []).filter((c) => c.target_kind === 'entity');
+    edgeConflicts = (graph.conflicts || []).filter((c) => c.target_kind === 'edge');
+    contestedEntities = new Set(entityConflicts.map((c) => c.target));
+    opens = new Map(((page && page.opens) || []).map((o) => [o.element, o]));
+    labelsBySource.clear();
+    for (const record of (graph.log_records || [])) {
+      if (!labelsBySource.has(record.source)) labelsBySource.set(record.source, new Set());
+      for (const label of (record.labels || [])) labelsBySource.get(record.source).add(label);
+    }
   }
+  bindGraph();
 
   function currentObservations(id) {
     return (graph.observations || []).filter((o) => {
@@ -187,6 +238,11 @@
 
   function nodeLabels(n) {
     let second = shortType(n.type);
+    // A container drawn as one box has to say how much it stands for, or a
+    // namespace holding two hundred things looks like a namespace holding one.
+    if (n.attrs && n.attrs.container && typeof n.attrs.members === 'number') {
+      second += ` · ${n.attrs.members}`;
+    }
     const cov = COVERAGE[state(n)];
     if (cov && cov.badge) second += ' · ' + cov.badge;
     const name = nameOf(n);
@@ -198,8 +254,11 @@
     const lines = nodeLabels(n);
     const w = Math.max(...lines.map((l, i) => measure(l, i === 0 ? 12 : 11, i === 0 ? '600' : '')));
     const sized = sizes.get(n.id) || {};
+    // Room for the chevron on a box that has an inside, or it is drawn over
+    // the end of the name.
+    const door = openingFor(n.id) ? 18 : 0;
     return {
-      width: sized.width || Math.max(104, Math.ceil(w) + PAD_X * 2 + ICON + ICON_GAP),
+      width: sized.width || Math.max(104, Math.ceil(w) + PAD_X * 2 + ICON + ICON_GAP + door),
       height: sized.height || BOX_HEIGHT,
     };
   }
@@ -316,7 +375,9 @@
       edges,
       layoutOptions: {
         'elk.algorithm': 'layered',
-        'elk.direction': layoutDirection,
+        // A call chain reads down the page. Everything else keeps the
+        // direction the document was generated with.
+        'elk.direction': page && page.kind === 'sequence' ? 'DOWN' : layoutDirection,
         'elk.hierarchyHandling': 'INCLUDE_CHILDREN',
         'elk.spacing.nodeNode': '26',
         'elk.layered.spacing.nodeNodeBetweenLayers': '46',
@@ -421,6 +482,20 @@
         t.textContent = line;
         parts.push(t);
       });
+
+      if (st.opens) {
+        const r = 5.5;
+        const [cx, cy] = at(x + w - PAD_X, y + h / 2);
+        parts.push(el('circle', {
+          cx, cy, r: r * s, fill: 'none', stroke: this.stroke, 'stroke-width': 1.1 * s, opacity: 0.7,
+        }));
+        const chevron = el('path', {
+          d: `M ${cx - 1.6 * s} ${cy - 2.6 * s} L ${cx + 1.6 * s} ${cy} L ${cx - 1.6 * s} ${cy + 2.6 * s}`,
+          fill: 'none', stroke: this.stroke, 'stroke-width': 1.4 * s,
+          'stroke-linecap': 'round', 'stroke-linejoin': 'round',
+        });
+        parts.push(chevron);
+      }
       decorate(this.node, parts);
     }
   }
@@ -696,7 +771,12 @@
 
   function placeBox(parent, c, x, y) {
     const n = c.infra.node;
-    const cat = CATEGORY[categoryOf(n.type)] || CATEGORY.generic;
+    // A level draws the containers inside it as boxes, and a container that
+    // looks like a resource is a container nobody opens. It keeps the colours
+    // it has when it is nested, so the same namespace is the same shade
+    // whichever way it is being drawn.
+    const asContainer = n.attrs && n.attrs.container ? groupStyle(n.type) : null;
+    const cat = asContainer || CATEGORY[categoryOf(n.type)] || CATEGORY.generic;
     const cov = COVERAGE[state(n)];
     const abnormal = currentObservations(n.id).some((o) => ['abnormal', 'critical', 'alert'].includes(o.state));
     const stroke = abnormal ? '#c74f63' : (cov && cov.stroke ? cov.stroke : cat.stroke);
@@ -720,6 +800,15 @@
         strokeWidth: contestedEntities.has(n.id) || abnormal ? 2.6 : (cov && cov.width ? cov.width : 1.2),
         dashed, dashPattern: '5 3',
         icon: iconFor(n.type), lines: nodeLabels(n).join('\n'), labelColor: cat.text,
+        // Drawn as a chevron on the right edge. Without it the only way to
+        // learn that a box has an inside is to try it, and a reader who tries
+        // two boxes that have none stops trying the third.
+        opens: openingFor(n.id) ? 1 : 0,
+        // A page about one element draws two different things: what is in it,
+        // and what it talks to. The second is context for reading the first,
+        // and drawing them identically answers the reader's question — "what
+        // is in this box" — with a list that is mostly not in it.
+        opacity: n.attrs && n.attrs.inside === false ? 55 : 100,
       },
     });
     cell.infra = c.infra;
@@ -735,10 +824,15 @@
     const to = cells.get(edge.to) || cells.get(anchorId(e.targets));
     if (!from || !to) return;
 
+    // On a sequence the order is the content: the same three lines drawn
+    // without their numbers are a picture of who calls whom, which the reader
+    // already had one level up.
+    const step = edge.attrs && edge.attrs.step;
     const cell = board.insertEdge({
-      parent, source: from, target: to, value: '',
+      parent, source: from, target: to, value: step ? String(step) : '',
       style: {
-        noLabel: true, strokeColor: st.color, strokeWidth: st.width,
+        noLabel: !step, fontSize: 11, fontColor: st.color, labelBackgroundColor: '#ffffff',
+        strokeColor: st.color, strokeWidth: st.width,
         dashed: !!st.dash, dashPattern: st.dash || undefined,
         endArrow: 'block', endSize: 7,
         // A claimed line keeps a hollow head: somebody said this exists, and
@@ -1074,6 +1168,8 @@
   function edgeTooltip(e) {
     const parts = [`${e.from} → ${e.to}  (${e.kind})`];
     if (e.suppressed) parts.push('asserted not to exist');
+    const denied = (e.attrs || {}).suppressed_references;
+    if (denied) parts.push(`${denied} of the references behind this line are asserted not to exist`);
     if (e.claim) parts.push(claimLine(e.claim));
     return parts.join('\n');
   }
@@ -1136,6 +1232,20 @@
     sub.className = 'sub';
     sub.textContent = n.type;
     detail.append(h, sub);
+
+    // The chevron on the box says there is a way in; this is the control that
+    // always works. A box on a diagram scaled to fit is a few pixels tall,
+    // and a double click on it is a gesture nobody has been told about.
+    const open = openingFor(n.id);
+    if (open) {
+      const s = section('中を見る');
+      const button = document.createElement('button');
+      button.textContent = (open.label || '開く') + ' →';
+      button.title = open.kind;
+      button.addEventListener('click', () => openDiagram(open.diagram));
+      s.append(button);
+      detail.append(s);
+    }
 
     if (editing) detail.append(renameControl(n));
 
@@ -1511,6 +1621,15 @@
       s = `${from} の構成が ${to} を参照している。${to} を消すと ${from} が壊れる`;
     }
     if (attrs.references !== undefined) s += `。参照は ${attrs.references} 件`;
+    // A line that stands for several references may stand for denials too.
+    // They are not in the line's own suppressed flag — a pair with one real
+    // reference and three denied ones is a real relationship — so without
+    // this the drawing is identical to a pair nobody has denied anything
+    // about, and the denial is a fact that reached the document and stopped
+    // there.
+    if (attrs.suppressed_references !== undefined) {
+      s += `。うち ${attrs.suppressed_references} 件は存在しないと主張されている`;
+    }
     if (attrs.reason) s += ` — ${attrs.reason}`;
     if (e.suppressed) s = 'この線は存在しないと主張されている。' + s;
     return s;
@@ -1561,9 +1680,110 @@
     render();
   }
 
+  /* ---- turning the page ------------------------------------------------
+     An estate does not fit in one drawing, and the answer this page used to
+     give — draw all of it, then let the reader fold what they did not want —
+     asks the reader to build the picture they came for. An atlas is the
+     other way round: a page is one level, one element or one call chain, and
+     a box that has an inside opens it.
+
+     Navigating is deliberately a swap of `graph` and nothing more clever.
+     Every projection and every filter below reads whatever `graph` is, so a
+     page turn costs a rebind and a repaint rather than a second renderer. */
+
+  // Which diagram is on screen, in the URL, so that a reload and a shared
+  // link both land where the reader was rather than back at the estate.
+  function openDiagram(id, record = true) {
+    const next = pages.get(id);
+    if (!next) return;
+    page = next;
+    graph = next.graph;
+    bindGraph();
+
+    // The view state belongs to the page that was on screen. Carrying a fold
+    // or a focus across a page turn would apply it to ids that mean something
+    // else, and carrying the viewport would leave the reader looking at empty
+    // canvas where the old diagram used to be.
+    collapsed.clear();
+    picked.clear();
+    board.clearSelection();
+    selected = null; selectedGroup = null; selectedEdge = null;
+    focus = null; focusNodes = null;
+    observationCutoff = 0;
+    detail.hidden = true;
+    fitted = false;
+
+    if (record) {
+      const url = new URL(location.href);
+      if (id === atlas.root) url.searchParams.delete('at');
+      else url.searchParams.set('at', id);
+      history.pushState({diagram: id}, '', url);
+    }
+
+    // Every control built from the graph, because the graph changed. The
+    // timeline is on this list for the same reason the filters are: it is
+    // built from this page's observations, and one page's window over another
+    // page's readings answers nothing.
+    buildFilters();
+    buildLabelFilters();
+    buildTimeline();
+    updateBreadcrumbs();
+    render();
+  }
+
+  // The way back up. It is the containment chain rather than a history stack:
+  // a reader who arrived at a pod three levels down wants the namespace it is
+  // in, not the last page they happened to look at.
+  function trail() {
+    if (!page) return [];
+    const out = [];
+    for (let at = page; at; at = at.parent ? pages.get(at.parent) : null) {
+      out.unshift(at);
+      if (out.length > 32) break;   // a broken parent chain must not hang the page
+    }
+    return out;
+  }
+
+  // Where clicking this element goes, if anywhere.
+  const openingFor = (id) => opens.get(id) || null;
+
   function updateBreadcrumbs() {
     const bar = document.getElementById('breadcrumbs');
     bar.textContent = '';
+
+    if (atlas) {
+      const pathOf = trail();
+      pathOf.forEach((d, i) => {
+        if (i) { const sep = document.createElement('span'); sep.textContent = '›'; bar.append(sep); }
+        if (d === page) {
+          const here = document.createElement('span');
+          here.className = 'here';
+          here.textContent = d.title;
+          if (d.subtitle) here.title = d.subtitle;
+          bar.append(here);
+          return;
+        }
+        const up = document.createElement('button');
+        up.textContent = d.title;
+        up.addEventListener('click', () => openDiagram(d.id));
+        bar.append(up);
+      });
+      if (page && page.kind) {
+        const kind = document.createElement('span');
+        kind.className = 'kind';
+        kind.textContent = page.kind;
+        bar.append(kind);
+      }
+      if (focus) {
+        const sep = document.createElement('span'); sep.textContent = '·'; bar.append(sep);
+        const back = document.createElement('button');
+        back.textContent = 'この図の全体';
+        back.addEventListener('click', clearFocus);
+        bar.append(back);
+      }
+      return;
+    }
+
     const all = document.createElement('button');
     all.textContent = 'all';
     all.addEventListener('click', clearFocus);
@@ -1697,6 +1917,11 @@
   }
 
   function summary() {
+    // A page that fell back to the plain drawing says so, and goes on saying
+    // it. A reader who was handed a link to one diagram and got the whole
+    // estate instead has no other way to tell that from the estate being what
+    // was sent.
+    if (atlasBroken) return atlasBroken;
     const counts = {};
     for (const n of graph.nodes) {
       const s = state(n);
@@ -1789,6 +2014,11 @@
     if (!cell || !cell.isVertex()) return;
     evt.consume();
     const id = idOf(cell);
+    // A box that has an inside opens it. This comes before every other
+    // reading of a second click, because it is the one the reader means: the
+    // question that brought them to a container is what is in it.
+    const open = openingFor(id);
+    if (open && !editing) { openDiagram(open.diagram); return; }
     if (kindOf(cell) === 'group') { focusGroup(id); return; }
     // In edit mode a second click on a box that was placed by hand releases it
     // back to the layout. Reading, it always means "show me what is around
@@ -2710,6 +2940,34 @@
   }
 
   document.getElementById('tidy').addEventListener('click', tidy);
+
+  // A link and a reload both land where the reader was, and the browser's own
+  // back button walks the pages it walked. Nothing here invents a history: an
+  // atlas page is addressable, so the address bar is the right place to keep
+  // which one is open.
+  if (atlas) {
+    const wanted = new URLSearchParams(location.search).get('at');
+    if (wanted && pages.has(wanted)) { page = pages.get(wanted); graph = page.graph; bindGraph(); }
+    history.replaceState({diagram: page && page.id}, '', location.href);
+
+    window.addEventListener('popstate', (event) => {
+      const id = (event.state && event.state.diagram) || atlas.root;
+      if (pages.has(id)) openDiagram(id, false);
+    });
+
+    // Backspace goes up a level. It is the gesture a file browser has, and it
+    // is free here: nothing on the reading side of this page consumes it, and
+    // a field that does gets it first.
+    document.addEventListener('keydown', (event) => {
+      if (event.key !== 'Backspace' || event.metaKey || event.ctrlKey || event.altKey) return;
+      const on = event.target;
+      if (on && (on.tagName === 'INPUT' || on.tagName === 'TEXTAREA' || on.isContentEditable)) return;
+      const walked = trail();
+      if (walked.length < 2) return;
+      event.preventDefault();
+      openDiagram(walked[walked.length - 2].id);
+    });
+  }
 
   buildFilters();
   buildLabelFilters();
