@@ -4,6 +4,10 @@ The point of the project is three evidence edge kinds overlaid. The prototype
 now has the core of all three, plus collectors and focused views. Everything
 below is ordered so that each release remains useful on its own.
 
+This file is what a release contains. [notebook.md](notebook.md) is the working
+note behind it: what is worth building before it has earned a version number,
+and the decisions already argued out.
+
 ## v0.1 — a diagram comes out ✅
 
 Seven first-class resource types, `iac_ref` edges, VPC and subnet nesting,
