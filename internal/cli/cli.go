@@ -274,6 +274,10 @@ type renderFlags struct {
 	overlay         overlayFlags
 	layout          string
 	layoutUnmatched string
+	fold            bool
+	foldBudget      int
+	foldRules       string
+	foldKeep        stringList
 	atlas           bool
 	atlasDepth      int
 	atlasLimit      int
@@ -300,6 +304,13 @@ func runRender(ctx context.Context, env Env, args []string) error {
 	fs.StringVar(&f.iconDir, "icon-dir", "", "directory of .svg icons to use in HTML output instead of the built-in glyphs")
 	fs.StringVar(&f.css, "css", "", "stylesheet to add to HTML or SVG output; the two formats need different selectors, because their markup differs")
 	fs.StringVar(&f.layout, "layout", "", "apply a human-authored HTML layout document")
+	fs.BoolVar(&f.fold, "fold", false,
+		"draw what can be said in fewer boxes in fewer boxes: repeated boxes, things hanging off one box, and runs that only pass something along")
+	fs.IntVar(&f.foldBudget, "fold-budget", 0,
+		"how many boxes the drawing may have before folding starts; 0 uses the default")
+	fs.StringVar(&f.foldRules, "fold-rules", "",
+		"comma-separated folds to allow (twins, leaves, chain); default all, in that order")
+	fs.Var(&f.foldKeep, "fold-keep", "a box to draw as itself however crowded the drawing is; repeatable")
 	fs.BoolVar(&f.atlas, "atlas", false, "in HTML output, open on one level and let a box that has an inside open it, instead of drawing the whole estate nested on one canvas")
 	fs.IntVar(&f.atlasDepth, "atlas-depth", 0, "how far a derived call chain follows calls; 0 uses the default")
 	fs.IntVar(&f.atlasLimit, "atlas-limit", 0, "how many diagrams an atlas may hold; 0 uses the default")
@@ -412,6 +423,23 @@ func runRender(ctx context.Context, env Env, args []string) error {
 	}
 	if f.overlay.hide {
 		g = hideSuppressed(g)
+	}
+	// Folding comes after the view and the suppression, because it is about
+	// how much is left to draw. Folding first would spend the budget on boxes
+	// the drawing was never going to have.
+	var folds []views.Folded
+	if f.fold {
+		before := len(g.Nodes)
+		g, folds, err = views.Fold(g, views.FoldOptions{
+			Budget: f.foldBudget,
+			Rules:  splitList(f.foldRules),
+			Axis:   f.axis,
+			Keep:   f.foldKeep,
+		})
+		if err != nil {
+			return err
+		}
+		reportFolds(env, before, len(g.Nodes), folds)
 	}
 	// The graph is settled here: views and suppression have run, so this is
 	// what the page will carry and what the layout will be applied to.
@@ -1137,6 +1165,39 @@ func loadGraphs(env Env, paths []string, opts terraform.Options, sourceOpts sour
 		return nil, fmt.Errorf("validating combined repositories: %w", err)
 	}
 	return combined, nil
+}
+
+// reportFolds says what was folded, because a drawing that quietly stands for
+// more than it shows is one a reader can be wrong about without knowing.
+func reportFolds(env Env, before, after int, folds []views.Folded) {
+	if len(folds) == 0 {
+		fmt.Fprintf(env.Stderr, "nothing folded: %d boxes is already inside the budget\n", before)
+		return
+	}
+	counts := map[string]int{}
+	stood := 0
+	for _, f := range folds {
+		counts[f.Kind]++
+		stood += len(f.Members)
+	}
+	var parts []string
+	for _, kind := range views.FoldKinds() {
+		if counts[kind] > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", counts[kind], kind))
+		}
+	}
+	fmt.Fprintf(env.Stderr, "%d boxes folded to %d: %d fold%s (%s) standing for %d\n",
+		before, after, len(folds), plural(len(folds)), strings.Join(parts, ", "), stood)
+}
+
+func splitList(s string) []string {
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 func mergeLogStatus(dst, src *core.LogCollectionStatus, scope string) *core.LogCollectionStatus {
