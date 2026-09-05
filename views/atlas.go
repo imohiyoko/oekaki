@@ -146,12 +146,24 @@ var callRelations = []string{"call", "invoke", "request", "route", "trigger", "p
 // reason a box has an inside at all beyond the containment axis. An EC2
 // instance running three applications records that as edges, not as a group,
 // because the applications came from a different input than the instance did.
-var holdRelations = []string{"owns", "hosts", "runs", "manages", "contains", "deploys", "selects", "scales", "governed-by", "owned-by"}
+//
+// Matched exactly, unlike the call relations, because containment is the
+// claim that gets drawn as nesting and a near miss is drawn as a lie. On
+// substring terms `runs-as` — a workload naming its ServiceAccount — reads as
+// `runs`, and the account is then drawn inside the workload it merely
+// authenticates as.
+var holdRelations = map[string]bool{
+	"owns": true, "hosts": true, "runs": true, "manages": true,
+	"contains": true, "deploys": true, "selects": true,
+}
 
 // reversedHolds are relations recorded from the child to the parent. An
 // ownerReference points at the owner, so the edge runs the wrong way for the
 // question "what is inside this".
-var reversedHolds = map[string]bool{"owned-by": true, "governed-by": true, "scales": false}
+//
+// `scales` is deliberately in neither table: an autoscaler is not where its
+// workload lives, in either direction.
+var reversedHolds = map[string]bool{"owned-by": true, "governed-by": true}
 
 // BuildAtlas derives the bound set from one evidence graph.
 //
@@ -181,8 +193,63 @@ func BuildAtlas(in *core.Graph, opts AtlasOptions) (*Atlas, error) {
 	if err := b.level("", "", ""); err != nil {
 		return nil, err
 	}
+	b.prune()
 	sort.SliceStable(b.out, func(i, j int) bool { return b.out[i].ID < b.out[j].ID })
 	return &Atlas{Version: AtlasVersion, Root: RootDiagram, Diagrams: b.out}, nil
+}
+
+// prune removes the ways that lead nowhere.
+//
+// A page records what it opens before the pages behind it are built, so the
+// bound reached in the middle of that leaves openings pointing at diagrams
+// that do not exist. Both halves of the viewer take that at face value: it
+// draws the chevron and the button, and clicking either does nothing at all —
+// which is worse than the door not being there, because the reader concludes
+// the page is broken rather than that the estate was too big.
+//
+// The same bound can orphan a page whose parent level was never reached, and
+// an orphan cannot be navigated back out of. It is dropped with its subtree
+// rather than re-parented: the parent chain is containment, and a page hung
+// off the nearest surviving ancestor would say something about where the
+// element lives that is not true.
+func (b *builder) prune() {
+	for {
+		alive := make(map[string]bool, len(b.out))
+		for _, d := range b.out {
+			alive[d.ID] = true
+		}
+		kept := b.out[:0]
+		dropped := false
+		for _, d := range b.out {
+			if d.Parent != "" && !alive[d.Parent] {
+				dropped = true
+				continue
+			}
+			kept = append(kept, d)
+		}
+		b.out = kept
+		if !dropped {
+			break
+		}
+	}
+
+	alive := make(map[string]bool, len(b.out))
+	for _, d := range b.out {
+		alive[d.ID] = true
+	}
+	for i := range b.out {
+		opens := b.out[i].Opens[:0]
+		for _, o := range b.out[i].Opens {
+			if alive[o.Diagram] {
+				opens = append(opens, o)
+			}
+		}
+		if len(opens) == 0 {
+			b.out[i].Opens = nil
+			continue
+		}
+		b.out[i].Opens = opens
+	}
 }
 
 type builder struct {
@@ -257,6 +324,7 @@ func (b *builder) level(path, parent, origin string) error {
 	// contents.
 	at := b.representatives(path, children)
 	g.Edges = liftEdges(b.in.Edges, at)
+	carry(b.in, g)
 
 	g.Normalize()
 	if err := g.Validate(); err != nil {
@@ -388,6 +456,7 @@ func (b *builder) detail(id string) error {
 			g.Edges = append(g.Edges, e)
 		}
 	}
+	carry(b.in, g)
 	g.Normalize()
 	if err := g.Validate(); err != nil {
 		return fmt.Errorf("detail %q: %w", id, err)
@@ -476,6 +545,7 @@ func (b *builder) sequence(id, parent string) error {
 		e.Attrs["step"] = i + 1
 		g.Edges = append(g.Edges, e)
 	}
+	carry(b.in, g)
 	// Normalize merges edges that agree on ends, kind and relation, which
 	// would fold two steps of a chain that visits the same pair twice into
 	// one. A sequence is the one diagram where that is wrong, so its edges
@@ -516,6 +586,15 @@ func (b *builder) callChain(root string) []core.Edge {
 		var out []core.Edge
 		for _, e := range b.in.Edges {
 			if e.From != id || e.Suppressed || !isCall(e) {
+				continue
+			}
+			// Either end of an edge may be a container, and a sequence draws
+			// participants, which are nodes. Following one would put a
+			// message on a lifeline the diagram does not have — and because
+			// the projected graph is validated, that is not a wrong picture
+			// but no picture at all: the error travels all the way out and
+			// the render produces nothing.
+			if _, ok := b.in.Node(e.To); !ok {
 				continue
 			}
 			key := e.From + "\x00" + e.To + "\x00" + string(e.Kind) + "\x00" + e.Relation
@@ -586,7 +665,7 @@ func (b *builder) around(id string) (held, touched []string, calls int) {
 // holdsFrom reports whether this edge says the far end is inside id.
 func holdsFrom(e core.Edge, id string) bool {
 	r := strings.ToLower(e.Relation)
-	if r == "" || !matchesAny(r, holdRelations) {
+	if !holdRelations[r] && !reversedHolds[r] {
 		return false
 	}
 	if reversedHolds[r] {
@@ -665,6 +744,20 @@ func childOnPath(path, nodePath string) string {
 // liftEdges rewrites every edge onto the representatives of its ends, drops
 // what cannot be placed, and folds what lands on the same pair into one line
 // carrying how many references it stands for.
+//
+// # Suppression is counted, not folded
+//
+// A reference somebody asserted is not real and a reference that is are two
+// different facts, and a pair of containers can easily have both. They cannot
+// become two lines: at this level they have the same ends, kind and relation,
+// which is one edge identity, and core.Normalize would merge them again on
+// the fail-safe terms it is right to apply to two claims about one edge — so
+// the real reference would arrive drawn as denied.
+//
+// So the line is the real references, and the denied ones travel as a count
+// beside them. A pair whose references were *all* denied still gets its line,
+// drawn as denied, because "somebody said this is wrong" and "this never
+// existed" are different facts and only the first one is true.
 func liftEdges(in []core.Edge, at map[string]string) []core.Edge {
 	type key struct {
 		from, to string
@@ -674,6 +767,7 @@ func liftEdges(in []core.Edge, at map[string]string) []core.Edge {
 	order := []key{}
 	merged := map[key]*core.Edge{}
 	counts := map[key]int{}
+	denied := map[key]int{}
 
 	for _, e := range in {
 		from, okFrom := at[e.From]
@@ -682,29 +776,80 @@ func liftEdges(in []core.Edge, at map[string]string) []core.Edge {
 			continue
 		}
 		k := key{from, to, e.Kind, e.Relation}
-		counts[k]++
-		if merged[k] != nil {
+		if e.Suppressed {
+			denied[k]++
+		} else {
+			counts[k]++
+		}
+
+		// The line stands for the references that were not denied, so one of
+		// those is what it is built from. A denied reference is only the
+		// representative while nothing else has been seen for this pair, and
+		// is replaced by the first real one that arrives.
+		at := merged[k]
+		if at != nil && (!at.Suppressed || e.Suppressed) {
 			continue
 		}
 		lifted := e
 		lifted.From, lifted.To = from, to
 		lifted.Attrs = cloneAttrs(e.Attrs)
+		if at == nil {
+			order = append(order, k)
+		}
 		merged[k] = &lifted
-		order = append(order, k)
 	}
 
 	out := make([]core.Edge, 0, len(order))
 	for _, k := range order {
 		e := *merged[k]
-		if counts[k] > 1 {
+		if counts[k] > 1 || denied[k] > 0 {
 			if e.Attrs == nil {
 				e.Attrs = map[string]any{}
 			}
-			e.Attrs["references"] = counts[k]
+			if counts[k] > 1 {
+				e.Attrs["references"] = counts[k]
+			}
+			if denied[k] > 0 {
+				e.Attrs["suppressed_references"] = denied[k]
+			}
 		}
 		out = append(out, e)
 	}
 	return out
+}
+
+// carry copies the evidence attached to whatever survived a projection.
+//
+// A page that dropped it would not merely be missing a detail: the viewer
+// decides a contested box's stroke, an abnormal reading's red, the label
+// filters and the timeline from these three arrays, so a projection that
+// leaves them behind draws an estate where nothing is contested and nothing
+// is wrong.
+//
+// Evidence about something this page does not draw is left behind, because a
+// standalone graph document carrying a subject it has no box for is a
+// dangling reference rather than useful provenance. On a level that means a
+// measurement on a member folded into its container is not shown on the
+// container: rolling it up would be this package inventing a reading nobody
+// took.
+func carry(in, out *core.Graph) {
+	present := make(map[string]bool, len(out.Nodes))
+	for _, n := range out.Nodes {
+		present[n.ID] = true
+	}
+	for _, o := range in.Observations {
+		if present[o.Subject] {
+			out.Observations = append(out.Observations, o)
+		}
+	}
+	for _, r := range in.LogRecords {
+		if r.Source == "" || present[r.Source] {
+			out.LogRecords = append(out.LogRecords, r)
+		}
+	}
+	out.LogStatus = in.LogStatus
+	out.Conflicts = append(out.Conflicts, in.Conflicts...)
+	filterConflicts(out)
 }
 
 func (b *builder) childGroups(path string) []string {

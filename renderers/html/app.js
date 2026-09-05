@@ -13,10 +13,29 @@
   // set; `graph` is whichever of its pages is on screen. Everything below this
   // reads one graph, and navigating swaps that graph and rebinds the indexes
   // rather than teaching several hundred lines about pages.
+  //
+  // A set that cannot be read is not a reason to show nothing. The renderer
+  // promises that a page falls back to the drawing it has always produced,
+  // and that promise is only worth what this parse does: an atlas that is
+  // malformed, or whose root is not among its own diagrams, is treated as no
+  // atlas at all rather than as an empty one — an empty one would take the
+  // atlas path through every function below and leave the reader with a
+  // breadcrumb bar containing nothing and no way back.
   const atlasElement = document.getElementById('oekaki-atlas');
-  const atlas = atlasElement && atlasElement.textContent.trim()
-    ? JSON.parse(atlasElement.textContent) : null;
+  let atlas = null;
+  let atlasBroken = '';
+  if (atlasElement && atlasElement.textContent.trim()) {
+    try {
+      atlas = JSON.parse(atlasElement.textContent);
+    } catch (err) {
+      atlasBroken = 'the set of diagrams in this page could not be read; showing the graph on its own';
+    }
+  }
   const pages = new Map(((atlas && atlas.diagrams) || []).map((d) => [d.id, d]));
+  if (atlas && !pages.has(atlas.root)) {
+    atlasBroken = 'this page names a diagram it does not carry; showing the graph on its own';
+    atlas = null;
+  }
   let page = atlas ? pages.get(atlas.root) : null;
   let graph = page ? page.graph : JSON.parse(document.getElementById('oekaki-graph').textContent);
   // Where a click leads, by element id. It is recorded by the derivation
@@ -785,6 +804,11 @@
         // learn that a box has an inside is to try it, and a reader who tries
         // two boxes that have none stops trying the third.
         opens: openingFor(n.id) ? 1 : 0,
+        // A page about one element draws two different things: what is in it,
+        // and what it talks to. The second is context for reading the first,
+        // and drawing them identically answers the reader's question — "what
+        // is in this box" — with a list that is mostly not in it.
+        opacity: n.attrs && n.attrs.inside === false ? 55 : 100,
       },
     });
     cell.infra = c.infra;
@@ -1674,6 +1698,7 @@
     board.clearSelection();
     selected = null; selectedGroup = null; selectedEdge = null;
     focus = null; focusNodes = null;
+    observationCutoff = 0;
     detail.hidden = true;
     fitted = false;
 
@@ -1684,8 +1709,13 @@
       history.pushState({diagram: id}, '', url);
     }
 
+    // Every control built from the graph, because the graph changed. The
+    // timeline is on this list for the same reason the filters are: it is
+    // built from this page's observations, and one page's window over another
+    // page's readings answers nothing.
     buildFilters();
     buildLabelFilters();
+    buildTimeline();
     updateBreadcrumbs();
     render();
   }
@@ -1876,6 +1906,11 @@
   }
 
   function summary() {
+    // A page that fell back to the plain drawing says so, and goes on saying
+    // it. A reader who was handed a link to one diagram and got the whole
+    // estate instead has no other way to tell that from the estate being what
+    // was sent.
+    if (atlasBroken) return atlasBroken;
     const counts = {};
     for (const n of graph.nodes) {
       const s = state(n);

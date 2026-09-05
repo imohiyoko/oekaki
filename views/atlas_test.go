@@ -332,3 +332,173 @@ func TestFlatGraphStillHasARootLevel(t *testing.T) {
 		t.Fatalf("got %d nodes", len(root.Graph.Nodes))
 	}
 }
+
+// Either end of an edge may be a container. Following one into a sequence
+// produced a message to a participant the diagram had no lifeline for, and
+// because every projected graph is validated, that was not a wrong picture but
+// no picture at all — the error travelled out of BuildAtlas and the render
+// wrote nothing.
+func TestACallToAContainerDoesNotBreakTheWholeAtlas(t *testing.T) {
+	g := cluster()
+	g.Edges = append(g.Edges, core.Edge{From: "svc:web", To: "ns:pay", Kind: core.EdgeObserved, Relation: "calls"})
+	g.Normalize()
+
+	a, err := BuildAtlas(g, AtlasOptions{})
+	if err != nil {
+		t.Fatalf("an edge pointing at a container stopped the atlas: %v", err)
+	}
+	seq := find(a, sequenceID("svc:web"))
+	if seq == nil {
+		t.Fatal("the sequence is missing entirely")
+	}
+	for _, e := range seq.Graph.Edges {
+		if e.To == "ns:pay" {
+			t.Fatalf("a container became a participant: %#v", e)
+		}
+	}
+}
+
+// A reference somebody asserted is not real and a reference that is are two
+// different facts about the same pair of containers. The line has to be the
+// real one — drawing it as denied says the relationship does not exist — and
+// the denial has to survive somewhere, because "somebody said this is wrong"
+// is itself worth knowing.
+func TestLiftingKeepsSuppressedReferencesApart(t *testing.T) {
+	g := cluster()
+	g.Edges = append(g.Edges,
+		core.Edge{From: "svc:web", To: "svc:billing", Kind: core.EdgeObserved, Relation: "calls",
+			Suppressed: true, Claim: &core.Claim{Origin: core.OriginHuman, Note: "not real"}},
+		core.Edge{From: "app:cart", To: "svc:billing", Kind: core.EdgeObserved, Relation: "calls"},
+	)
+	g.Normalize()
+
+	a, err := BuildAtlas(g, AtlasOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var line *core.Edge
+	for i, e := range find(a, a.Root).Graph.Edges {
+		if e.From == "ns:shop" && e.To == "ns:pay" && e.Relation == "calls" {
+			line = &find(a, a.Root).Graph.Edges[i]
+		}
+	}
+	if line == nil {
+		t.Fatal("the two containers are not joined at all")
+	}
+	if line.Suppressed {
+		t.Fatal("a real reference between the two containers was drawn as denied")
+	}
+	if line.Attrs["suppressed_references"] == nil {
+		t.Fatalf("the denial was lost in the fold: %#v", line.Attrs)
+	}
+}
+
+// A pair whose references were all denied still gets its line, drawn as
+// denied. "Somebody said this is wrong" and "this never existed" are different
+// facts, and only the first one is true.
+func TestAPairWhoseReferencesAreAllDeniedKeepsItsLine(t *testing.T) {
+	g := core.New()
+	g.Axes = []core.Axis{{ID: core.AxisNetwork}}
+	g.Groups = []core.Group{
+		{ID: "one", Axis: core.AxisNetwork, Type: "namespace", Label: "one"},
+		{ID: "two", Axis: core.AxisNetwork, Type: "namespace", Label: "two"},
+	}
+	g.Nodes = []core.Node{
+		{ID: "a", Type: "service", Name: "a", Groups: map[string]string{core.AxisNetwork: "one"}},
+		{ID: "b", Type: "service", Name: "b", Groups: map[string]string{core.AxisNetwork: "two"}},
+	}
+	g.Edges = []core.Edge{{From: "a", To: "b", Kind: core.EdgeObserved, Relation: "calls",
+		Suppressed: true, Claim: &core.Claim{Origin: core.OriginHuman}}}
+	g.Normalize()
+
+	a, err := BuildAtlas(g, AtlasOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	edges := find(a, a.Root).Graph.Edges
+	if len(edges) != 1 || !edges[0].Suppressed {
+		t.Fatalf("a denied reference should still be drawn, and drawn as denied: %#v", edges)
+	}
+}
+
+// The viewer decides a contested box's stroke, an abnormal reading's red, the
+// label filters and the timeline from these arrays. A page that dropped them
+// draws an estate where nothing is contested and nothing is wrong.
+func TestEvidenceTravelsWithThePageItBelongsTo(t *testing.T) {
+	g := cluster()
+	value := 91.0
+	g.Observations = []core.Observation{
+		{Subject: "svc:api", Metric: "cpu", Value: &value, State: "abnormal", ObservedAt: "2026-08-28T00:00:00Z"},
+		{Subject: "svc:billing", Metric: "cpu", Value: &value, ObservedAt: "2026-08-28T00:00:00Z"},
+	}
+	g.LogRecords = []core.LogRecordSummary{{ID: "r1", Source: "svc:api", Labels: []string{"error"}}}
+	g.Normalize()
+
+	a, err := BuildAtlas(g, AtlasOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := find(a, detailID("svc:api"))
+	subjects := map[string]bool{}
+	for _, o := range d.Graph.Observations {
+		subjects[o.Subject] = true
+	}
+	if !subjects["svc:api"] {
+		t.Fatal("the reading about this page's own subject did not travel with it")
+	}
+	if len(d.Graph.LogRecords) != 1 {
+		t.Fatalf("got %d log records", len(d.Graph.LogRecords))
+	}
+
+	// And evidence about something a page does not draw stays behind, or the
+	// page is a document with a dangling reference in it.
+	tier := find(a, levelID("ns:shop/tier"))
+	for _, o := range tier.Graph.Observations {
+		if o.Subject == "svc:billing" {
+			t.Fatal("a reading about a node this level does not draw came along")
+		}
+	}
+}
+
+// A page records what it opens before the pages behind it are built, so the
+// bound reached in the middle of that used to leave doors that do nothing.
+func TestNothingOpensOntoADiagramThatWasNotBuilt(t *testing.T) {
+	a, err := BuildAtlas(cluster(), AtlasOptions{Limit: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	built := map[string]bool{}
+	for _, d := range a.Diagrams {
+		built[d.ID] = true
+	}
+	for _, d := range a.Diagrams {
+		if d.Parent != "" && !built[d.Parent] {
+			t.Errorf("%q hangs off %q, which was never built", d.ID, d.Parent)
+		}
+		for _, o := range d.Opens {
+			if !built[o.Diagram] {
+				t.Errorf("%q offers a way into %q, which was never built", d.ID, o.Diagram)
+			}
+		}
+	}
+}
+
+// Containment is matched exactly. On substring terms a workload naming its
+// ServiceAccount — runs-as — reads as runs, and the account is drawn inside
+// the workload it merely authenticates as.
+func TestANearMissIsNotContainment(t *testing.T) {
+	g := cluster()
+	g.Nodes = append(g.Nodes, core.Node{ID: "sa:api", Type: "serviceaccount", Name: "api", Groups: map[string]string{core.AxisNetwork: "ns:shop/tier"}})
+	g.Edges = append(g.Edges, core.Edge{From: "svc:api", To: "sa:api", Kind: core.EdgeIACRef, Relation: "runs-as"})
+	g.Normalize()
+
+	a, err := BuildAtlas(g, AtlasOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range find(a, detailID("svc:api")).Graph.Nodes {
+		if n.ID == "sa:api" && n.Attrs["inside"] == true {
+			t.Fatal("the service account was drawn inside the workload that authenticates as it")
+		}
+	}
+}
