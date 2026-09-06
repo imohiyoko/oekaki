@@ -28,6 +28,26 @@ diagram is in the URL — so a link hands somebody the page you were on rather
 than the estate to search through. `--atlas-depth` bounds a call chain and
 `--atlas-limit` bounds the document.
 
+## Linking to one thing
+
+Three parts name what somebody is looking at, and the URL carries all three:
+
+| | |
+| --- | --- |
+| generation | the path — a served page is a file, and the directory it sits in is the generation somebody kept |
+| diagram | `?at=` |
+| element | the fragment: `#node:…`, `#group:…` or `#edge:…` |
+
+The fragment is written on every selection, because the address bar is where
+people copy from; the detail panel also has a button that hands it over, because
+a fragment somebody has to notice is a feature nobody uses. It is *replaced*
+rather than pushed — picking a box is not somewhere you navigated to, and Back
+should leave the page you were on rather than walking your last six clicks.
+
+Turning the page drops the element: it belonged to the page being left, and
+carrying it forward would hand somebody a link that points at nothing. A link
+that names something the page does not draw says so, for the same reason.
+
 Derivation lives in [`views/atlas.go`](../views/atlas.go). Nothing there
 invents a relationship: a level is a projection of containment that a parser
 already recorded, and a sequence is an ordering imposed on edges that were
