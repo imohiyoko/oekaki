@@ -61,13 +61,34 @@ const (
 )
 
 var (
-	typeDecl  = regexp.MustCompile(`^\s*(?:(?:export|default|public|private|protected|internal|abstract|final|sealed|static|open|data|pub|partial|case)\s+)*(class|interface|struct|enum|trait|protocol|record|type)\s+([A-Za-z_][A-Za-z0-9_]*)`)
+	typeDecl  = regexp.MustCompile(`^\s*(?:(?:export|default|public|private|protected|internal|abstract|final|sealed|static|open|data|pub|partial|case)\s+)*(class|interface|struct|enum|trait|protocol|record|type)\s+([A-Za-z_][A-Za-z0-9_]*)(.*)$`)
 	pyClass   = regexp.MustCompile(`^\s*class\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:\(([^)]*)\))?\s*:`)
 	extendsRe = regexp.MustCompile(`\bextends\s+([A-Za-z_][A-Za-z0-9_.]*)`)
 	implsRe   = regexp.MustCompile(`\bimplements\s+([^{;]+)`)
-	colonRe   = regexp.MustCompile(`\b(?:class|interface|struct|enum|trait|protocol|record)\s+[A-Za-z_][A-Za-z0-9_]*\s*(?:<[^>]*>)?\s*(?:\([^)]*\))?\s*:\s*([^{]+)`)
+	colonRe   = regexp.MustCompile(`\b(?:class|interface|struct|enum|trait|protocol|record)\s+[A-Za-z_][A-Za-z0-9_]*\s*(?:\([^)]*\))?\s*:\s*([^{]+)`)
 	baseName  = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_.]*)`)
+	generics  = regexp.MustCompile(`<[^<>]*>`)
 )
+
+// declarationKeywords are the words that may follow a type's name and still be
+// part of its declaration. Anything else that looks like a name there means
+// this was never a declaration: `struct sockaddr_in addr;` declares a
+// variable, and reading it as a type produced a box for a type this file never
+// wrote, with every function in the file hanging off it.
+var declarationKeywords = map[string]bool{
+	"extends": true, "implements": true, "where": true, "permits": true,
+	"is": true, "of": true, "with": true, "derives": true,
+}
+
+// notAName is what a type is never called. `export default class extends Base`
+// declares an anonymous class, and the first word after `class` is a keyword
+// rather than its name — reading it as one made a type called "extends" that
+// extended something.
+var notAName = map[string]bool{
+	"extends": true, "implements": true, "where": true, "permits": true,
+	"class": true, "interface": true, "struct": true, "enum": true,
+	"trait": true, "protocol": true, "record": true, "type": true,
+}
 
 // typeScan is what one pass over the files could not settle on its own.
 //
@@ -78,6 +99,11 @@ var (
 type typeScan struct {
 	relations []pendingRelation
 	methods   []pendingMethod
+
+	// declared is the ids already recorded. The function scanner keeps a map
+	// per file for the same reason: a linear walk of every node per
+	// declaration turns a large tree into a quadratic one.
+	declared map[string]bool
 }
 
 type pendingRelation struct {
@@ -102,11 +128,15 @@ type pendingMethod struct {
 func typeID(fileID, name string) string { return fileID + "#type:" + name }
 
 // declareType records a type and joins it to the file it was written in.
-func declareType(g *core.Graph, fileID, name, kind, lang, rel string, line int) string {
+func declareType(g *core.Graph, scan *typeScan, fileID, name, kind, lang, rel string, line int) string {
 	id := typeID(fileID, name)
-	if hasNode(g, id) {
+	if scan.declared == nil {
+		scan.declared = map[string]bool{}
+	}
+	if scan.declared[id] {
 		return id
 	}
+	scan.declared[id] = true
 	g.Nodes = append(g.Nodes, core.Node{
 		ID: id, Type: NodeType, Name: name,
 		Attrs:  map[string]any{"language": lang, "kind": kind},
@@ -136,18 +166,26 @@ func scanTypes(g *core.Graph, scan *typeScan, lines, codeLines []string, fileID,
 	for line, text := range codeLines {
 		name, kind, bases, ok := typeDeclaration(text, lang)
 		if ok {
-			current = declareType(g, fileID, name, kind, lang, rel, line+1)
+			current = declareType(g, scan, fileID, name, kind, lang, rel, line+1)
 			currentName = name
 			for _, b := range bases {
 				scan.relations = append(scan.relations, pendingRelation{
 					from: current, relation: b.relation, target: b.name, dir: dir,
 				})
 			}
+			declIndent = indentation(lines[line])
 			depth = 0
 			if braced {
 				depth = braceDelta(text)
+				// A declaration with no body of its own, or one that opens and
+				// closes on its own line, is over where it started. Leaving it
+				// open made the next function in the file a method on it —
+				// `class Order {}` followed by a function, a Rust unit struct,
+				// a C forward declaration.
+				if depth <= 0 {
+					current, currentName = "", ""
+				}
 			}
-			declIndent = indentation(lines[line])
 			continue
 		}
 		if current == "" {
@@ -180,11 +218,52 @@ func scanTypes(g *core.Graph, scan *typeScan, lines, codeLines []string, fileID,
 
 type declaredBase struct{ relation, name string }
 
+// declares reports whether what follows a type's name still belongs to a
+// declaration.
+//
+// A declaration is followed by its body, its bases, its parameters, an equals
+// sign, a semicolon, or nothing at all. It is never followed by another name:
+// that is a variable being declared, and `struct sockaddr_in addr;` is the
+// shape that made this parser invent a type per C socket.
+func declares(rest string) bool {
+	rest = strings.TrimSpace(rest)
+	if rest == "" {
+		return true
+	}
+	if !isIdentifierStart(rest[0]) {
+		return true
+	}
+	word := rest
+	if at := strings.IndexFunc(word, func(r rune) bool {
+		return !(r == '_' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9')
+	}); at >= 0 {
+		word = word[:at]
+	}
+	return declarationKeywords[word]
+}
+
+func isIdentifierStart(b byte) bool {
+	return b == '_' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z'
+}
+
+// strip removes type parameters, innermost first, so that what is left is the
+// declaration without its generics.
+func strip(text string) string {
+	for range 8 {
+		next := generics.ReplaceAllString(text, "")
+		if next == text {
+			return text
+		}
+		text = next
+	}
+	return text
+}
+
 // typeDeclaration reads one line as a type declaration, and the bases it names.
 func typeDeclaration(text, lang string) (name, kind string, bases []declaredBase, ok bool) {
 	if lang == "py" {
 		m := pyClass.FindStringSubmatch(text)
-		if len(m) < 2 {
+		if len(m) < 3 {
 			return "", "", nil, false
 		}
 		for base := range strings.SplitSeq(m[2], ",") {
@@ -199,13 +278,22 @@ func typeDeclaration(text, lang string) (name, kind string, bases []declaredBase
 	}
 
 	m := typeDecl.FindStringSubmatch(text)
-	if len(m) < 3 {
+	if len(m) < 4 {
 		return "", "", nil, false
 	}
 	kind, name = m[1], m[2]
+	if notAName[name] || !declares(m[3]) {
+		return "", "", nil, false
+	}
 	if kind == "type" {
 		kind = "alias"
 	}
+
+	// Type parameters come off before the bases are read. `class Box<T extends
+	// Number>` bounds a parameter and names no base, and `implements
+	// Map<String, Integer>` implements one interface rather than two — both
+	// went wrong by reading the angle brackets as part of the declaration.
+	text = strip(text)
 
 	if e := extendsRe.FindStringSubmatch(text); len(e) > 1 {
 		bases = append(bases, declaredBase{RelationExtends, e[1]})
@@ -220,6 +308,9 @@ func typeDeclaration(text, lang string) (name, kind string, bases []declaredBase
 	// The colon form. Kotlin, Swift, Scala and C# write a base class and an
 	// interface the same way, so this cannot tell generalization from
 	// realization — and says extends rather than choosing one at random.
+	//
+	// Read from the stripped line, so a constraint inside angle brackets is
+	// not mistaken for a base.
 	if len(bases) == 0 {
 		if c := colonRe.FindStringSubmatch(text); len(c) > 1 {
 			for one := range strings.SplitSeq(c[1], ",") {
@@ -261,11 +352,14 @@ func resolveTypes(g *core.Graph, scan *typeScan) {
 		byName[n.Name] = append(byName[n.Name], n.ID)
 	}
 	resolve := func(name, dir string) string {
-		// A qualified name is written for a reader, and its last part is the
-		// type. Matching the whole of "models.User" against "User" would find
-		// nothing at all.
-		if at := strings.LastIndex(name, "."); at >= 0 {
-			name = name[at+1:]
+		// A qualified name names another package, and this parser has no
+		// notion of which package is which. Dropping the qualifier and
+		// matching the bare name joined `*http.Client` to whatever local type
+		// happened to be called Client — an arrow to something the declaration
+		// never mentioned, in a document whose whole purpose is telling apart
+		// what was claimed from what was seen.
+		if strings.Contains(name, ".") {
+			return ""
 		}
 		if ids := byDir[dir+"\x00"+name]; len(ids) == 1 {
 			return ids[0]

@@ -264,3 +264,113 @@ func TestATypedGraphValidates(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A body that opens and closes on its own line is over where it started.
+// Leaving it open made the next function in the file a method on it, and the
+// three-line class body the other test uses was exactly the shape that hid it.
+func TestAOneLineTypeBodyDoesNotSwallowTheRestOfTheFile(t *testing.T) {
+	g := parsed(t, map[string]string{
+		"app/order.ts": "class Order {}\n\nfunction free(): void {}\n",
+		"app/empty.ts": "interface Priced {}\n\nfunction alsoFree(): void {}\n",
+	})
+
+	typeNamed(t, g, "Order") // the file was read at all
+	if related(g, "Order", RelationDeclares, "free") {
+		t.Error("a function after a one-line class body was made a method")
+	}
+	if related(g, "Priced", RelationDeclares, "alsoFree") {
+		t.Error("a function after an empty interface was made a method")
+	}
+}
+
+// A declaration with no body at all — a Rust unit struct, a C forward
+// declaration — has no inside for anything to be in.
+func TestATypeWithNoBodyHasNothingInside(t *testing.T) {
+	g := parsed(t, map[string]string{
+		"app/lib.rs": "struct Marker;\n\nfn free() {}\n",
+	})
+	typeNamed(t, g, "Marker") // a unit struct is still a type
+	if related(g, "Marker", RelationDeclares, "free") {
+		t.Error("a function after a bodyless declaration was made a method")
+	}
+}
+
+// `struct sockaddr_in addr;` declares a variable. Reading it as a type made a
+// box for something the file never declared — and, with the scope bug, hung
+// every function in the file off it.
+func TestAVariableDeclarationIsNotATypeDeclaration(t *testing.T) {
+	g := parsed(t, map[string]string{
+		"net/serve.c": "struct sockaddr_in addr;\n\nint main(void) {\n  return 0;\n}\n",
+	})
+	read := false
+	for _, n := range g.Nodes {
+		if n.Type == NodeType {
+			t.Errorf("a variable declaration produced the type %q", n.Name)
+		}
+		if n.Type == "code_function" && n.Name == "main" {
+			read = true
+		}
+	}
+	if !read {
+		t.Fatal("the file was not read at all, so it proves nothing")
+	}
+}
+
+// An anonymous class has no name, and the first word after `class` is a
+// keyword. Reading it as a name made a type called "extends" that extended
+// something.
+func TestAnAnonymousClassIsNotATypeCalledExtends(t *testing.T) {
+	g := parsed(t, map[string]string{
+		"app/anon.ts": "export default class extends Base {\n  run() {}\n}\nclass Base {}\n",
+	})
+	typeNamed(t, g, "Base") // the file was read at all
+	for _, n := range g.Nodes {
+		if n.Type == NodeType && notAName[n.Name] {
+			t.Errorf("a keyword was read as a type name: %q", n.Name)
+		}
+	}
+}
+
+// A qualified name names another package, and this parser has no notion of
+// which package is which. Dropping the qualifier joined `*http.Client` to
+// whatever local type happened to be called Client.
+func TestAQualifiedNameIsNotJoinedToALocalTypeOfTheSameName(t *testing.T) {
+	g := parsed(t, map[string]string{
+		"api/handler.go": "package api\n\nimport \"net/http\"\n\ntype Handler struct {\n\tclient *http.Client\n}\n",
+		"pool/client.go": "package pool\n\ntype Client struct{ ID string }\n",
+	})
+	typeNamed(t, g, "Handler")
+	typeNamed(t, g, "Client") // both ends exist; only the joining is wrong
+	if related(g, "Handler", RelationHasField, "Client") {
+		t.Error("a field of another package's type was joined to a local type with the same name")
+	}
+}
+
+// Type parameters are not bases. `class Box<T extends Number>` bounds a
+// parameter and names nothing it descends from.
+func TestATypeParameterBoundIsNotABase(t *testing.T) {
+	g := parsed(t, map[string]string{
+		"app/box.java": "class Box<T extends Number> {\n  void put(T t) {}\n}\nclass Number {}\n",
+	})
+	if related(g, "Box", RelationExtends, "Number") {
+		t.Error("a type parameter bound was recorded as a base class")
+	}
+	// And the declaration is still read: the class, and its method.
+	if !related(g, "Box", RelationDeclares, "put") {
+		t.Error("stripping the type parameters lost the declaration with them")
+	}
+}
+
+// `implements Map<String, Integer>` implements one interface. Splitting the
+// line on commas made two.
+func TestAGenericArgumentIsNotASecondInterface(t *testing.T) {
+	g := parsed(t, map[string]string{
+		"app/reg.java": "class Registry implements Map<String, Integer> {\n}\ninterface Map {}\nclass Integer {}\n",
+	})
+	if related(g, "Registry", RelationImplements, "Integer") {
+		t.Error("a generic argument was recorded as an implemented interface")
+	}
+	if !related(g, "Registry", RelationImplements, "Map") {
+		t.Error("the interface that was implemented was lost")
+	}
+}
