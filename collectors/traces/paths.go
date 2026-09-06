@@ -68,13 +68,22 @@ func (d *Document) Paths() (paths []core.Path, readings [][]core.Observation, un
 			unordered = append(unordered, id)
 			continue
 		}
-		latest, session := "", ""
+		// Every session the spans of this trace named, not the last one.
+		//
+		// One trace is usually one session, and then this set has one member.
+		// But spans without a trace id all land in the same bucket here, which
+		// is harmless for a counter and wrong for a distinct set: taking the
+		// last id would report three people as one. Nothing in the input
+		// promises that a trace names a single session, so nothing here
+		// assumes it.
+		latest := ""
+		seen := map[string]bool{}
 		for _, s := range byTrace[id] {
 			if at := normalizeTime(s.ObservedAt); at > latest {
 				latest = at
 			}
 			if s.SessionID != "" {
-				session = s.SessionID
+				seen[s.SessionID] = true
 			}
 		}
 		for _, chain := range chains {
@@ -94,7 +103,7 @@ func (d *Document) Paths() (paths []core.Path, readings [][]core.Observation, un
 			// the difference between one person clicking four times and four
 			// people finding it, and it is a number — the value that told them
 			// apart is not written anywhere.
-			if session != "" {
+			for session := range seen {
 				if sessions[key] == nil {
 					sessions[key] = map[string]bool{}
 				}

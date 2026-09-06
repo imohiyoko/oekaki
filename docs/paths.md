@@ -90,11 +90,17 @@ cannot tell them apart —— which matters most for the route nothing much uses
 a hundred walks from one session is one caller with a retry loop, and three
 walks from three sessions is a route somebody depends on.
 
-**The value is counted and never kept.** Whether a session id identifies a
-person is the caller's business and the caller's risk; this side only ever
-counts distinct values, and nothing derived from one reaches the graph except a
-number. Traces that carry no session say nothing about sessions, rather than
-claiming there was one.
+**The value is counted, and nothing but the count comes out.** Whether a
+session id identifies a person is the caller's business and the caller's risk,
+so the guarantee has to be stated exactly: the value is read, and the distinct
+values of a route are held in memory while the fold counts them — that is what
+counting distinct things requires. What never happens is writing one down.
+Nothing derived from a session id reaches the graph, the IR, or any file this
+program produces except the number of them. In memory for the length of one
+fold, and a count on the way out.
+
+Traces that carry no session say nothing about sessions, rather than claiming
+there was one.
 
 Both readings are ordinary observations, so a rule can be about either —
 `{"is": "below", "metric": "path_sessions", "value": 2}` is "used by one
