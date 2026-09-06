@@ -81,3 +81,23 @@ func TestNoSessionMeansNoReading(t *testing.T) {
 		t.Fatal("the walk was not counted")
 	}
 }
+
+// Spans that carry no trace id all land in the same bucket, which is harmless
+// for a counter and wrong for a distinct set: taking one session id per bucket
+// would report three people as one. Nothing in the input promises that a trace
+// names a single session, so nothing in the fold assumes it.
+func TestEverySessionInATraceIsCounted(t *testing.T) {
+	_, readings, _ := folded(t, `{"version":"1","spans":[
+		{"session_id":"s1","service":"gateway"},
+		{"session_id":"s1","service":"checkout","parent_service":"gateway"},
+		{"session_id":"s2","service":"gateway"},
+		{"session_id":"s2","service":"checkout","parent_service":"gateway"},
+		{"session_id":"s3","service":"gateway"},
+		{"session_id":"s3","service":"checkout","parent_service":"gateway"}
+	]}`)
+
+	sessions := reading(t, readings[0], "path_sessions")
+	if sessions == nil || *sessions.Value != 3 {
+		t.Fatalf("three sessions walked it: %#v", sessions)
+	}
+}
