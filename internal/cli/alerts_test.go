@@ -41,6 +41,20 @@ func watchedGraph(t *testing.T) string {
 	return path
 }
 
+// graphFile writes a graph out so a command can be pointed at it.
+func graphFile(t *testing.T, g *core.Graph) string {
+	t.Helper()
+	raw, err := g.MarshalIndent()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "graph.json")
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func rulesFile(t *testing.T, body string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "rules.json")

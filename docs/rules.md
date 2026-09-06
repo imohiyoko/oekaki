@@ -101,24 +101,47 @@ every box in the estate — and every box has indeed never reported a metric tha
 was never about boxes. The answer is true and useless, which is the worst kind
 of alert.
 
-## Determinism
+## Determinism, and where a moment comes from
 
 Nothing in `views` reads a clock. `--since 30d` is resolved by the command,
-against the caller's clock, and fills in for any rule that did not name its own
-moment; the resolved moment is written into the JSON output. A rule that names
-its own keeps it: a document that says "since the first of August" means it
-whoever runs it and whenever.
+against the caller's clock, and **is handed in with the document** — a rule that
+named no moment is completed with it before it is judged, which is why the flag
+can answer what `is: quiet` needs. A rule that names its own keeps it: a
+document that says "since the first of August" means it whoever runs it and
+whenever.
 
-So the same document and the same graph produce the same alerts, which is what
-makes an alert something you can commit, diff, and argue with.
+**A rule takes a moment, never a span.** A document has no clock, so `"since":
+"30d"` in a file is refused where it is written. Left alone it would reach a
+comparison that falls back to comparing the text — where every timestamp sorts
+before the letter `d`, so every subject fires, and under `--exit-code` a
+pipeline stops for nothing.
+
+`oekaki validate` checks a rules document on its own: no run, no clock, no
+moment to lend it. A rule that needs one has to carry it, and hears so there
+rather than the first time somebody runs it.
+
+So the same document, the same graph and the same moment produce the same
+alerts, which is what makes an alert something you can commit, diff, and argue
+with.
+
+## A window is about readings that have a time
+
+A reading with no `observed_at` is not old — it is undated. It stays in every
+bound, because dropping it would take every reading from a collector that
+records no time out of every rule, quietly and for a reason nobody could see.
+Where two readings compete for "newest", one with a time wins.
 
 ## Where the declared side comes from
 
 A rule about routes needs both sides of the comparison. When the graph carries
 no declared routes, they are derived by following declared references — the
-same thing `oekaki paths` does, and the run says so on stderr. Without that,
-every observed route would arrive as a surprise, because the declared side was
-empty rather than because anything was.
+same thing `oekaki paths` does, and the run says so on stderr.
+
+When *none* can be derived either — an estate whose only way in is called by
+something else has nowhere for a route to start — the run says that instead.
+Silence there reads as "everything observed is a surprise", which is exactly
+what a rule about unexpected routes then reports: one alert per route, none of
+them about anything that happened.
 
 ## In a pipeline
 

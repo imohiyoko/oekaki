@@ -964,7 +964,10 @@ func runValidate(env Env, args []string) error {
 		return nil
 	}
 	if schema.IsRules(raw) {
-		doc, err := views.ParseRules(raw)
+		// Checked as a document on its own: no run, no clock, no moment to
+		// lend it. A rule that needs one has to carry it, and hears so here
+		// rather than the first time somebody runs it.
+		doc, err := views.ParseRules(raw, "")
 		if err != nil {
 			return err
 		}

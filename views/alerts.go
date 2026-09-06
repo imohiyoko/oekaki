@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/imohiyoko/oekaki/core"
 	"github.com/imohiyoko/oekaki/schema"
@@ -96,9 +97,18 @@ type Alert struct {
 	LastSeen string   `json:"last_seen,omitempty"`
 }
 
-// ParseRules reads a rules document and checks it against the published
-// schema before anything is done with it.
-func ParseRules(raw []byte) (*Rules, error) {
+// ParseRules reads a rules document and checks it against the published schema
+// before anything is done with it.
+//
+// The moment arrives with the document, because half of what makes a rule
+// sound depends on it: a rule that asks what has gone quiet needs one, and a
+// document cannot supply it — "thirty days" is a question about today, and a
+// document has no today. So whoever runs the rules resolves a moment and hands
+// it in, and a rule that named none is completed with it before it is judged.
+//
+// Empty means no moment was given, which is only an error for the rules that
+// cannot do without one.
+func ParseRules(raw []byte, since string) (*Rules, error) {
 	if err := schema.ValidateRules(raw); err != nil {
 		return nil, err
 	}
@@ -106,9 +116,12 @@ func ParseRules(raw []byte) (*Rules, error) {
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return nil, fmt.Errorf("parsing rules: %w", err)
 	}
-	for i, r := range doc.Rules {
-		if err := r.check(); err != nil {
-			return nil, fmt.Errorf("rules[%d] (%s): %w", i, r.Name, err)
+	for i := range doc.Rules {
+		if doc.Rules[i].When.Since == "" {
+			doc.Rules[i].When.Since = since
+		}
+		if err := doc.Rules[i].check(); err != nil {
+			return nil, fmt.Errorf("rules[%d] (%s): %w", i, doc.Rules[i].Name, err)
 		}
 	}
 	return &doc, nil
@@ -131,7 +144,7 @@ func (r Rule) check() error {
 			return fmt.Errorf("quiet needs a metric that has gone quiet")
 		}
 		if r.When.Since == "" {
-			return fmt.Errorf("quiet needs a moment to be quiet since: how long is too long is not this program's judgement")
+			return fmt.Errorf("quiet needs a moment to be quiet since: write one in the rule, or give the run a --since; how long is too long is not this program's judgement")
 		}
 	case Unexpected, Unused, Partial:
 		if r.When.Metric != "" || r.When.Value != nil {
@@ -139,6 +152,18 @@ func (r Rule) check() error {
 		}
 	default:
 		return fmt.Errorf("unknown condition %q", r.When.Is)
+	}
+
+	// A document has no clock, so a moment written into one is a moment, not a
+	// span. "30d" is what somebody types on the command line, and left
+	// unchecked it reaches a comparison that falls back to comparing the text
+	// — where every timestamp sorts before the letter "d", so every subject
+	// fires. A false alert is bad; a false alert that stops a pipeline under
+	// --exit-code is worse.
+	if r.When.Since != "" {
+		if _, err := time.Parse(time.RFC3339, r.When.Since); err != nil {
+			return fmt.Errorf("since %q is not a moment: a rule takes an RFC3339 time, and a span like 30d belongs on the command line, which has a clock to resolve it against", r.When.Since)
+		}
 	}
 	return nil
 }
@@ -152,7 +177,9 @@ func Alerts(g *core.Graph, doc *Rules) ([]Alert, error) {
 	if g == nil || doc == nil {
 		return nil, fmt.Errorf("nothing to check")
 	}
-	var out []Alert
+	// Empty rather than absent, because a caller reading the JSON should not
+	// have to tell "nothing fired" from "this field is missing".
+	out := []Alert{}
 	for _, rule := range doc.Rules {
 		found, err := rule.against(g)
 		if err != nil {
@@ -183,7 +210,12 @@ func (r Rule) readings(g *core.Graph) []Alert {
 		if o.Metric != r.When.Metric || !r.covers(g, o.Subject) {
 			continue
 		}
-		if r.When.Since != "" && r.When.Is != Quiet && before(o.ObservedAt, r.When.Since) {
+		// A window is about readings that say when they were taken. One that
+		// does not is not old — it is undated, and dropping it silently would
+		// take every reading from a collector that records no time out of
+		// every bound, which is a rule that stops working for a reason nobody
+		// can see.
+		if r.When.Since != "" && r.When.Is != Quiet && o.ObservedAt != "" && before(o.ObservedAt, r.When.Since) {
 			continue
 		}
 		at, seen := newest[o.Subject]
