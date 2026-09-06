@@ -118,7 +118,8 @@ one line carrying twenty, in the page as in the SVG.
 
 ### With an atlas
 
-An atlas draws a page per level, and each page is folded on its own terms.
+An atlas is a bound set of pages — a level, an element's detail, a call chain —
+and **every** one of them is folded on its own terms.
 
 ```console
 $ oekaki render plan.json --atlas --fold --fold-budget 20 -o estate.html

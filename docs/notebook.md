@@ -47,11 +47,14 @@ edges is not an observed order, and the page says so. When traces provide a
 real order, that is a different claim and the drawing should say *that*
 instead.
 
-**Folding runs per atlas page, not once over the estate.** A crowd on a level
-is not a crowd on a detail page, and one budget spent against the whole estate
-lands on a page holding three of a fold's twelve members. The cost is that the
-same box can be folded on one page and drawn on another, which is correct and
-looks inconsistent until you know why.
+**Folding runs per atlas page, not once over the estate — in an interactive
+page.** A crowd on a level is not a crowd on a detail page, and one budget
+spent against the whole estate lands on a page holding three of a fold's twelve
+members. Every other format has no pages for an atlas to be, so folding there
+falls back to folding the estate as a whole and the run says the atlas was
+ignored. The cost of the per-page rule is that the same box can be folded on
+one page and drawn on another, which is correct and looks inconsistent until
+you know why.
 
 **Every page of an atlas is a standalone graph document.** It costs a few times
 the graph in bytes, measured and written down in atlas.md. Sharing the evidence
