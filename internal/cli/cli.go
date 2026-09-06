@@ -427,12 +427,25 @@ func runRender(ctx context.Context, env Env, args []string) error {
 	// Folding comes after the view and the suppression, because it is about
 	// how much is left to draw. Folding first would spend the budget on boxes
 	// the drawing was never going to have.
-	// An atlas draws a page per level, and each page is its own graph, so its
-	// folding happens per page after the pages exist. Folding here instead
-	// would spend one budget against the whole estate and land on a page
-	// holding three of a fold's twelve members.
+	// An atlas draws a page per level in the interactive page, and each page is
+	// its own graph, so its folding happens per page after the pages exist —
+	// folding here instead would spend one budget against the whole estate and
+	// land on a page holding three of a fold's twelve members.
+	//
+	// Every other format has no pages for an atlas to be, so there is nothing
+	// to fold per page and the estate is folded as a whole, exactly as it is
+	// without --atlas. The alternative is a flag that quietly does nothing,
+	// which is the one outcome worth avoiding: a reader who asked for a
+	// readable drawing and got the mat of boxes has no way to tell that the
+	// combination was the reason.
+	perPage := f.atlas && format == "html"
+	if f.atlas && !perPage {
+		fmt.Fprintf(env.Stderr,
+			"--atlas draws a page per level in an interactive page; %s output has no pages, so it is ignored here\n", format)
+	}
+
 	var foldRecord []byte
-	if f.fold && !f.atlas {
+	if f.fold && !perPage {
 		var folded *core.Graph
 		var folds []views.Folded
 		folded, folds, err = views.Fold(g, views.FoldOptions{

@@ -140,3 +140,10 @@ replicas open where they stand.
 Openings are untouched. A box that is folded away is not drawn, so nothing asks
 whether it opens anything; when the reader puts the fold back, the way down
 comes back with it.
+
+An atlas is a thing an interactive page has. Asked for with any other format,
+it has no pages to be, so folding falls back to folding the estate as a whole
+— which is what `--fold` alone does — and the run says the atlas was ignored.
+A flag that quietly does nothing is the one outcome worth avoiding here: a
+reader who asked for a readable drawing and got the mat of boxes has no way to
+tell that the combination was the reason.
