@@ -81,15 +81,21 @@ func TestAFoldedPageCanBeUnfolded(t *testing.T) {
 	}
 }
 
-// An atlas draws a page per level, and a fold worked out against the whole
-// estate would stand for boxes that page does not draw.
-func TestFoldAndAtlasAreRefusedTogether(t *testing.T) {
-	r := run(t, "", "render", crowdedGraph(t), "-f", "html", "--fold", "--atlas")
-	if r.code == 0 {
-		t.Fatal("a fold worked out against the whole estate was applied to an atlas page")
+// An atlas draws a page per level, and each page is folded on its own terms: a
+// crowd on a level is not a crowd on a detail page, and a budget spent against
+// the whole estate would land on a page holding three of a fold's twelve
+// members.
+func TestFoldingAnAtlasHappensPerPage(t *testing.T) {
+	r := mustRun(t, "", "render", crowdedGraph(t), "-f", "html", "--fold", "--fold-budget", "5", "--atlas")
+
+	if !strings.Contains(r.stdout, `id="oekaki-folds"`) {
+		t.Fatal("an atlas page carries no record of what was folded")
 	}
-	if !strings.Contains(r.stderr, "do not go together") {
-		t.Errorf("the refusal does not say why: %q", r.stderr)
+	if !strings.Contains(r.stdout, `"diagram"`) {
+		t.Fatal("a fold does not say which page it belongs to")
+	}
+	if !strings.Contains(r.stderr, "pages") {
+		t.Errorf("the run does not say what it folded: %q", r.stderr)
 	}
 }
 

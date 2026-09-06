@@ -47,6 +47,12 @@ edges is not an observed order, and the page says so. When traces provide a
 real order, that is a different claim and the drawing should say *that*
 instead.
 
+**Folding runs per atlas page, not once over the estate.** A crowd on a level
+is not a crowd on a detail page, and one budget spent against the whole estate
+lands on a page holding three of a fold's twelve members. The cost is that the
+same box can be folded on one page and drawn on another, which is correct and
+looks inconsistent until you know why.
+
 **Every page of an atlas is a standalone graph document.** It costs a few times
 the graph in bytes, measured and written down in atlas.md. Sharing the evidence
 arrays across pages would fix the size and break the property; if the size ever
@@ -55,13 +61,6 @@ hurts, that is the trade to make deliberately rather than by accident.
 ---
 
 ## Diagrams
-
-**Folding should run per atlas page.** Folding and the atlas are refused
-together today: a fold worked out against the whole estate would land on a page
-holding three of its twelve members and still say twelve. Folding each
-diagram as it is derived, with a record per page, is the fix — and it is what
-makes "the page you opened is also readable" true rather than only the first
-one.
 
 **Sequence pages should draw lifelines, and let steps be folded away.** Today a
 sequence is a numbered call chain laid out downward, which is readable but is

@@ -79,6 +79,15 @@ func ValidFoldKind(name string) bool {
 type Folded struct {
 	Kind string `json:"kind"`
 
+	// Diagram is the page this fold belongs to, when the folding was done
+	// for an atlas. Empty means the only drawing there is.
+	//
+	// It is here because the same box appears on several pages of an atlas —
+	// a workload is on its level and on its own detail page — and a crowd on
+	// one of them is not a crowd on another. A record without it would fold a
+	// box away on a page whose other members are not even drawn.
+	Diagram string `json:"diagram,omitempty"`
+
 	// Stands is the id of the box drawn in their place.
 	Stands string `json:"stands"`
 
@@ -185,6 +194,43 @@ func Fold(g *core.Graph, opts FoldOptions) (*core.Graph, []Folded, error) {
 		return folds[i].Stands < folds[j].Stands
 	})
 	return out, folds, nil
+}
+
+// FoldAtlas works out what to fold on each page of an atlas.
+//
+// The pages themselves are left alone. They keep their whole graphs, because
+// the viewer is what folds them and it needs the members to put back — the
+// same reason the single-diagram page is handed the unfolded graph and the
+// record rather than the folded graph.
+//
+// Each page is folded on its own terms. That is the whole point of doing it
+// here rather than once over the estate: a level page draws twelve namespaces
+// and a detail page draws one workload and its neighbours, and a crowd in one
+// is not a crowd in the other. A budget spent against the estate would land on
+// a page holding three of its twelve members and still say twelve.
+//
+// Openings are not touched. A box that is folded away is not drawn, so nothing
+// asks whether it opens anything; when the reader puts the fold back, the way
+// down comes back with it.
+func FoldAtlas(a *Atlas, opts FoldOptions) ([]Folded, error) {
+	if a == nil {
+		return nil, fmt.Errorf("no atlas")
+	}
+	var all []Folded
+	for i := range a.Diagrams {
+		// The folded graph is discarded: it is the record that travels. It is
+		// still built, because building it is what checks that the fold
+		// produces a document that holds together.
+		_, folds, err := Fold(a.Diagrams[i].Graph, opts)
+		if err != nil {
+			return nil, fmt.Errorf("folding %s: %w", a.Diagrams[i].ID, err)
+		}
+		for _, f := range folds {
+			f.Diagram = a.Diagrams[i].ID
+			all = append(all, f)
+		}
+	}
+	return all, nil
 }
 
 // apply replaces every fold's members with the box that stands for them.

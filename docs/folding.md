@@ -116,7 +116,27 @@ Both draw the same thing: the page merges the lines that land on the same pair
 the way the projection does, so twenty lines to a box standing for twenty are
 one line carrying twenty, in the page as in the SVG.
 
-Not yet with an atlas. An atlas draws a page per level, and a fold worked out
-against the whole estate would land on a page holding three of its twelve
-members and still say twelve, so the two are refused together until folding
-runs per page.
+### With an atlas
+
+An atlas draws a page per level, and each page is folded on its own terms.
+
+```console
+$ oekaki render plan.json --atlas --fold --fold-budget 20 -o estate.html
+16 folds (16 twins) standing for 296 boxes, on 7 of 148 pages
+```
+
+Per page, because a crowd on one is not a crowd on another: a workload is on
+its level and on its own detail page, and one budget spent against the whole
+estate would land on a page holding three of a fold's twelve members and still
+say twelve. Every page inside its budget is left alone, so a crowded level does
+not cost the quiet ones their detail.
+
+The two answer different halves of the same problem, and they compose: the
+atlas decides how much of the estate a page is about, and folding decides how
+much of that page is drawn as itself. Opening a namespace of forty replicas
+gives three boxes — the service, the replicas, and their config — and the
+replicas open where they stand.
+
+Openings are untouched. A box that is folded away is not drawn, so nothing asks
+whether it opens anything; when the reader puts the fold back, the way down
+comes back with it.
