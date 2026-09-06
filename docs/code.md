@@ -41,6 +41,13 @@ function node the file already contains, so a method appears exactly once in
 the graph and the two ways of arriving at it — down through the file, or across
 from the type — reach the same box.
 
+Its name carries the type that declared it — `Order.total`, the way a Go method
+always has — because a file with two classes that both declare `run` has two
+methods. One node named `run` would make them one: every class in the file
+declaring the same box, and a member click landing on somebody else's page. The
+class diagram shows the short name, since inside the class the receiver is the
+box it is written in.
+
 ## What a relation needs before it is drawn
 
 **The other end has to be a type this parser read.** A base class from a
@@ -110,7 +117,12 @@ reading it wrong is worse than not reading it.
 
 A body that opens and closes on one line, or a declaration with no body at all
 — a Rust unit struct, a C forward declaration — is over where it started. The
-next function in the file is the file's, not the type's.
+next function in the file is the file's, not the type's. A declaration long
+enough to wrap, on the other hand, is still being written: its brace and often
+its bases are on a later line, and the type stays open until one arrives.
+
+Only what is directly in the body is a member. A function nested inside a
+method is that method's business, and the class does not declare it.
 
 ## Adding a real parser
 

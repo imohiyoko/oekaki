@@ -63,7 +63,8 @@ const (
 var (
 	typeDecl  = regexp.MustCompile(`^\s*(?:(?:export|default|public|private|protected|internal|abstract|final|sealed|static|open|data|pub|partial|case)\s+)*(class|interface|struct|enum|trait|protocol|record|type)\s+([A-Za-z_][A-Za-z0-9_]*)(.*)$`)
 	pyClass   = regexp.MustCompile(`^\s*class\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:\(([^)]*)\))?\s*:`)
-	extendsRe = regexp.MustCompile(`\bextends\s+([A-Za-z_][A-Za-z0-9_.]*)`)
+	extendsRe = regexp.MustCompile(`\bextends\s+([^{;]+)`)
+	implsAt   = regexp.MustCompile(`\bimplements\b`)
 	implsRe   = regexp.MustCompile(`\bimplements\s+([^{;]+)`)
 	colonRe   = regexp.MustCompile(`\b(?:class|interface|struct|enum|trait|protocol|record)\s+[A-Za-z_][A-Za-z0-9_]*\s*(?:\([^)]*\))?\s*:\s*([^{]+)`)
 	baseName  = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_.]*)`)
@@ -150,40 +151,63 @@ func declareType(g *core.Graph, scan *typeScan, fileID, name, kind, lang, rel st
 }
 
 // scanTypes reads the type declarations of one file no AST parser handled, and
-// the functions declared inside them.
+// the functions declared inside them. It returns, for each line that declares a
+// method, the type it belongs to — because the name a method goes into the
+// graph under has to say whose it is, and only this pass knows.
 //
 // The scope tracking is the same shape as the call scanner's: a declaration
 // opens a scope, and braces or indentation close it. A type declared inside
 // another is not followed — it is rare enough that reading it wrong is worse
 // than not reading it.
-func scanTypes(g *core.Graph, scan *typeScan, lines, codeLines []string, fileID, rel, lang string) {
+func scanTypes(g *core.Graph, scan *typeScan, lines, codeLines []string, fileID, rel, lang string) map[int]string {
 	braced := isBraceDelimitedLanguage(lang)
 	dir := filepath.ToSlash(filepath.Dir(rel))
+	owner := map[int]string{}
 
 	current, currentName := "", ""
-	depth, declIndent := 0, 0
+	// depth is how deep inside the type's braces we are; pending means the
+	// declaration has been read but its body has not opened yet, because the
+	// brace is on a later line.
+	depth := 0
+	pending := false
+	declIndent, memberIndent := 0, -1
+
+	note := func(bases []declaredBase) {
+		for _, b := range bases {
+			scan.relations = append(scan.relations, pendingRelation{
+				from: current, relation: b.relation, target: b.name, dir: dir,
+			})
+		}
+	}
+	closeType := func() { current, currentName, pending = "", "", false }
 
 	for line, text := range codeLines {
 		name, kind, bases, ok := typeDeclaration(text, lang)
 		if ok {
 			current = declareType(g, scan, fileID, name, kind, lang, rel, line+1)
 			currentName = name
-			for _, b := range bases {
-				scan.relations = append(scan.relations, pendingRelation{
-					from: current, relation: b.relation, target: b.name, dir: dir,
-				})
-			}
-			declIndent = indentation(lines[line])
-			depth = 0
+			note(bases)
+			declIndent, memberIndent = indentation(lines[line]), -1
+			depth, pending = 0, false
 			if braced {
-				depth = braceDelta(text)
-				// A declaration with no body of its own, or one that opens and
-				// closes on its own line, is over where it started. Leaving it
-				// open made the next function in the file a method on it —
-				// `class Order {}` followed by a function, a Rust unit struct,
-				// a C forward declaration.
-				if depth <= 0 {
-					current, currentName = "", ""
+				switch {
+				case strings.Contains(text, "{"):
+					depth = braceDelta(text)
+					// A body that opens and closes on its own line is over
+					// where it started.
+					if depth <= 0 {
+						closeType()
+					}
+				case endsStatement(text):
+					// No body at all: a Rust unit struct, a C forward
+					// declaration.
+					closeType()
+				default:
+					// The brace is on a later line. A Java or TypeScript
+					// declaration long enough to wrap is the ordinary way to
+					// arrive here, and closing the type now lost its members
+					// and its bases together.
+					pending = true
 				}
 			}
 			continue
@@ -191,29 +215,67 @@ func scanTypes(g *core.Graph, scan *typeScan, lines, codeLines []string, fileID,
 		if current == "" {
 			continue
 		}
-		// Where the body ends is settled before what is on the line is read.
-		// A `def` at the class's own indentation is the first thing after the
-		// class, not the last thing in it, and attributing it first made every
-		// following function a method.
-		if !braced && strings.TrimSpace(text) != "" && indentation(lines[line]) <= declIndent {
-			current, currentName = "", ""
+
+		if pending {
+			// Still reading the declaration, so what is on this line is part
+			// of it: the bases of a wrapped `extends … implements …` are here
+			// rather than on the line that named the type.
+			note(basesFrom(text, currentName))
+			switch {
+			case strings.Contains(text, "{"):
+				depth, pending = braceDelta(text), false
+				if depth <= 0 {
+					closeType()
+				}
+			case endsStatement(text):
+				closeType()
+			}
 			continue
 		}
 
-		// A function declared inside a type is a method on it.
+		if !braced && strings.TrimSpace(text) != "" && indentation(lines[line]) <= declIndent {
+			// Where the body ends is settled before what is on the line is
+			// read. A `def` at the class's own indentation is the first thing
+			// after the class, not the last thing in it.
+			closeType()
+			continue
+		}
+
 		if fn, isFn := functionName(text, lang); isFn {
-			scan.methods = append(scan.methods, pendingMethod{
-				receiver: currentName, function: fileID + "#" + fn, dir: dir,
-			})
+			// Directly in the body, and not in a method's. A function nested
+			// inside a method is that method's business, and a class does not
+			// declare it.
+			at := indentation(lines[line])
+			member := false
+			if braced {
+				member = depth == 1
+			} else if memberIndent < 0 {
+				memberIndent, member = at, true
+			} else {
+				member = at == memberIndent
+			}
+			if member {
+				owner[line] = currentName
+				scan.methods = append(scan.methods, pendingMethod{
+					receiver: currentName, function: fileID + "#" + currentName + "." + fn, dir: dir,
+				})
+			}
 		}
 
 		if braced {
 			depth += braceDelta(text)
 			if depth <= 0 && strings.Contains(text, "}") {
-				current, currentName = "", ""
+				closeType()
 			}
 		}
 	}
+	return owner
+}
+
+// endsStatement reports whether a line finishes what it started, which is how a
+// declaration with no body is told from one whose body is on the next line.
+func endsStatement(text string) bool {
+	return strings.HasSuffix(strings.TrimSpace(text), ";")
 }
 
 type declaredBase struct{ relation, name string }
@@ -294,39 +356,82 @@ func typeDeclaration(text, lang string) (name, kind string, bases []declaredBase
 	if kind == "type" {
 		kind = "alias"
 	}
+	return name, kind, basesFrom(text, name), true
+}
 
-	// Type parameters come off before the bases are read. `class Box<T extends
-	// Number>` bounds a parameter and names no base, and `implements
-	// Map<String, Integer>` implements one interface rather than two — both
-	// went wrong by reading the angle brackets as part of the declaration.
+// basesFrom reads the types a declaration says it descends from or implements.
+//
+// It is separate from typeDeclaration because a declaration long enough to wrap
+// puts its bases on the next line, and the same reading has to work there.
+func basesFrom(text, name string) []declaredBase {
+	// Type parameters come off first. `class Box<T extends Number>` bounds a
+	// parameter and names no base, and `implements Map<String, Integer>`
+	// implements one interface rather than two — both went wrong by reading
+	// the angle brackets as part of the declaration.
 	text = strip(text)
 
+	var bases []declaredBase
 	if e := extendsRe.FindStringSubmatch(text); len(e) > 1 {
-		bases = append(bases, declaredBase{RelationExtends, e[1]})
-	}
-	if i := implsRe.FindStringSubmatch(text); len(i) > 1 {
-		for one := range strings.SplitSeq(i[1], ",") {
-			if n := baseName.FindString(strings.TrimSpace(one)); n != "" {
-				bases = append(bases, declaredBase{RelationImplements, n})
-			}
+		// A list, because an interface may extend several. The `implements`
+		// clause was already read as a list and this one was not, which made
+		// the two halves of the same sentence behave differently.
+		//
+		// The `extends` clause ends where `implements` begins. Cutting it here
+		// rather than letting the word fall out of splitBases keeps the two
+		// clauses from reading each other's names.
+		list := e[1]
+		if at := implsAt.FindStringIndex(list); at != nil {
+			list = list[:at[0]]
+		}
+		for _, one := range splitBases(list) {
+			bases = append(bases, declaredBase{RelationExtends, one})
 		}
 	}
-	// The colon form. Kotlin, Swift, Scala and C# write a base class and an
-	// interface the same way, so this cannot tell generalization from
+	if i := implsRe.FindStringSubmatch(text); len(i) > 1 {
+		for _, one := range splitBases(i[1]) {
+			bases = append(bases, declaredBase{RelationImplements, one})
+		}
+	}
+	// The colon form. Kotlin, Swift, Scala, C# and C++ write a base class and
+	// an interface the same way, so this cannot tell generalization from
 	// realization — and says extends rather than choosing one at random.
-	//
-	// Read from the stripped line, so a constraint inside angle brackets is
-	// not mistaken for a base.
 	if len(bases) == 0 {
 		if c := colonRe.FindStringSubmatch(text); len(c) > 1 {
-			for one := range strings.SplitSeq(c[1], ",") {
-				if n := baseName.FindString(strings.TrimSpace(one)); n != "" && n != name {
-					bases = append(bases, declaredBase{RelationExtends, n})
+			for _, one := range splitBases(c[1]) {
+				if one != name {
+					bases = append(bases, declaredBase{RelationExtends, one})
 				}
 			}
 		}
 	}
-	return name, kind, bases, true
+	return bases
+}
+
+// splitBases turns a base list into the names in it.
+//
+// C++ writes its access in the list — `class Derived : public Base` — and
+// taking the first word there named `public` as the base, which matches no type
+// and is dropped, so C++ inheritance produced no edge at all.
+func splitBases(list string) []string {
+	var out []string
+	for one := range strings.SplitSeq(list, ",") {
+		for _, word := range strings.Fields(one) {
+			if accessSpecifiers[word] {
+				continue
+			}
+			if n := baseName.FindString(word); n != "" {
+				out = append(out, n)
+			}
+			break
+		}
+	}
+	return out
+}
+
+// accessSpecifiers are written where a base's name goes and are not it.
+var accessSpecifiers = map[string]bool{
+	"public": true, "private": true, "protected": true, "internal": true,
+	"virtual": true, "open": true, "abstract": true, "override": true,
 }
 
 // resolveTypes joins what the files said about each other, once they have all
