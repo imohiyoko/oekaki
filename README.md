@@ -516,6 +516,16 @@ yet, and those modes refuse to start rather than pretending. Defaulting to
 `local` would put whoever did not think about it on the side without
 authentication, and not thinking about it is the common case.
 
+Binding loopback keeps the network out. It does not keep out the page in the
+tab next to this one — a name the attacker controls can be made to resolve to
+127.0.0.1 after their page has loaded, and the request that follows is
+same-origin as far as the browser is concerned. So the server also checks the
+name each request arrived under, and answers only to `localhost`, `127.0.0.1`
+and `::1`. A browser sends the name it was given and a script cannot change it,
+which is what makes that check worth having; a hostname of your own pointed at
+127.0.0.1 is refused along with the rest, and there is no flag to allow one
+because the flag would be the misconfiguration.
+
 ### Three directories, three kinds of thing
 
 Rendered pages are disposable — run the pipeline again and they are written
