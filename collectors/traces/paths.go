@@ -46,31 +46,57 @@ import (
 // Nothing here looks at what was sent or what came back. A route is who, in
 // what order, how often and when last — which is everything the unused list,
 // the silence and the unexpected route need, and none of it is customer data.
-func (d *Document) Paths() (paths []core.Path, counts []core.Observation, unordered []string) {
-	byTrace := map[string][]Span{}
-	order := []string{}
+func (d *Document) Paths() (paths []core.Path, readings [][]core.Observation, unordered []string) {
+	// What says these spans belong together.
+	//
+	// A trace id does. Without one, nothing joins two spans except that they
+	// arrived in the same file, and reading the whole file as one request is
+	// the invention: two unrelated walks become one tree, one service reached
+	// by two callers makes the lot unreadable, and every session in the file
+	// gets credited to every route in it. A session id is the only thing left
+	// that groups them, so it does the grouping — and spans carrying neither
+	// stay in the single bucket they were already in, where there is nothing
+	// to get wrong.
+	type bucket struct{ trace, session string }
+	byTrace := map[bucket][]Span{}
+	order := []bucket{}
 	for _, s := range d.Spans {
-		if _, seen := byTrace[s.TraceID]; !seen {
-			order = append(order, s.TraceID)
+		key := bucket{trace: s.TraceID}
+		if key.trace == "" {
+			key.session = s.SessionID
 		}
-		byTrace[s.TraceID] = append(byTrace[s.TraceID], s)
+		if _, seen := byTrace[key]; !seen {
+			order = append(order, key)
+		}
+		byTrace[key] = append(byTrace[key], s)
 	}
 
 	walked := map[string]int{}
 	nodes := map[string][]string{}
 	last := map[string]string{}
+	sessions := map[string]map[string]bool{}
 	keys := []string{}
 
 	for _, id := range order {
 		chains, ok := walks(byTrace[id])
 		if !ok {
-			unordered = append(unordered, id)
+			unordered = append(unordered, id.trace)
 			continue
 		}
+		// Every session the spans of this trace named, not the last one.
+		//
+		// One trace is usually one session, and then this set has one member.
+		// Nothing in the input promises it, though — and taking the last id
+		// where two were named would report two people as one, which is the
+		// failure this reading is for.
 		latest := ""
+		seen := map[string]bool{}
 		for _, s := range byTrace[id] {
 			if at := normalizeTime(s.ObservedAt); at > latest {
 				latest = at
+			}
+			if s.SessionID != "" {
+				seen[s.SessionID] = true
 			}
 		}
 		for _, chain := range chains {
@@ -86,6 +112,16 @@ func (d *Document) Paths() (paths []core.Path, counts []core.Observation, unorde
 			if latest > last[key] {
 				last[key] = latest
 			}
+			// Counted, not kept. How many distinct sessions walked a route is
+			// the difference between one person clicking four times and four
+			// people finding it, and it is a number — the value that told them
+			// apart is not written anywhere.
+			for session := range seen {
+				if sessions[key] == nil {
+					sessions[key] = map[string]bool{}
+				}
+				sessions[key][session] = true
+			}
 		}
 	}
 	sort.Strings(keys)
@@ -97,20 +133,32 @@ func (d *Document) Paths() (paths []core.Path, counts []core.Observation, unorde
 			Kind:  core.EdgeObserved,
 			Claim: &core.Claim{Origin: core.OriginParser, Note: "request traces"},
 		})
-		// The count is an observation rather than an attribute because it is a
-		// measurement over a window, and everything that already knows how to
-		// read a measurement — a threshold, a cutoff in the viewer, a
-		// disagreement between two collectors — knows how to read this one.
-		counts = append(counts, core.Observation{
+		// The counts are observations rather than attributes because they are
+		// measurements over a window, and everything that already knows how to
+		// read a measurement — a threshold, a rule, a cutoff in the viewer, a
+		// disagreement between two collectors — knows how to read these.
+		about := []core.Observation{{
 			Subject:    key,
 			Metric:     "path_requests",
 			Value:      &count,
 			Unit:       "requests",
 			ObservedAt: last[key],
 			Evidence:   &core.Claim{Origin: core.OriginParser, Note: "request traces"},
-		})
+		}}
+		if len(sessions[key]) > 0 {
+			distinct := float64(len(sessions[key]))
+			about = append(about, core.Observation{
+				Subject:    key,
+				Metric:     "path_sessions",
+				Value:      &distinct,
+				Unit:       "sessions",
+				ObservedAt: last[key],
+				Evidence:   &core.Claim{Origin: core.OriginParser, Note: "request traces"},
+			})
+		}
+		readings = append(readings, about)
 	}
-	return paths, counts, unordered
+	return paths, readings, unordered
 }
 
 // maxChainDepth and maxChainsPerTrace bound one trace.
