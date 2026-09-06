@@ -627,14 +627,13 @@ class Guarded:
 `,
 	})
 
-	for _, fn := range []string{"ordinary", "also"} {
+	// All three, including the guarded one. A `def` inside an `if` is still the
+	// class's method — what is not is a `def` inside a `def`, and that is the
+	// only distinction worth drawing here.
+	for _, fn := range []string{"ordinary", "also", "new_way"} {
 		if !related(g, "Guarded", RelationDeclares, "Guarded."+fn) {
-			t.Errorf("%s was hidden by the guarded definition above it", fn)
+			t.Errorf("%s is not a member of the class that declares it", fn)
 		}
-	}
-	// The nested one is not a member: it is inside the `if`, not in the body.
-	if related(g, "Guarded", RelationDeclares, "Guarded.new_way") {
-		t.Error("a definition nested inside a guard was made a member")
 	}
 }
 
@@ -672,5 +671,151 @@ func TestAQualifiedBaseDoesNotSwallowTheEntry(t *testing.T) {
 	})
 	if !related(g, "Derived", RelationExtends, "Base") {
 		t.Error("the base was lost behind the words in front of it")
+	}
+}
+
+// A call outside every class means the function of that name, not a method
+// that happens to share it.
+//
+// Reaching for the first declaration in the file let the method win where a
+// plain function existed, so the real function was left with nothing pointing
+// at it — and its own declaration line, which the call scanner reads too, drew
+// an edge from it to the method.
+func TestABareCallMeansTheBareFunction(t *testing.T) {
+	g := parsed(t, map[string]string{
+		"app/shadow.js": `class Box {
+  render() {}
+}
+export function render() {}
+export function main() { render(); }
+`,
+	})
+
+	calls := map[string]bool{}
+	for _, e := range g.Edges {
+		if e.Relation != "calls" {
+			continue
+		}
+		var from, to string
+		for _, n := range g.Nodes {
+			if n.ID == e.From {
+				from = n.Name
+			}
+			if n.ID == e.To {
+				to = n.Name
+			}
+		}
+		calls[from+" -> "+to] = true
+	}
+	if !calls["main -> render"] {
+		t.Errorf("the call to the function was not recovered: %v", calls)
+	}
+	for _, unwanted := range []string{"main -> Box.render", "render -> Box.render"} {
+		if calls[unwanted] {
+			t.Errorf("%q was invented", unwanted)
+		}
+	}
+}
+
+// A `def` inside an `if` is still the class's method. What is not is a `def`
+// inside a `def` — and that is the only distinction worth drawing, because
+// taking the shallowest instead threw away Ruby's singleton class and every
+// version-guarded definition beside an ordinary one.
+func TestADeeperDefinitionIsStillTheClassesUnlessAMethodEnclosesIt(t *testing.T) {
+	g := parsed(t, map[string]string{
+		"app/animal.rb": `class Animal
+  class << self
+    def create
+      new
+    end
+  end
+
+  def run
+    1
+  end
+end
+`,
+		"app/widget.py": `import sys
+
+
+class Widget:
+    def draw(self):
+        pass
+
+    if sys.version_info >= (3, 9):
+        def modern(self):
+            def helper():
+                pass
+            return helper
+`,
+	})
+
+	for _, fn := range []string{"create", "run"} {
+		if !related(g, "Animal", RelationDeclares, "Animal."+fn) {
+			t.Errorf("Animal.%s was dropped", fn)
+		}
+	}
+	for _, fn := range []string{"draw", "modern"} {
+		if !related(g, "Widget", RelationDeclares, "Widget."+fn) {
+			t.Errorf("Widget.%s was dropped", fn)
+		}
+	}
+	// And the one a method encloses is that method's business.
+	if related(g, "Widget", RelationDeclares, "Widget.helper") {
+		t.Error("a function nested in a method was made a member")
+	}
+}
+
+// A declaration that wrapped after `implements A,` goes on with a bare name.
+// The name means nothing without the clause it belongs to, and a continuation
+// judged only by the word it starts with read `B {` as something new — losing
+// the interface and the members together.
+func TestAWrappedBaseListGoesOnWithABareName(t *testing.T) {
+	g := parsed(t, map[string]string{
+		"app/Wrapped.java": `interface A {}
+interface B {}
+class Base {}
+
+public class Wrapped extends Base implements A,
+        B {
+    void go() {}
+}
+`,
+	})
+
+	if !related(g, "Wrapped", RelationExtends, "Base") {
+		t.Error("the base was lost")
+	}
+	for _, iface := range []string{"A", "B"} {
+		if !related(g, "Wrapped", RelationImplements, iface) {
+			t.Errorf("%s was lost from the wrapped list", iface)
+		}
+	}
+	if !related(g, "Wrapped", RelationDeclares, "Wrapped.go") {
+		t.Error("the member was lost with the wrapped declaration")
+	}
+}
+
+// The colon form on a line that does not name the type: the continuation of a
+// declaration whose parameter list was wrapped. Anchoring only on the shape
+// that names the type made this unreadable, which is the case the continuation
+// was added for.
+func TestAColonBaseIsReadFromAContinuationLine(t *testing.T) {
+	g := parsed(t, map[string]string{
+		"app/bar.kt": `open class Anchor
+
+class Bar(
+    private val a: Int
+) : Anchor {
+    fun run() {}
+}
+`,
+	})
+
+	if !related(g, "Bar", RelationExtends, "Anchor") {
+		t.Error("the base after the wrapped parameter list was lost")
+	}
+	if !related(g, "Bar", RelationDeclares, "Bar.run") {
+		t.Error("the member was lost with the wrapped declaration")
 	}
 }

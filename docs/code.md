@@ -121,15 +121,25 @@ next function in the file is the file's, not the type's. A declaration long
 enough to wrap, on the other hand, is still being written: its brace and often
 its bases are on a later line, and the type stays open until one arrives.
 
-Only what is directly in the body is a member. A function nested inside a
-method is that method's business, and the class does not declare it. Where a
-language has no braces to say so, the members are the functions at the
-shallowest indentation the body has — decided when the body ends, because which
-indentation is the class's own is not known until every function in it has been
-seen. A `def` inside an `if TYPE_CHECKING:` is not the measure.
+A member is a function the type declares, and the only thing that stops one
+from being a member is another function around it. A `def` inside an `if
+TYPE_CHECKING:` or a Ruby `class << self` is still the class's; a `def` inside a
+`def` is that method's business.
+
+A declaration that wraps is still being written. Its brace, its bases, and the
+rest of a list it stopped in the middle of are on the lines that follow, and the
+type stays open until one of them finishes it. A declaration that finishes
+without a body — Kotlin's `class Marker`, a Rust unit struct, a C forward
+declaration — is over where it started, and what comes next belongs to the file.
 
 A call written inside a type means that type's method when it has one of that
-name. Two classes in one file with a `paint` each call their own.
+name. Outside a type, it means the function of that name before anybody's
+method. Two classes in one file with a `paint` each call their own.
+
+What is written between a brace and its closing brace on the same line goes
+unread, because every function pattern here is anchored to the start of a line.
+That is a limit of reading code with regular expressions rather than of the
+scope tracking, and it is what `source.Register` is for.
 
 ## Adding a real parser
 
