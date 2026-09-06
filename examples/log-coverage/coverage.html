@@ -7945,6 +7945,8 @@ module.exports = Worker;
   // have; a name longer than that is drawn inside the same box.
   const BOX_HEIGHT = 46;
   const ICON = 15, ICON_GAP = 8;
+  // How many members a box lists before it says how many more there are.
+  const MEMBERS = 8;
 
   function nodeLabels(n) {
     let second = shortType(n.type);
@@ -7953,11 +7955,35 @@ module.exports = Worker;
     if (n.attrs && n.attrs.container && typeof n.attrs.members === 'number') {
       second += ` · ${n.attrs.members}`;
     }
+    // What kind of type it is. A class diagram that draws an interface and a
+    // struct the same way has lost the thing it was drawn for, and the two are
+    // one word apart in the document. Only for a type: `kind` means something
+    // else on a Kubernetes object, and the box there already says it.
+    if (n.type === 'code_type' && n.attrs && typeof n.attrs.kind === 'string' && n.attrs.kind) {
+      second = n.attrs.kind;
+    }
     const cov = COVERAGE[state(n)];
     if (cov && cov.badge) second += ' · ' + cov.badge;
     const name = nameOf(n);
     const first = name && name !== shortType(n.type) ? name : '';
-    return first ? [first, second] : [second];
+    return (first ? [first, second] : [second]).concat(declaredBy(n));
+  }
+
+  // What a type declares, listed inside its box.
+  //
+  // This is UML's own answer and it is the right one: a class with nine
+  // methods drawn as nine boxes is a picture of nine things, when it is a
+  // picture of one thing with nine methods. Nothing is lost — the file that
+  // contains the type contains its functions too, and that page still draws
+  // every one of them as a box a reader can open.
+  function declaredBy(n) {
+    const members = n.attrs && n.attrs.declares;
+    if (!Array.isArray(members) || !members.length) return [];
+    const shown = members.slice(0, MEMBERS).map((m) => String(m));
+    // A type with forty methods is a box the length of the page. The count
+    // says what was left out, so the box is honest about being a summary.
+    if (members.length > MEMBERS) shown.push(`… 他 ${members.length - MEMBERS} 件`);
+    return shown;
   }
 
   function nodeSize(n) {
@@ -7967,9 +7993,17 @@ module.exports = Worker;
     // Room for the chevron on a box that has an inside, or it is drawn over
     // the end of the name.
     const door = openingFor(n.id) ? 18 : 0;
+    // Every box is the same height until a document gives it members. That
+    // is not "the height follows the text" coming back: a longer name still
+    // changes nothing, because a two-line name is not a bigger thing than a
+    // one-line one. A list of members is a different claim — it is what the
+    // type declares — and a box that does not grow for it draws them outside
+    // itself.
+    const members = declaredBy(n);
+    const extra = members.length ? members.length * LINE + 8 : 0;
     return {
       width: sized.width || Math.max(104, Math.ceil(w) + PAD_X * 2 + ICON + ICON_GAP + door),
-      height: sized.height || BOX_HEIGHT,
+      height: sized.height || BOX_HEIGHT + extra,
     };
   }
 
@@ -8367,10 +8401,22 @@ module.exports = Worker;
           'font-weight': i === 0 ? 600 : 400,
           'font-family': 'Helvetica, Arial, sans-serif',
           fill: st.labelColor || '#1d2126',
+          opacity: i >= 2 ? 0.85 : 1,
         });
         t.textContent = line;
         parts.push(t);
       });
+
+      // The compartment rule. Two lines are a name and a note about it; a
+      // third is a list of members, and the line between them is what makes
+      // the box read as a class rather than as a name that ran on.
+      if (lines.length > 2) {
+        const [rx1, ry] = at(x, top + LINE * 2 - 5);
+        parts.push(el('line', {
+          x1: rx1, y1: ry, x2: rx1 + w * s, y2: ry,
+          stroke: this.stroke, 'stroke-width': 1 * s, opacity: 0.45,
+        }));
+      }
 
       if (st.fold) {
         const [sx, sy] = at(x + 4, y - 4);

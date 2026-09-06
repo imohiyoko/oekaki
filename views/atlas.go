@@ -58,6 +58,22 @@ const (
 	// KindSequence is one call chain in order. Where the order came from is on
 	// the diagram; see Diagram.Order.
 	KindSequence Kind = "sequence"
+
+	// KindClass is one type: what it declares, and the other types it says
+	// something about. It is the same shape a UML class diagram has, and it
+	// is derived from what the declarations state — never from comparing
+	// method sets, which is a type checker's job.
+	KindClass Kind = "class"
+)
+
+// The code graph's own vocabulary. A class diagram is a question about types,
+// and these are what a document has to carry for one to be derivable at all;
+// see docs/code.md.
+const (
+	codeType     = "code_type"
+	codeFunction = "code_function"
+
+	relDeclares = "declares"
 )
 
 // Where a sequence's order came from.
@@ -400,6 +416,12 @@ func (b *builder) detailOpening(id string) (Opening, bool) {
 	if len(held) == 0 && called > 0 {
 		kind, label = KindCommunication, "呼び出し関係"
 	}
+	// A type is drawn as a class. It is the same page — one element has one
+	// inside — read the way the thing itself is written: members listed in the
+	// box, and a line to every other type the declaration mentions.
+	if n, ok := b.in.Node(id); ok && n.Type == codeType {
+		kind, label = KindClass, "クラス図"
+	}
 	return Opening{Element: id, Diagram: detailID(id), Kind: kind, Label: label}, true
 }
 
@@ -441,9 +463,48 @@ func (b *builder) detail(id string) error {
 	centre.Groups = nil
 	g.Nodes = append(g.Nodes, centre)
 
-	members := append(append([]string{}, held...), touched...)
-	sort.Strings(members)
-	for _, other := range dedupe(members) {
+	members := dedupe(sorted(append(append([]string{}, held...), touched...)))
+
+	// A class lists what it declares and draws what it relates to.
+	//
+	// UML puts members inside the box, and it is right to: a class with nine
+	// methods drawn as nine boxes is a picture of nine things, when it is a
+	// picture of one thing with nine methods. Nothing is lost by listing them
+	// — the file that contains the type contains its functions too, and that
+	// page still draws every one of them as a box a reader can open.
+	if centre.Type == codeType {
+		var drawn []string
+		var declares []string
+		for _, other := range members {
+			n, ok := b.in.Node(other)
+			if !ok {
+				continue
+			}
+			if n.Type == codeFunction && b.relates(id, other, relDeclares) {
+				// Inside the class the receiver is the box it is written in,
+				// so "Rule.check" is "check". The function keeps its full name
+				// everywhere else, where it needs to say whose it is.
+				declares = append(declares,
+					strings.TrimPrefix(orDefault(n.Name, n.ID), centre.Name+"."))
+				continue
+			}
+			if n.Type == codeType {
+				drawn = append(drawn, other)
+			}
+		}
+		members = drawn
+		if len(declares) > 0 {
+			if centre.Attrs == nil {
+				centre.Attrs = map[string]any{}
+			} else {
+				centre.Attrs = cloneAttrs(centre.Attrs)
+			}
+			centre.Attrs["declares"] = declares
+		}
+		g.Nodes[0] = centre
+	}
+
+	for _, other := range members {
 		n, ok := b.in.Node(other)
 		if !ok {
 			continue
@@ -489,7 +550,7 @@ func (b *builder) detail(id string) error {
 		Title: orDefault(subject.Name, subject.ID), Subtitle: subject.Type,
 		Parent: b.levelOf(id), Origin: id,
 	}
-	for _, other := range dedupe(members) {
+	for _, other := range members {
 		if nested, ok := b.detailOpening(other); ok {
 			d.Opens = append(d.Opens, nested)
 		}
@@ -502,12 +563,32 @@ func (b *builder) detail(id string) error {
 	if err := b.sequence(id, open.Diagram); err != nil {
 		return err
 	}
-	for _, other := range dedupe(members) {
+	for _, other := range members {
 		if err := b.detail(other); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// relates reports whether the document joins two elements by one relation.
+func (b *builder) relates(from, to, relation string) bool {
+	for _, e := range b.in.Edges {
+		if e.Suppressed || e.Relation != relation {
+			continue
+		}
+		if e.From == from && e.To == to {
+			return true
+		}
+	}
+	return false
+}
+
+// sorted is sort.Strings with a value to hand back, for the places where the
+// list is built and used in one expression.
+func sorted(in []string) []string {
+	sort.Strings(in)
+	return in
 }
 
 func (b *builder) sequenceOpening(id string) (Opening, bool) {

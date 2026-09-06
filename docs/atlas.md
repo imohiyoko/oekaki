@@ -17,6 +17,11 @@ level:                 the estate: containers as boxes
        └ sequence:svc:api   one call chain, in order
 ```
 
+A code graph descends the same way, and a **type** opens as a class diagram
+rather than as the generic inside-of-a-box page — one element still has one
+inside, read the way the thing itself is written. See
+[code.md](code.md#clicking-a-type).
+
 ```console
 $ oekaki render plan.json -f html --atlas -o estate.html
 ```
