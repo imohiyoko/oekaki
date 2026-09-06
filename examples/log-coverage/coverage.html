@@ -7754,9 +7754,11 @@ module.exports = Worker;
       // coverage means nobody knows — so dropping it turns a box everybody
       // has looked at into one nobody has.
       if (agreed((m) => (m.coverage ? m.coverage.state : ''))) box.coverage = members[0].coverage;
-      if (agreed((m) => (m.claim ? m.claim.origin + '\u0000' + (m.claim.author || '') : ''))) {
-        box.claim = members[0].claim;
-      }
+      // The claim is assembled field by field, the way it is in Go. Comparing
+      // only the origin and the author would let a box show one member's note
+      // — or one member's confidence — as though it had been said about all of
+      // them, and a reader has no way to tell that it was not.
+      box.claim = agreedClaim(members);
       const groups = {};
       for (const axisID of Object.keys(members[0].groups || {})) {
         const path = agreed((m) => (m.groups || {})[axisID]);
@@ -7777,6 +7779,35 @@ module.exports = Worker;
     }
   }
   const foldFor = (id) => foldRecords.find((f) => f.stands === id) || null;
+
+  // The part of a group's claims that all of them made. An absent claim means
+  // a parser found it, so a fold of things nobody claimed claims nothing; a
+  // field the members disagree about is left off, which is what an absent
+  // optional field means here anyway. An unstated confidence is not a
+  // confidence of zero, so the two are told apart.
+  function agreedClaim(members) {
+    const claims = members.map((m) => m.claim || null);
+    if (!claims.some(Boolean)) return undefined;
+
+    const origin = (c) => (c ? c.origin : 'parser');
+    if (!claims.every((c) => origin(c) === origin(claims[0]))) return undefined;
+
+    const out = {origin: origin(claims[0])};
+    const agreesOn = (of) => {
+      const first = of(claims[0]);
+      return claims.every((c) => of(c) === first) ? {value: first} : null;
+    };
+    const author = agreesOn((c) => (c && c.author) || '');
+    if (author && author.value) out.author = author.value;
+    const note = agreesOn((c) => (c && c.note) || '');
+    if (note && note.value) out.note = note.value;
+    const confidence = agreesOn((c) =>
+      c && c.confidence !== undefined ? String(c.confidence) : 'unstated');
+    if (confidence && claims[0] && claims[0].confidence !== undefined) {
+      out.confidence = claims[0].confidence;
+    }
+    return out;
+  }
 
   // Assertions made in this session are drawn, but they are not written into
   // `graph`: that object is what the input said, and the export is what makes

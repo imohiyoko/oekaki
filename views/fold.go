@@ -382,25 +382,99 @@ func standIn(f Folded, members map[string]core.Node, internal int) core.Node {
 		n.Coverage = members[f.Members[0]].Coverage
 	}
 
-	// A box standing for one thing a person asserted and three a parser found
-	// is not an assertion, and drawing it as one would put somebody's name on
-	// three things they never said.
-	if agreed(func(m core.Node) string { return claimKey(m.Claim) }) != "" || onlyParsers(f, members) {
-		n.Claim = members[f.Members[0]].Claim
-	}
+	n.Claim = agreedClaim(f, members)
 	return n
 }
 
-// onlyParsers reports whether every member's claim is absent, which is the
-// common case and the one agreed() cannot tell from disagreement.
-func onlyParsers(f Folded, members map[string]core.Node) bool {
+// agreedClaim is the part of its members' claims that all of them made.
+//
+// A box standing for one thing a person asserted and three a parser found is
+// not an assertion, and drawing it as one would put somebody's name on three
+// things they never said. That much is obvious. The quieter version of the
+// same mistake is a claim whose origin and author agree but whose note or
+// confidence do not: the box would then show one member's sentence as though
+// it were said about all of them, and a reader has no way to tell.
+//
+// So the claim is assembled field by field. Every field the members agree on
+// survives; every field they do not agree on is left off, which is the honest
+// thing to say about it and is exactly what an absent optional field means
+// here. An unstated confidence is not the same as a confidence of zero, so
+// the two are told apart rather than compared as numbers.
+func agreedClaim(f Folded, members map[string]core.Node) *core.Claim {
+	claims := make([]*core.Claim, 0, len(f.Members))
 	for _, id := range f.Members {
-		if m, ok := members[id]; ok && m.Claim != nil {
-			return false
+		if m, ok := members[id]; ok {
+			claims = append(claims, m.Claim)
 		}
 	}
-	return true
+	if len(claims) == 0 {
+		return nil
+	}
+
+	// Absent means a parser found it, which is the overwhelmingly common case
+	// and costs no bytes. A fold of things nobody claimed claims nothing.
+	stated := false
+	for _, c := range claims {
+		if c != nil {
+			stated = true
+		}
+	}
+	if !stated {
+		return nil
+	}
+
+	origin := func(c *core.Claim) core.Origin {
+		if c == nil {
+			return originOfAbsentClaim
+		}
+		return c.Origin
+	}
+	for _, c := range claims[1:] {
+		if origin(c) != origin(claims[0]) {
+			return nil
+		}
+	}
+	out := &core.Claim{Origin: origin(claims[0])}
+
+	agreesOn := func(of func(*core.Claim) string) (string, bool) {
+		first := of(claims[0])
+		for _, c := range claims[1:] {
+			if of(c) != first {
+				return "", false
+			}
+		}
+		return first, true
+	}
+	if author, same := agreesOn(func(c *core.Claim) string {
+		if c == nil {
+			return ""
+		}
+		return c.Author
+	}); same {
+		out.Author = author
+	}
+	if note, same := agreesOn(func(c *core.Claim) string {
+		if c == nil {
+			return ""
+		}
+		return c.Note
+	}); same {
+		out.Note = note
+	}
+	if _, same := agreesOn(func(c *core.Claim) string {
+		if c == nil || c.Confidence == nil {
+			return "unstated"
+		}
+		return fmt.Sprintf("%v", *c.Confidence)
+	}); same && claims[0] != nil {
+		out.Confidence = claims[0].Confidence
+	}
+	return out
 }
+
+// originOfAbsentClaim is what a missing claim means: a parser derived it from
+// an input file.
+const originOfAbsentClaim = core.OriginParser
 
 // twins finds boxes that are the same thing, in the same place, joined to the
 // same things.
@@ -502,6 +576,12 @@ func coverageOf(n core.Node) string {
 	return string(n.Coverage.State)
 }
 
+// claimKey is who said so, for the purpose of deciding whether two boxes are
+// the same kind of thing. It is deliberately coarser than the claim itself:
+// two things the same person asserted with different notes are still two
+// things that person asserted, and a fold should not be prevented by a
+// sentence. What the *box* then carries is settled separately, field by
+// field, by agreedClaim.
 func claimKey(c *core.Claim) string {
 	if c == nil {
 		return ""
