@@ -19,6 +19,16 @@ type Span struct {
 	SpanID       string `json:"span_id,omitempty"`
 	ParentSpanID string `json:"parent_span_id,omitempty"`
 
+	// SessionID is what ties several requests together: the same person, the
+	// same job, the same run of a batch. A trace is one request; a session is
+	// the reason there were four.
+	//
+	// It is an opaque string and stays one. Whether it identifies a person is
+	// the caller's business and the caller's risk — this side only ever counts
+	// distinct values, never stores them, and nothing derived from it reaches
+	// the graph except a number.
+	SessionID string `json:"session_id,omitempty"`
+
 	Service       string  `json:"service"`
 	ParentService string  `json:"parent_service,omitempty"`
 	Operation     string  `json:"operation,omitempty"`

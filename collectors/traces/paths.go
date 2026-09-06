@@ -46,7 +46,7 @@ import (
 // Nothing here looks at what was sent or what came back. A route is who, in
 // what order, how often and when last — which is everything the unused list,
 // the silence and the unexpected route need, and none of it is customer data.
-func (d *Document) Paths() (paths []core.Path, counts []core.Observation, unordered []string) {
+func (d *Document) Paths() (paths []core.Path, readings [][]core.Observation, unordered []string) {
 	byTrace := map[string][]Span{}
 	order := []string{}
 	for _, s := range d.Spans {
@@ -59,6 +59,7 @@ func (d *Document) Paths() (paths []core.Path, counts []core.Observation, unorde
 	walked := map[string]int{}
 	nodes := map[string][]string{}
 	last := map[string]string{}
+	sessions := map[string]map[string]bool{}
 	keys := []string{}
 
 	for _, id := range order {
@@ -67,10 +68,13 @@ func (d *Document) Paths() (paths []core.Path, counts []core.Observation, unorde
 			unordered = append(unordered, id)
 			continue
 		}
-		latest := ""
+		latest, session := "", ""
 		for _, s := range byTrace[id] {
 			if at := normalizeTime(s.ObservedAt); at > latest {
 				latest = at
+			}
+			if s.SessionID != "" {
+				session = s.SessionID
 			}
 		}
 		for _, chain := range chains {
@@ -86,6 +90,16 @@ func (d *Document) Paths() (paths []core.Path, counts []core.Observation, unorde
 			if latest > last[key] {
 				last[key] = latest
 			}
+			// Counted, not kept. How many distinct sessions walked a route is
+			// the difference between one person clicking four times and four
+			// people finding it, and it is a number — the value that told them
+			// apart is not written anywhere.
+			if session != "" {
+				if sessions[key] == nil {
+					sessions[key] = map[string]bool{}
+				}
+				sessions[key][session] = true
+			}
 		}
 	}
 	sort.Strings(keys)
@@ -97,20 +111,32 @@ func (d *Document) Paths() (paths []core.Path, counts []core.Observation, unorde
 			Kind:  core.EdgeObserved,
 			Claim: &core.Claim{Origin: core.OriginParser, Note: "request traces"},
 		})
-		// The count is an observation rather than an attribute because it is a
-		// measurement over a window, and everything that already knows how to
-		// read a measurement — a threshold, a cutoff in the viewer, a
-		// disagreement between two collectors — knows how to read this one.
-		counts = append(counts, core.Observation{
+		// The counts are observations rather than attributes because they are
+		// measurements over a window, and everything that already knows how to
+		// read a measurement — a threshold, a rule, a cutoff in the viewer, a
+		// disagreement between two collectors — knows how to read these.
+		about := []core.Observation{{
 			Subject:    key,
 			Metric:     "path_requests",
 			Value:      &count,
 			Unit:       "requests",
 			ObservedAt: last[key],
 			Evidence:   &core.Claim{Origin: core.OriginParser, Note: "request traces"},
-		})
+		}}
+		if len(sessions[key]) > 0 {
+			distinct := float64(len(sessions[key]))
+			about = append(about, core.Observation{
+				Subject:    key,
+				Metric:     "path_sessions",
+				Value:      &distinct,
+				Unit:       "sessions",
+				ObservedAt: last[key],
+				Evidence:   &core.Claim{Origin: core.OriginParser, Note: "request traces"},
+			})
+		}
+		readings = append(readings, about)
 	}
-	return paths, counts, unordered
+	return paths, readings, unordered
 }
 
 // maxChainDepth and maxChainsPerTrace bound one trace.
