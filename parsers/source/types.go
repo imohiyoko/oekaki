@@ -150,27 +150,54 @@ func declareType(g *core.Graph, scan *typeScan, fileID, name, kind, lang, rel st
 	return id
 }
 
+// fileTypes is what one pass over a file learned about the types in it.
+type fileTypes struct {
+	// method is the type whose method a line declares. It names the function
+	// node, because a method has to say whose it is.
+	method map[int]string
+
+	// inside is the type a line sits in, whether or not it declares anything.
+	// A call written in a method body means that type's method when it has
+	// one, and only this says which type that is.
+	inside map[int]string
+}
+
+// declaredIn is the type a line belongs to, or "".
+func (f *fileTypes) declaredIn(line int) string {
+	if f == nil {
+		return ""
+	}
+	return f.inside[line]
+}
+
 // scanTypes reads the type declarations of one file no AST parser handled, and
-// the functions declared inside them. It returns, for each line that declares a
-// method, the type it belongs to — because the name a method goes into the
-// graph under has to say whose it is, and only this pass knows.
+// the functions declared inside them.
 //
 // The scope tracking is the same shape as the call scanner's: a declaration
 // opens a scope, and braces or indentation close it. A type declared inside
 // another is not followed — it is rare enough that reading it wrong is worse
 // than not reading it.
-func scanTypes(g *core.Graph, scan *typeScan, lines, codeLines []string, fileID, rel, lang string) map[int]string {
+func scanTypes(g *core.Graph, scan *typeScan, lines, codeLines []string, fileID, rel, lang string) *fileTypes {
 	braced := isBraceDelimitedLanguage(lang)
 	dir := filepath.ToSlash(filepath.Dir(rel))
-	owner := map[int]string{}
+	out := &fileTypes{method: map[int]string{}, inside: map[int]string{}}
 
 	current, currentName := "", ""
-	// depth is how deep inside the type's braces we are; pending means the
-	// declaration has been read but its body has not opened yet, because the
-	// brace is on a later line.
-	depth := 0
+	// depth is how deep inside the type's braces we are. pending means the
+	// declaration has been read and its body has not opened yet, because the
+	// declaration is still being written on the lines that follow.
+	depth, parens := 0, 0
 	pending := false
-	declIndent, memberIndent := 0, -1
+	declIndent := 0
+
+	// Members are collected and decided at the end of the body, not as they
+	// are met: which indentation is the type's own is not known until they
+	// have all been seen.
+	type candidate struct {
+		line, indent int
+		name         string
+	}
+	var found []candidate
 
 	note := func(bases []declaredBase) {
 		for _, b := range bases {
@@ -179,36 +206,71 @@ func scanTypes(g *core.Graph, scan *typeScan, lines, codeLines []string, fileID,
 			})
 		}
 	}
-	closeType := func() { current, currentName, pending = "", "", false }
+
+	// closeType finishes a type: it decides which of the functions inside it
+	// were its members, and then forgets it.
+	//
+	// The shallowest wins. Latching onto the first function seen instead threw
+	// away every real member of a class whose first `def` was inside an `if
+	// TYPE_CHECKING:` — which is an ordinary thing to write, and the class
+	// went quiet without saying so.
+	closeType := func() {
+		if len(found) > 0 {
+			shallowest := found[0].indent
+			for _, c := range found {
+				if c.indent < shallowest {
+					shallowest = c.indent
+				}
+			}
+			for _, c := range found {
+				// Braces already said which functions are directly in the
+				// body; indentation is the only measure the other languages
+				// have, and there the deeper ones are somebody else's.
+				if !braced && c.indent != shallowest {
+					continue
+				}
+				out.method[c.line] = currentName
+				scan.methods = append(scan.methods, pendingMethod{
+					receiver: currentName,
+					function: fileID + "#" + currentName + "." + c.name,
+					dir:      dir,
+				})
+			}
+		}
+		found = nil
+		current, currentName, pending = "", "", false
+		depth, parens = 0, 0
+	}
 
 	for line, text := range codeLines {
-		name, kind, bases, ok := typeDeclaration(text, lang)
-		if ok {
+		if name, kind, bases, ok := typeDeclaration(text, lang); ok {
+			closeType()
 			current = declareType(g, scan, fileID, name, kind, lang, rel, line+1)
 			currentName = name
 			note(bases)
-			declIndent, memberIndent = indentation(lines[line]), -1
-			depth, pending = 0, false
-			if braced {
-				switch {
-				case strings.Contains(text, "{"):
-					depth = braceDelta(text)
-					// A body that opens and closes on its own line is over
-					// where it started.
-					if depth <= 0 {
-						closeType()
-					}
-				case endsStatement(text):
-					// No body at all: a Rust unit struct, a C forward
-					// declaration.
+			declIndent = indentation(lines[line])
+			out.inside[line] = name
+			if !braced {
+				continue
+			}
+			parens = parenDelta(text)
+			switch {
+			case strings.Contains(text, "{"):
+				depth = braceDelta(text)
+				// A body that opens and closes on its own line is over where
+				// it started.
+				if depth <= 0 {
 					closeType()
-				default:
-					// The brace is on a later line. A Java or TypeScript
-					// declaration long enough to wrap is the ordinary way to
-					// arrive here, and closing the type now lost its members
-					// and its bases together.
-					pending = true
 				}
+			case endsStatement(text):
+				// No body at all: a Rust unit struct, a C forward declaration.
+				closeType()
+			default:
+				// Either the declaration is still being written — a Java or
+				// TypeScript one long enough to wrap — or it never had a body,
+				// which is how Kotlin writes `class Marker`. Which of the two
+				// is decided by the line that follows.
+				pending = true
 			}
 			continue
 		}
@@ -217,10 +279,20 @@ func scanTypes(g *core.Graph, scan *typeScan, lines, codeLines []string, fileID,
 		}
 
 		if pending {
-			// Still reading the declaration, so what is on this line is part
-			// of it: the bases of a wrapped `extends … implements …` are here
-			// rather than on the line that named the type.
+			if strings.TrimSpace(text) == "" {
+				continue
+			}
+			// A declaration continues where the next line goes on with it. A
+			// line that starts something else means the declaration was
+			// finished and had no body — and everything after it belongs to
+			// the file, not to the type.
+			if !continuesDeclaration(text) && parens <= 0 {
+				closeType()
+				continue
+			}
 			note(basesFrom(text, currentName))
+			out.inside[line] = currentName
+			parens += parenDelta(text)
 			switch {
 			case strings.Contains(text, "{"):
 				depth, pending = braceDelta(text), false
@@ -240,26 +312,13 @@ func scanTypes(g *core.Graph, scan *typeScan, lines, codeLines []string, fileID,
 			closeType()
 			continue
 		}
+		out.inside[line] = currentName
 
-		if fn, isFn := functionName(text, lang); isFn {
-			// Directly in the body, and not in a method's. A function nested
-			// inside a method is that method's business, and a class does not
-			// declare it.
-			at := indentation(lines[line])
-			member := false
-			if braced {
-				member = depth == 1
-			} else if memberIndent < 0 {
-				memberIndent, member = at, true
-			} else {
-				member = at == memberIndent
-			}
-			if member {
-				owner[line] = currentName
-				scan.methods = append(scan.methods, pendingMethod{
-					receiver: currentName, function: fileID + "#" + currentName + "." + fn, dir: dir,
-				})
-			}
+		if fn, isFn := functionName(text, lang); isFn && (!braced || depth == 1) {
+			// depth == 1 is "directly in the body". A function nested inside a
+			// method is that method's business, and a class does not declare
+			// it.
+			found = append(found, candidate{line: line, indent: indentation(lines[line]), name: fn})
 		}
 
 		if braced {
@@ -269,13 +328,37 @@ func scanTypes(g *core.Graph, scan *typeScan, lines, codeLines []string, fileID,
 			}
 		}
 	}
-	return owner
+	closeType()
+	return out
+}
+
+// continuesDeclaration reports whether a line goes on with the declaration
+// above it rather than starting something of its own.
+func continuesDeclaration(text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" {
+		return false
+	}
+	// A body brace on a line of its own.
+	if strings.HasPrefix(t, "{") {
+		return true
+	}
+	for _, prefix := range []string{"extends", "implements", "where", "permits", ":", ",", ")", "&"} {
+		if strings.HasPrefix(t, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // endsStatement reports whether a line finishes what it started, which is how a
 // declaration with no body is told from one whose body is on the next line.
 func endsStatement(text string) bool {
 	return strings.HasSuffix(strings.TrimSpace(text), ";")
+}
+
+func parenDelta(s string) int {
+	return strings.Count(s, "(") - strings.Count(s, ")")
 }
 
 type declaredBase struct{ relation, name string }
@@ -414,18 +497,52 @@ func basesFrom(text, name string) []declaredBase {
 // and is dropped, so C++ inheritance produced no edge at all.
 func splitBases(list string) []string {
 	var out []string
-	for one := range strings.SplitSeq(list, ",") {
+	for _, one := range splitOutsideParens(list) {
 		for _, word := range strings.Fields(one) {
 			if accessSpecifiers[word] {
 				continue
 			}
 			if n := baseName.FindString(word); n != "" {
 				out = append(out, n)
+				break
 			}
-			break
+			// A word that is not a name and not an access specifier — a `::`
+			// qualifier, a decorator — is not the end of the entry. Stopping
+			// on it dropped the entry without saying so.
 		}
 	}
 	return out
+}
+
+// splitOutsideParens splits a base list on the commas that separate its
+// entries, which are the ones no parenthesis encloses.
+//
+// A comma inside parentheses is an argument separator. `class Foo extends
+// mixin(A, B)` names one thing — a call — and splitting on every comma read
+// its second argument as a second base, which is a relation to a type the
+// declaration never claimed. Kotlin's `: Base()` is the same shape and does
+// name a base, and nothing here can tell those apart by syntax; taking the
+// name in front of the parenthesis is right for one and harmlessly wrong for
+// the other, because "mixin" matches no type and is dropped.
+func splitOutsideParens(list string) []string {
+	var out []string
+	depth, at := 0, 0
+	for i, r := range list {
+		switch r {
+		case '(', '[', '<':
+			depth++
+		case ')', ']', '>':
+			if depth > 0 {
+				depth--
+			}
+		case ',':
+			if depth == 0 {
+				out = append(out, list[at:i])
+				at = i + 1
+			}
+		}
+	}
+	return append(out, list[at:])
 }
 
 // accessSpecifiers are written where a base's name goes and are not it.

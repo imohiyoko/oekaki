@@ -224,7 +224,7 @@ func parseFile(g *core.Graph, path, fileID, root string, scan *typeScan) error {
 	// classes that both declare `run` has two methods, and a single node named
 	// `run` made them one — every class in the file declaring the same box, and
 	// clicking a member taking the reader to another class's page.
-	owner := scanTypes(g, scan, lines, codeLines, fileID, filepath.ToSlash(mustRel(root, path)), lang)
+	types := scanTypes(g, scan, lines, codeLines, fileID, filepath.ToSlash(mustRel(root, path)), lang)
 
 	funcs := map[string]string{}
 	// What a call written by name resolves to. It is the name as written, so
@@ -235,7 +235,7 @@ func parseFile(g *core.Graph, path, fileID, root string, scan *typeScan) error {
 	for line, text := range codeLines {
 		raw, ok := functionName(text, lang)
 		if ok {
-			name := qualify(owner, line, raw)
+			name := qualify(types.method, line, raw)
 			id := fileID + "#" + name
 			if _, exists := funcs[name]; !exists {
 				funcs[name] = id
@@ -259,7 +259,7 @@ func parseFile(g *core.Graph, path, fileID, root string, scan *typeScan) error {
 	for line, text := range codeLines {
 		declared := false
 		if raw, ok := functionName(text, lang); ok {
-			current = funcs[qualify(owner, line, raw)]
+			current = funcs[qualify(types.method, line, raw)]
 			depth = 0
 			if braceDelimited {
 				depth = braceDelta(text)
@@ -269,7 +269,7 @@ func parseFile(g *core.Graph, path, fileID, root string, scan *typeScan) error {
 		}
 		if current != "" {
 			for _, match := range callExpr.FindAllStringSubmatch(text, -1) {
-				if to, exists := byName[match[1]]; exists && to != current {
+				if to, exists := resolveCall(funcs, byName, types.declaredIn(line), match[1]); exists && to != current {
 					g.Edges = append(g.Edges, core.Edge{From: current, To: to, Kind: core.EdgeIACRef, Relation: "calls", Attrs: map[string]any{"language": language(path), "reference_kind": "application", "resolution": "static_same_file"}})
 				}
 			}
@@ -438,6 +438,27 @@ func qualify(owner map[int]string, line int, name string) string {
 		return t + "." + name
 	}
 	return name
+}
+
+// resolveCall is what a call written by name refers to.
+//
+// Inside a type, its own method first. A call to `paint()` written in one class
+// means that class's paint, and resolving it by the bare name reached whichever
+// class happened to be declared first — including from a method's own
+// declaration line, which the scanner reads for calls too, so a class was drawn
+// calling another class's method of the same name for no reason at all.
+//
+// Outside a type, or when the type has no such method, the bare name: a call
+// says the name it was written with, and the first declaration of it wins,
+// which is what happened before there were methods to tell apart.
+func resolveCall(funcs, byName map[string]string, inside, name string) (string, bool) {
+	if inside != "" {
+		if id, ok := funcs[inside+"."+name]; ok {
+			return id, true
+		}
+	}
+	id, ok := byName[name]
+	return id, ok
 }
 
 func parseGoFile(g *core.Graph, path, fileID, root string, scan *typeScan) error {
