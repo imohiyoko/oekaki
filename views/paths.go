@@ -310,6 +310,77 @@ func Paths(g *core.Graph, opts PathOptions) ([]Finding, error) {
 	return out, nil
 }
 
+type hop struct {
+	to   string
+	kind core.EdgeKind
+}
+
+// callGraph reads the declared calls out of a document: what leads where, and
+// which of those are where a route can start.
+//
+// It is separate from DeclarePaths because two things need the same reading of
+// the same edges — the derivation itself, and the explanation of why it found
+// nothing. An explanation worked out from a second, similar scan is an
+// explanation that goes wrong the first time somebody changes what counts as a
+// call.
+func callGraph(g *core.Graph) (next map[string][]hop, roots []string, calls int) {
+	next = map[string][]hop{}
+	called := map[string]bool{}
+	starts := map[string]bool{}
+	for _, e := range g.Edges {
+		if e.Suppressed || e.Kind == core.EdgeObserved || !isCall(e) {
+			continue
+		}
+		if _, ok := g.Node(e.From); !ok {
+			continue
+		}
+		if _, ok := g.Node(e.To); !ok {
+			continue
+		}
+		next[e.From] = append(next[e.From], hop{e.To, e.Kind})
+		called[e.To] = true
+		starts[e.From] = true
+		calls++
+	}
+	roots = make([]string, 0, len(starts))
+	for id := range starts {
+		if !called[id] {
+			roots = append(roots, id)
+		}
+	}
+	sort.Strings(roots)
+	return next, roots, calls
+}
+
+// Why following references produced no route at all. The two are different
+// situations with different things to do about them, and one message covering
+// both sends half its readers looking for a cycle that is not there.
+const (
+	// NoReferences: there is not a single declared call in this document to
+	// follow. A graph built from traces alone is the ordinary way to arrive
+	// here, and it is not a defect — there is simply no declared side to
+	// derive from.
+	NoReferences = "no-references"
+
+	// NoStart: there are declared calls, but everything they lead to is also
+	// called by something else, so there is nowhere a route begins. An estate
+	// whose entry point sits in a cycle looks like this.
+	NoStart = "no-start"
+)
+
+// WhyNoDeclaredPaths names which of the two happened. It is only meaningful
+// when DeclarePaths returned nothing; it returns "" otherwise.
+func WhyNoDeclaredPaths(g *core.Graph) string {
+	_, roots, calls := callGraph(g)
+	switch {
+	case calls == 0:
+		return NoReferences
+	case len(roots) == 0:
+		return NoStart
+	}
+	return ""
+}
+
 // DeclarePaths derives the routes the declared references permit.
 //
 // # Why this is derivation and not invention
@@ -341,34 +412,7 @@ func DeclarePaths(g *core.Graph, opts DeclareOptions) []core.Path {
 		limit = defaultDeclareLimit
 	}
 
-	type hop struct {
-		to   string
-		kind core.EdgeKind
-	}
-	next := map[string][]hop{}
-	called := map[string]bool{}
-	starts := map[string]bool{}
-	for _, e := range g.Edges {
-		if e.Suppressed || e.Kind == core.EdgeObserved || !isCall(e) {
-			continue
-		}
-		if _, ok := g.Node(e.From); !ok {
-			continue
-		}
-		if _, ok := g.Node(e.To); !ok {
-			continue
-		}
-		next[e.From] = append(next[e.From], hop{e.To, e.Kind})
-		called[e.To] = true
-		starts[e.From] = true
-	}
-	roots := make([]string, 0, len(starts))
-	for id := range starts {
-		if !called[id] {
-			roots = append(roots, id)
-		}
-	}
-	sort.Strings(roots)
+	next, roots, _ := callGraph(g)
 
 	var out []core.Path
 	var walk func(chain []string, kind core.EdgeKind, visited map[string]bool)

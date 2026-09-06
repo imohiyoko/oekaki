@@ -78,11 +78,71 @@ func TestNothingFiringIsAnEmptyList(t *testing.T) {
 	doc := rulesFrom(t, `{"kind":"oekaki.rules","version":"0.1","rules":[
 		{"name":"quiet estate","when":{"is":"above","metric":"nothing_measures_this","value":1}}]}`)
 
-	alerts, err := Alerts(watched(), doc)
+	alerts, _, err := Alerts(watched(), doc)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if alerts == nil {
 		t.Fatal("an empty result is absent rather than empty")
+	}
+}
+
+// The other half of "an undated reading is not old", which the window filter
+// got and the silence check did not.
+//
+// Quiet is the claim that nothing arrived. A reading with no time on it says
+// something arrived and says nothing about when, so it is not silence and it
+// cannot be placed inside the window either. Treating it as older than every
+// moment — right everywhere else — made every subject of a collector that
+// records no time fire, every run, which is the exact collector this whole
+// change was about.
+func TestAnUndatedReadingIsNotSilence(t *testing.T) {
+	g := watched()
+	measured(g, "ledger", "beat", 5, "")
+	g.Normalize()
+
+	doc := rulesFrom(t, `{"kind":"oekaki.rules","version":"0.1","rules":[
+		{"name":"stopped","about":{"subject":"ledger"},
+		 "when":{"is":"quiet","metric":"beat","since":"2026-08-01T00:00:00Z"}}]}`)
+
+	alerts, unanswered, err := Alerts(g, doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(alerts) != 0 {
+		t.Fatalf("a reading with no time on it was read as silence: %#v", alerts)
+	}
+	// And it is not a silent pass either: a rule that could not answer the
+	// question says so, or an operator reads "nothing fired" as "all well".
+	if len(unanswered) != 1 || !strings.Contains(unanswered[0], "ledger") {
+		t.Fatalf("the rule answered nothing and said nothing: %#v", unanswered)
+	}
+}
+
+// A subject whose readings are undated is undecidable; one that was measured
+// and stopped is quiet. Both can be true in the same run, and the undated one
+// must not take the other down with it.
+func TestSilenceIsStillFoundBesideAnUndatedReading(t *testing.T) {
+	g := watched()
+	measured(g, "ledger", "beat", 5, "")
+	measured(g, "checkout", "beat", 5, "2026-01-01T00:00:00Z")
+	g.Normalize()
+
+	doc := rulesFrom(t, `{"kind":"oekaki.rules","version":"0.1","rules":[
+		{"name":"stopped","about":{"subject":"checkout"},
+		 "when":{"is":"quiet","metric":"beat","since":"2026-08-01T00:00:00Z"}}]}`)
+
+	fired := firing(t, g, doc)
+	at, ok := fired["stopped|checkout"]
+	if !ok {
+		t.Fatalf("the subject that went quiet did not fire: %#v", fired)
+	}
+	// The moment is in the reason, so the caller has it without the value
+	// having to be restated beside it.
+	if !strings.Contains(at.Reason, "2026-01-01T00:00:00Z") {
+		t.Errorf("the reason does not say when it was last measured: %q", at.Reason)
+	}
+	if at.Metric != "beat" {
+		t.Errorf("the alert does not say what was measured: %q", at.Metric)
 	}
 }

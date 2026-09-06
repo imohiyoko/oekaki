@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/imohiyoko/oekaki/core"
@@ -88,11 +89,16 @@ type When struct {
 
 // Alert is one rule finding one subject.
 type Alert struct {
-	Rule     string   `json:"rule"`
-	Severity string   `json:"severity,omitempty"`
-	Subject  string   `json:"subject"`
-	Label    string   `json:"label,omitempty"`
-	Reason   string   `json:"reason"`
+	Rule     string `json:"rule"`
+	Severity string `json:"severity,omitempty"`
+	Subject  string `json:"subject"`
+	Label    string `json:"label,omitempty"`
+	Reason   string `json:"reason"`
+
+	// Metric is what was measured, when the rule was about a measurement. A
+	// value with no name beside it is a number somebody has to go and look up,
+	// and the rule knew it all along.
+	Metric   string   `json:"metric,omitempty"`
 	Value    *float64 `json:"value,omitempty"`
 	LastSeen string   `json:"last_seen,omitempty"`
 }
@@ -173,35 +179,44 @@ func (r Rule) check() error {
 // The order is the document's own, then the subject: a person reading a list
 // wants their most important rule at the top, and they said which that was by
 // writing it first.
-func Alerts(g *core.Graph, doc *Rules) ([]Alert, error) {
+// The second return is what the rules could not answer. A rule that was
+// applied and found nothing is not the same as a rule that had nothing to
+// apply itself to, and a caller that cannot tell them apart reports silence
+// either way. Nothing here writes to a stream: who says it, and where, is the
+// caller's business, like everything else in this package.
+func Alerts(g *core.Graph, doc *Rules) ([]Alert, []string, error) {
 	if g == nil || doc == nil {
-		return nil, fmt.Errorf("nothing to check")
+		return nil, nil, fmt.Errorf("nothing to check")
 	}
 	// Empty rather than absent, because a caller reading the JSON should not
 	// have to tell "nothing fired" from "this field is missing".
 	out := []Alert{}
+	var unanswered []string
 	for _, rule := range doc.Rules {
-		found, err := rule.against(g)
+		found, notices, err := rule.against(g)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", rule.Name, err)
+			return nil, nil, fmt.Errorf("%s: %w", rule.Name, err)
 		}
 		sort.SliceStable(found, func(i, j int) bool { return found[i].Subject < found[j].Subject })
 		out = append(out, found...)
+		unanswered = append(unanswered, notices...)
 	}
-	return out, nil
+	return out, unanswered, nil
 }
 
-func (r Rule) against(g *core.Graph) ([]Alert, error) {
+func (r Rule) against(g *core.Graph) ([]Alert, []string, error) {
 	switch r.When.Is {
 	case Above, Below, Quiet:
-		return r.readings(g), nil
+		found, notices := r.readings(g)
+		return found, notices, nil
 	default:
-		return r.routes(g)
+		found, err := r.routes(g)
+		return found, nil, err
 	}
 }
 
 // readings applies a rule that is about a measurement.
-func (r Rule) readings(g *core.Graph) []Alert {
+func (r Rule) readings(g *core.Graph) ([]Alert, []string) {
 	// The newest reading per subject, which is what a bound is about: a
 	// service that was over its limit last week and is not now is not
 	// something to wake somebody for.
@@ -228,13 +243,31 @@ func (r Rule) readings(g *core.Graph) []Alert {
 	if r.When.Is == Quiet {
 		// A subject with no reading at all is quiet too, and it is the case a
 		// bound cannot see: nothing arrived, so nothing was compared.
+		var undated []string
 		for _, subject := range r.subjects(g) {
 			at, seen := newest[subject]
+			// A reading that does not say when it was taken cannot settle
+			// this. Quiet is the claim that nothing arrived, and something
+			// did — so it does not fire. The reading cannot be placed inside
+			// the window either — so it does not pass. The rule is not
+			// answering the question for this subject, and saying so is the
+			// only honest thing left.
+			//
+			// The alternative was to keep treating an undated reading as
+			// older than every moment, which is what before does and what is
+			// right everywhere else. Here it made every subject of a collector
+			// that records no time fire, every run, with a reason naming a
+			// moment that was nowhere in the document.
+			if seen && at.ObservedAt == "" {
+				undated = append(undated, subject)
+				continue
+			}
 			if seen && !before(at.ObservedAt, r.When.Since) {
 				continue
 			}
 			alert := Alert{
 				Rule: r.Name, Severity: r.Severity, Subject: subject, Label: labelOf(g, subject),
+				Metric: r.When.Metric,
 				Reason: fmt.Sprintf("nothing measured %s since %s", r.When.Metric, r.When.Since),
 			}
 			if seen {
@@ -243,7 +276,13 @@ func (r Rule) readings(g *core.Graph) []Alert {
 			}
 			out = append(out, alert)
 		}
-		return out
+		if len(undated) > 0 {
+			sort.Strings(undated)
+			return out, []string{fmt.Sprintf(
+				"%s: %s measured with no time on the reading, so there is no telling whether %s went quiet; not reported",
+				r.Name, subjectList(undated), theyOrIt(len(undated)))}
+		}
+		return out, nil
 	}
 
 	for subject, o := range newest {
@@ -263,11 +302,11 @@ func (r Rule) readings(g *core.Graph) []Alert {
 		}
 		out = append(out, Alert{
 			Rule: r.Name, Severity: r.Severity, Subject: subject, Label: labelOf(g, subject),
-			Value: o.Value, LastSeen: o.ObservedAt,
+			Metric: r.When.Metric, Value: o.Value, LastSeen: o.ObservedAt,
 			Reason: fmt.Sprintf("%s is %g, %s %g", r.When.Metric, *o.Value, word, *r.When.Value),
 		})
 	}
-	return out
+	return out, nil
 }
 
 // routes applies a rule that is about what the declared and the observed
@@ -347,4 +386,22 @@ func labelOf(g *core.Graph, subject string) string {
 		return n.Name
 	}
 	return subject
+}
+
+// subjectList names what a notice is about, up to the point where naming them
+// stops being information. A notice that prints two hundred ids is a notice
+// people learn to scroll past.
+func subjectList(subjects []string) string {
+	const most = 5
+	if len(subjects) <= most {
+		return strings.Join(subjects, ", ")
+	}
+	return fmt.Sprintf("%s and %d more", strings.Join(subjects[:most], ", "), len(subjects)-most)
+}
+
+func theyOrIt(n int) string {
+	if n == 1 {
+		return "it"
+	}
+	return "they"
 }
