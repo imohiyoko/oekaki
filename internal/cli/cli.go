@@ -309,7 +309,7 @@ func runRender(ctx context.Context, env Env, args []string) error {
 	fs.IntVar(&f.foldBudget, "fold-budget", 0,
 		"how many boxes the drawing may have before folding starts; 0 uses the default")
 	fs.StringVar(&f.foldRules, "fold-rules", "",
-		"comma-separated folds to allow (twins, leaves, chain); default all, in that order")
+		"comma-separated folds to allow (chain, twins, leaves); default all, in that order")
 	fs.Var(&f.foldKeep, "fold-keep", "a box to draw as itself however crowded the drawing is; repeatable")
 	fs.BoolVar(&f.atlas, "atlas", false, "in HTML output, open on one level and let a box that has an inside open it, instead of drawing the whole estate nested on one canvas")
 	fs.IntVar(&f.atlasDepth, "atlas-depth", 0, "how far a derived call chain follows calls; 0 uses the default")
@@ -427,6 +427,15 @@ func runRender(ctx context.Context, env Env, args []string) error {
 	// Folding comes after the view and the suppression, because it is about
 	// how much is left to draw. Folding first would spend the budget on boxes
 	// the drawing was never going to have.
+	// An atlas draws a page per level, and each page is its own graph. A fold
+	// worked out against the whole estate would land on a page holding three
+	// of its twelve members, and the box would say twelve. Folding per page is
+	// the right answer and is not built; until it is, saying so beats drawing
+	// a number that is not true.
+	if f.fold && f.atlas {
+		return errors.New("--fold and --atlas do not go together yet: an atlas draws a page per level, and a fold worked out against the whole estate would stand for boxes that page does not draw. Use one or the other")
+	}
+
 	var foldRecord []byte
 	if f.fold {
 		var folded *core.Graph
@@ -440,7 +449,7 @@ func runRender(ctx context.Context, env Env, args []string) error {
 		if err != nil {
 			return err
 		}
-		reportFolds(env, len(g.Nodes), len(folded.Nodes), folds)
+		reportFolds(env, len(g.Nodes), len(folded.Nodes), f.foldBudget, folds)
 
 		// Every other format is a picture, so it gets the folded graph. The
 		// page gets the graph and the record, because a fold there has to be
@@ -1183,9 +1192,22 @@ func loadGraphs(env Env, paths []string, opts terraform.Options, sourceOpts sour
 
 // reportFolds says what was folded, because a drawing that quietly stands for
 // more than it shows is one a reader can be wrong about without knowing.
-func reportFolds(env Env, before, after int, folds []views.Folded) {
-	if len(folds) == 0 {
-		fmt.Fprintf(env.Stderr, "nothing folded: %d boxes is already inside the budget\n", before)
+func reportFolds(env Env, before, after, budget int, folds []views.Folded) {
+	if budget <= 0 {
+		budget = views.DefaultFoldBudget
+	}
+	switch {
+	case len(folds) > 0:
+	case before <= budget:
+		fmt.Fprintf(env.Stderr, "nothing folded: %d boxes is already inside the budget of %d\n", before, budget)
+		return
+	default:
+		// The difference matters. One is a drawing that did not need help;
+		// the other is a drawing that needed it and could not be given any,
+		// and the reader is about to meet the mat of boxes either way.
+		fmt.Fprintf(env.Stderr,
+			"nothing folded: %d boxes, over the budget of %d, and no rule applies — nothing here repeats, hangs off one box, or only passes something along\n",
+			before, budget)
 		return
 	}
 	counts := map[string]int{}

@@ -56,6 +56,13 @@ hurts, that is the trade to make deliberately rather than by accident.
 
 ## Diagrams
 
+**Folding should run per atlas page.** Folding and the atlas are refused
+together today: a fold worked out against the whole estate would land on a page
+holding three of its twelve members and still say twelve. Folding each
+diagram as it is derived, with a record per page, is the fix — and it is what
+makes "the page you opened is also readable" true rather than only the first
+one.
+
 **Sequence pages should draw lifelines, and let steps be folded away.** Today a
 sequence is a numbered call chain laid out downward, which is readable but is
 not the diagram people mean. Folding the middle of a sequence — "show me the

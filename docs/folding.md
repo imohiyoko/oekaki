@@ -112,3 +112,11 @@ implementation of them, which is what keeps the page and the committed SVG the
 same drawing.
 
 Every other format gets the folded graph, because a picture cannot be opened.
+Both draw the same thing: the page merges the lines that land on the same pair
+the way the projection does, so twenty lines to a box standing for twenty are
+one line carrying twenty, in the page as in the SVG.
+
+Not yet with an atlas. An atlas draws a page per level, and a fold worked out
+against the whole estate would land on a page holding three of its twelve
+members and still say twelve, so the two are refused together until folding
+runs per page.
