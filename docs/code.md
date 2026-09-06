@@ -120,6 +120,35 @@ the graph and emits whatever it likes, including `code_type` nodes and the
 relations above; the name resolution afterwards works on what it left in the
 graph, so it does not have to know this package's internals to benefit from it.
 
+## Clicking a type
+
+In an atlas (`--atlas`), a type opens as a **class diagram** rather than as the
+generic "what is inside this box" page. It is the same page — one element has
+one inside — read the way the thing itself is written:
+
+- the type in the middle, with what it declares listed inside the box, under a
+  rule, the way UML puts members in a compartment. A class with nine methods
+  drawn as nine boxes is a picture of nine things, when it is a picture of one
+  thing with nine methods;
+- the second line says which kind of type it is, because a class diagram that
+  draws an interface and a struct the same way has lost what it was drawn for;
+- every other type the declaration mentions, on the relation that mentions it,
+  and each of those boxes opens as its own class diagram. That is how a reader
+  walks a design.
+
+Nothing is lost by listing the members instead of drawing them: the file that
+contains the type contains its functions too, and that page still draws every
+one of them as a box a reader can open — with its calls, and a sequence where
+there is a chain to make one from.
+
+A type with more members than fit says how many it left out, rather than
+growing into a box the length of the page.
+
+The **package diagram** is the level hierarchy an atlas already builds:
+reading a source tree puts every file in the group of the directory it is in,
+so the levels of an atlas are the directories, and descending one is descending
+into a package.
+
 ## What is not here
 
 **Object diagrams.** An object is an instance at run time, and nothing in a
