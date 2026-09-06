@@ -598,12 +598,13 @@ func (b *builder) messageFor(from, to string, p *core.Path) core.Edge {
 
 // sequence builds the call chain that starts at one element.
 //
-// The order is derived, not observed. A static graph records that A calls B
-// and that B calls C; it does not record that A called B before it called C,
-// and nothing here pretends otherwise — the step numbers are a depth-first
-// walk in a stable order, which is how a reader reads a call chain when
-// nobody has traced one. An observed ordering, when traces provide one, is a
-// different claim and belongs on the edges rather than in this walk.
+// Where the order comes from is chainFrom's decision, and the page carries the
+// answer: a route something walked when the document records one, and
+// otherwise a depth-first walk of the declared references in a stable order.
+//
+// The second is a reading, not an observation. A static graph records that A
+// calls B and that B calls C; it does not record that A called B before it
+// called C, and the page says "derived" rather than pretending otherwise.
 func (b *builder) sequence(id, parent string) error {
 	steps, observed := b.chainFrom(id)
 	if len(steps) == 0 {

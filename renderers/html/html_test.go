@@ -580,7 +580,9 @@ func TestTheShapeOfALineCanBeChosen(t *testing.T) {
 // an edge kind answers.
 func TestALineCanBeAskedWhatItIs(t *testing.T) {
 	app := string(Assets(nil)[AssetApp])
-	if !strings.Contains(app, "if (cell.infra && cell.infra.edge) selectEdge(edgeKey(cell.infra.edge));") {
+	// By the name of the drawn line rather than of the edge: a sequence can
+	// walk the same pair twice, and those are two messages with two panels.
+	if !strings.Contains(app, "if (cell.infra && cell.infra.edge) selectEdge(drawnKey(cell.infra.edge));") {
 		t.Error("clicking a line opens nothing")
 	}
 	if !strings.Contains(app, "function edgeMeaning(e) {") {

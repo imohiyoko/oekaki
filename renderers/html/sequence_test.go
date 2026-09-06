@@ -60,7 +60,13 @@ func TestThePageSaysWhereASequencesOrderCameFrom(t *testing.T) {
 	if !strings.Contains(app, "page.order === 'observed'") {
 		t.Error("the page does not say whether a sequence was observed or derived")
 	}
-	if !strings.Contains(string(Assets(nil)[AssetCSS]), "#breadcrumbs .order-observed") {
+	// After .kind and at higher specificity, or the shorthand border in .kind
+	// resets it and the two badges look the same in the browser while the
+	// selector is right there in the file.
+	css := string(Assets(nil)[AssetCSS])
+	kind := strings.Index(css, "#breadcrumbs .kind {")
+	observed := strings.Index(css, "#breadcrumbs .kind.order-observed")
+	if kind < 0 || observed < 0 || observed < kind {
 		t.Error("an observed order and a derived one are drawn as the same badge")
 	}
 }
