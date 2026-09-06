@@ -1626,13 +1626,20 @@
     else { picked.clear(); picked.add(id); }
 
     // Taking the last one back out leaves nothing to describe.
-    if (!picked.size) { selected = null; detail.hidden = true; board.clearSelection(); return; }
+    if (!picked.size) {
+      selected = null;
+      detail.hidden = true;
+      board.clearSelection();
+      rememberSelection();
+      return;
+    }
     // Taking out the one the panel was about hands it to another.
     if (!picked.has(id)) id = [...picked][picked.size - 1];
     selected = id;
     selectedGroup = null;
     selectedEdge = null;
     describePicked(neighborhood);
+    rememberSelection();
   }
 
   // The panel for whichever box the picking ended on.
@@ -1805,6 +1812,7 @@
         n.source.file + (n.source.line ? ':' + n.source.line : '')));
     }
     detail.append(withText(section('id'), n.id));
+    detail.append(linkControl());
 
     if (neighborhood) {
       const related = graph.edges.filter((e) => e.from === id || e.to === id);
@@ -1935,6 +1943,7 @@
     detail.append(fold);
 
     const members = nodesUnderGroup(id);
+    detail.append(linkControl());
     detail.append(withText(section('members'), `${members.size} nodes`));
     if (g.source) detail.append(withText(section('declared in'), g.source.file + (g.source.line ? ':' + g.source.line : '')));
     detail.append(withText(section('id'), g.id));
@@ -2022,6 +2031,7 @@
     const ends = section('ends');
     ends.append(text('from: ' + e.from), text('to: ' + e.to));
     detail.append(ends);
+    detail.append(linkControl());
 
     highlight(edgeCells.get(key));
   }
@@ -2186,6 +2196,9 @@
       const url = new URL(location.href);
       if (id === atlas.root) url.searchParams.delete('at');
       else url.searchParams.set('at', id);
+      // The element in the fragment belonged to the page being left. Carrying
+      // it to the next one would hand somebody a link that points at nothing.
+      url.hash = '';
       history.pushState({diagram: id}, '', url);
     }
 
@@ -2274,6 +2287,88 @@
       current.textContent = node ? (node.name || focus) : (group ? (group.label || focus) : focus);
       bar.append(current);
     }
+  }
+
+  /* ---- the link to what you are looking at ------------------------------
+     A diagram is a thing people talk about together, and the sentence that
+     goes with it is "look at this one". Until now the address bar could say
+     which drawing and which page of it, and everything after that was
+     "scroll down, it is the box on the left".
+
+     Which generation is already in the path: a served page is a file, and the
+     directory it is in is the generation somebody kept. So what was missing is
+     the last part — the element — and it goes in the fragment, which is the
+     part of a URL that has always meant "this bit of the page".
+
+     Written on every selection rather than only when asked for, because the
+     address bar is where people copy from. Replacing rather than pushing:
+     picking a box is not somewhere you navigated to, and Back should leave the
+     page you were on rather than walking your last six clicks. */
+
+  const showing = () => {
+    if (selectedEdge) return 'edge:' + selectedEdge;
+    if (selectedGroup) return 'group:' + selectedGroup;
+    if (selected) return 'node:' + selected;
+    return '';
+  };
+
+  function rememberSelection() {
+    const at = showing();
+    const url = new URL(location.href);
+    url.hash = at ? encodeURIComponent(at) : '';
+    // The same state written twice is not a new state, and replaceState on
+    // every repaint would be a write per frame on a page that repaints a lot.
+    if (url.href !== location.href) history.replaceState(history.state, '', url.href);
+  }
+
+  // Point at whatever a link named. It is applied after a render, because the
+  // cell has to exist before the view can be moved to it.
+  function pointAt(fragment) {
+    const at = decodeURIComponent((fragment || '').replace(/^#/, ''));
+    if (!at) return;
+    const kind = at.slice(0, at.indexOf(':'));
+    const id = at.slice(at.indexOf(':') + 1);
+
+    const found = (() => {
+      switch (kind) {
+        case 'node': return nodes.has(id) && (select(id), true);
+        case 'group': return groups.has(id) && (selectGroup(id), true);
+        case 'edge': return edgeInfo.has(id) && (selectEdge(id), true);
+        default: return false;
+      }
+    })();
+
+    if (!found) {
+      // Saying so beats a link that opens the right page and points at
+      // nothing: the thing may be on another page of the same drawing, or in
+      // a generation that no longer has it.
+      flash('この図には、リンクが指しているものがありません');
+      return;
+    }
+    const cell = kind === 'edge' ? edgeCells.get(id) : cells.get(id);
+    if (cell && typeof board.scrollCellToVisible === 'function') board.scrollCellToVisible(cell, true);
+  }
+
+  // A button, because the address bar is not where people look for a way to
+  // share and because a fragment somebody has to notice is a feature nobody
+  // uses.
+  function linkControl() {
+    const s = section('リンク');
+    const button = document.createElement('button');
+    button.textContent = 'リンクをコピー';
+    button.addEventListener('click', async () => {
+      rememberSelection();
+      try {
+        await navigator.clipboard.writeText(location.href);
+        flash('コピーしました');
+      } catch {
+        // A page opened from a file has no clipboard permission in some
+        // browsers. The address bar already says it, so say that.
+        flash('コピーできませんでした。アドレスバーがこの場所を指しています');
+      }
+    });
+    s.append(button);
+    return s;
   }
 
   const section = (title) => {
@@ -3491,5 +3586,13 @@
   buildLabelFilters();
   buildTimeline();
   updateBreadcrumbs();
-  render();
+
+  // After the first render, because a link points at a cell and a cell has to
+  // be there before the view can be moved to it.
+  render().then(() => pointAt(location.hash)).catch(() => {});
+
+  // A fragment pasted into the address bar of a page that is already open, or
+  // a link followed to the same page: neither reloads anything, and both mean
+  // "point at this one".
+  window.addEventListener('hashchange', () => pointAt(location.hash));
 })();
