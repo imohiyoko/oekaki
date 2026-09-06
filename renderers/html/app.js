@@ -1627,7 +1627,12 @@
 
     // Taking the last one back out leaves nothing to describe.
     if (!picked.size) {
+      // All three, because the link is written from whichever is set and the
+      // panel being closed has to mean the link says nothing rather than
+      // saying whatever was selected before this one.
       selected = null;
+      selectedGroup = null;
+      selectedEdge = null;
       detail.hidden = true;
       board.clearSelection();
       rememberSelection();
@@ -1948,6 +1953,7 @@
     if (g.source) detail.append(withText(section('declared in'), g.source.file + (g.source.line ? ':' + g.source.line : '')));
     detail.append(withText(section('id'), g.id));
     highlight(cells.get(id));
+    rememberSelection();
   }
 
   // A line was the one thing on the canvas that answered nothing. Its tooltip
@@ -1983,6 +1989,7 @@
         hiddenSteps.add(hiddenKey(step));
         selectedEdge = null;
         detail.hidden = true;
+        rememberSelection();
         render();
       });
       s.append(hide);
@@ -2032,6 +2039,7 @@
     ends.append(text('from: ' + e.from), text('to: ' + e.to));
     detail.append(ends);
     detail.append(linkControl());
+    rememberSelection();
 
     highlight(edgeCells.get(key));
   }
@@ -2169,6 +2177,12 @@
      Every projection and every filter below reads whatever `graph` is, so a
      page turn costs a rebind and a repaint rather than a second renderer. */
 
+  // The drawing in flight, so that anything which has to look at cells can
+  // wait for them. A link is pointed at after a render, and Back turns the
+  // page — the fragment change arrives before the new page has been drawn,
+  // and the cells it would look at belong to the page being left.
+  let drawing = Promise.resolve();
+
   // Which diagram is on screen, in the URL, so that a reload and a shared
   // link both land where the reader was rather than back at the estate.
   function openDiagram(id, record = true) {
@@ -2210,7 +2224,7 @@
     buildLabelFilters();
     buildTimeline();
     updateBreadcrumbs();
-    render();
+    drawing = render();
   }
 
   // The way back up. It is the containment chain rather than a history stack:
@@ -2305,8 +2319,11 @@
      picking a box is not somewhere you navigated to, and Back should leave the
      page you were on rather than walking your last six clicks. */
 
+  // An edge's own name already begins with "edge:", so the fragment is the
+  // name itself. Saying it twice would be a second spelling of the same thing,
+  // and changing one of the two later breaks every link anybody kept.
   const showing = () => {
-    if (selectedEdge) return 'edge:' + selectedEdge;
+    if (selectedEdge) return selectedEdge;
     if (selectedGroup) return 'group:' + selectedGroup;
     if (selected) return 'node:' + selected;
     return '';
@@ -2324,28 +2341,49 @@
   // Point at whatever a link named. It is applied after a render, because the
   // cell has to exist before the view can be moved to it.
   function pointAt(fragment) {
-    const at = decodeURIComponent((fragment || '').replace(/^#/, ''));
-    if (!at) return;
-    const kind = at.slice(0, at.indexOf(':'));
-    const id = at.slice(at.indexOf(':') + 1);
+    // A fragment is text somebody sent, and "%zz" is text. decodeURIComponent
+    // throws on it, and the throw used to travel into the catch that is there
+    // for a layout failure — so a link that could not even be read was the one
+    // kind that said nothing at all.
+    let at = '';
+    try {
+      at = decodeURIComponent((fragment || '').replace(/^#/, ''));
+    } catch {
+      flash('この図には、リンクが指しているものがありません');
+      return;
+    }
+    // A fragment with no kind in it is not one of ours. Pages have carried
+    // fragments since before there were links to a box — an anchor somebody
+    // kept, a bookmark from an older build — and complaining about those is
+    // complaining about somebody else's link.
+    const mark = at.indexOf(':');
+    if (mark < 0) return;
 
+    const kind = at.slice(0, mark);
+    const id = at.slice(mark + 1);
+
+    // Resolved against what is *drawn*, not against what the document has. A
+    // box inside a fold, or one a filter took out, is in the graph and not on
+    // the canvas — and pointing at it would select something invisible and
+    // scroll nowhere, which reads as the link having done nothing at all.
     const found = (() => {
       switch (kind) {
-        case 'node': return nodes.has(id) && (select(id), true);
-        case 'group': return groups.has(id) && (selectGroup(id), true);
-        case 'edge': return edgeInfo.has(id) && (selectEdge(id), true);
+        case 'node': return cells.has(id) && (select(id), true);
+        case 'group': return cells.has(id) && (selectGroup(id), true);
+        case 'edge': return edgeCells.has(at) && (selectEdge(at), true);
         default: return false;
       }
     })();
 
     if (!found) {
       // Saying so beats a link that opens the right page and points at
-      // nothing: the thing may be on another page of the same drawing, or in
-      // a generation that no longer has it.
+      // nothing: the thing may be on another page of the same drawing, folded
+      // into a box that stands for it, or in a generation that no longer has
+      // it.
       flash('この図には、リンクが指しているものがありません');
       return;
     }
-    const cell = kind === 'edge' ? edgeCells.get(id) : cells.get(id);
+    const cell = kind === 'edge' ? edgeCells.get(at) : cells.get(id);
     if (cell && typeof board.scrollCellToVisible === 'function') board.scrollCellToVisible(cell, true);
   }
 
@@ -2560,6 +2598,9 @@
       board.clearSelection();
       selected = null; selectedGroup = null; selectedEdge = null;
       detail.hidden = true;
+      // Clicking the canvas is how a reader puts something down. A link that
+      // still names it would reopen the panel on a page nobody left open.
+      rememberSelection();
       evt.consume();
       return;
     }
@@ -2605,6 +2646,7 @@
       bindGraph();
       selected = null;
       detail.hidden = true;
+      rememberSelection();
       render();
       return;
     }
@@ -3589,10 +3631,13 @@
 
   // After the first render, because a link points at a cell and a cell has to
   // be there before the view can be moved to it.
-  render().then(() => pointAt(location.hash)).catch(() => {});
+  drawing = render();
+  drawing.then(() => pointAt(location.hash)).catch(() => {});
 
   // A fragment pasted into the address bar of a page that is already open, or
   // a link followed to the same page: neither reloads anything, and both mean
   // "point at this one".
-  window.addEventListener('hashchange', () => pointAt(location.hash));
+  window.addEventListener('hashchange', () => {
+    drawing.then(() => pointAt(location.hash)).catch(() => {});
+  });
 })();

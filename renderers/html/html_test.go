@@ -369,7 +369,9 @@ func TestSelectingDoesNotLayOutAgain(t *testing.T) {
 	if !strings.Contains(app, "    markPicked();\n  }") {
 		t.Error("selecting a box does not end by marking it")
 	}
-	if !strings.Contains(app, "    highlight(cells.get(id));\n  }") {
+	// A container marks its cell and then writes the link, which is the same
+	// ending: neither of them lays the drawing out again.
+	if !strings.Contains(app, "    highlight(cells.get(id));\n    rememberSelection();\n  }") {
 		t.Error("selecting a container does not end by marking it")
 	}
 
