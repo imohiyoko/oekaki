@@ -186,6 +186,15 @@
   // detail page that happens to stand for the same first member.
   const opened = new Set();
   const openedKey = (stands) => (page ? page.id : '') + '\u0000' + stands;
+
+  // Steps the reader has taken out of a sequence, by page. A long call chain
+  // is read for one part of itself, and the six hops in the middle are the
+  // reason nobody reads it — so they can be put aside and put back. Hiding is
+  // not filtering: the step is still in the document, the drawing still says
+  // it is there, and the band that stands in its place says how many.
+  const hiddenSteps = new Set();
+  const hiddenKey = (step) => (page ? page.id : '') + '\u0000' + step;
+  const isSequence = () => !!(page && page.kind === 'sequence');
   let standFor = new Map();     // a folded box -> the box standing for it
   let standIns = [];            // those boxes
 
@@ -469,6 +478,130 @@
     return {id: 'node:' + n.id, infra: {kind: 'node', node: n}, ...size};
   }
 
+  /* ---- a sequence ------------------------------------------------------
+     Laid out here rather than by ELK, because a sequence has no layout
+     problem: the participants are a row and the messages are the order they
+     happened in, and both are arithmetic. ELK asked to draw one produces a
+     graph of the same edges, which is the picture the reader already had one
+     level up.
+
+     The result is shaped like ELK's so that painting, selecting, folding and
+     the detail panel go on working without knowing which of the two produced
+     it. */
+
+  const LIFELINE_HEAD = 46;
+  const LIFELINE_TOP = 16;
+  const STEP_GAP = 44;
+  const COLUMN_GAP = 60;
+  const BAND_HEIGHT = 26;
+
+  // The steps of this sequence, in order, with the hidden ones gathered into
+  // the bands that stand in for them.
+  function sequenceRows() {
+    const numbered = allEdges()
+      .filter((e) => e.attrs && e.attrs.step)
+      .sort((a, b) => a.attrs.step - b.attrs.step);
+
+    const rows = [];
+    for (const e of numbered) {
+      const step = e.attrs.step;
+      if (!hiddenSteps.has(hiddenKey(step))) {
+        rows.push({kind: 'message', edge: e, step});
+        continue;
+      }
+      const last = rows[rows.length - 1];
+      if (last && last.kind === 'band') {
+        last.steps.push(step);
+        continue;
+      }
+      rows.push({kind: 'band', steps: [step]});
+    }
+    return rows;
+  }
+
+  function sequenceLayout() {
+    const rows = sequenceRows();
+    const order = [];
+    const seen = new Set();
+    for (const n of allNodes()) {
+      if (!visibleNode(n)) continue;
+      order.push(n);
+      seen.add(n.id);
+    }
+    // The order of the columns is the order a request reached them, which is
+    // the order the steps name them. Anything nothing names goes after, in
+    // the order the document has.
+    // Worked out from every step, not from the ones on screen. The order of
+    // the columns is a property of the sequence, and taking a step aside must
+    // not move the participants it named to the end of the row —— the reader
+    // put one message away and the whole drawing rearranged itself.
+    const first = new Map();
+    for (const e of allEdges().filter((e) => e.attrs && e.attrs.step).sort((a, b) => a.attrs.step - b.attrs.step)) {
+      for (const id of [e.from, e.to]) {
+        if (!first.has(id)) first.set(id, e.attrs.step);
+      }
+    }
+    order.sort((a, b) => {
+      const ai = first.has(a.id) ? first.get(a.id) : Number.MAX_SAFE_INTEGER;
+      const bi = first.has(b.id) ? first.get(b.id) : Number.MAX_SAFE_INTEGER;
+      return ai - bi;
+    });
+
+    const widths = order.map((n) => nodeSize(n).width);
+    const height = LIFELINE_TOP + LIFELINE_HEAD +
+      rows.reduce((h, row) => h + (row.kind === 'band' ? BAND_HEIGHT : STEP_GAP), 0) + STEP_GAP;
+
+    const columns = new Map();
+    const children = [];
+    let x = 0;
+    order.forEach((n, i) => {
+      columns.set(n.id, {x, width: widths[i]});
+      children.push({
+        id: 'node:' + n.id, x, y: 0, width: widths[i], height,
+        infra: {kind: 'node', node: n, lifeline: true},
+      });
+      x += widths[i] + COLUMN_GAP;
+    });
+
+    const edges = [];
+    let y = LIFELINE_TOP + LIFELINE_HEAD;
+    rows.forEach((row, i) => {
+      if (row.kind === 'band') {
+        children.push({
+          id: 'band:' + row.steps[0], x: 0, y, width: Math.max(x - COLUMN_GAP, 160), height: BAND_HEIGHT,
+          infra: {kind: 'band', steps: row.steps},
+        });
+        y += BAND_HEIGHT;
+        return;
+      }
+      const from = columns.get(row.edge.from);
+      const to = columns.get(row.edge.to);
+      if (!from || !to) { y += STEP_GAP; return; }
+      // Where on the lifeline the message leaves and arrives, as a fraction of
+      // its length: maxGraph routes between borders otherwise, and every
+      // message in the sequence would be drawn through the same point.
+      const t = (y + STEP_GAP / 2) / height;
+      edges.push({
+        id: 'e' + i, sources: ['node:' + row.edge.from], targets: ['node:' + row.edge.to],
+        infra: {
+          kind: 'edge', edge: row.edge,
+          // Lifeline to lifeline, at the height of this step. The ends are
+          // the middle of each column rather than its border, because that
+          // is where the lifeline is — and the perimeter is turned off, or
+          // maxGraph pulls each end back to the edge of the box and the
+          // message stops short of the thing it arrives at.
+          anchor: {
+            exitX: 0.5, exitY: t, exitPerimeter: false,
+            entryX: 0.5, entryY: t, entryPerimeter: false,
+          },
+        },
+      });
+      y += STEP_GAP;
+    });
+
+    return {id: 'root', children, edges};
+  }
+
   function buildRoot() {
     const children = [];
     for (const g of childGroups(null)) children.push(buildGroup(g));
@@ -694,6 +827,48 @@
     }
   }
 
+  // A lifeline: the participant at the top, and the length of the sequence
+  // under it. It is one cell rather than a box and a line so that a click
+  // anywhere down the column is a click on that participant, which is how a
+  // reader points at one.
+  class LifelineShape extends RectangleShape {
+    paintVertexShape(c, x, y, w, h) {
+      if (!this.node) return;
+      const st = this.style || {};
+      const {s, at} = screen(c);
+      const parts = [];
+
+      const [hx, hy] = at(x, y);
+      parts.push(el('rect', {
+        x: hx, y: hy, width: w * s, height: LIFELINE_HEAD * s, rx: 6 * s, ry: 6 * s,
+        fill: st.headFill || '#ffffff', stroke: this.stroke, 'stroke-width': (st.strokeWidth || 1.2) * s,
+      }));
+
+      const [lx, ly] = at(x + w / 2, y + LIFELINE_HEAD);
+      parts.push(el('line', {
+        x1: lx, y1: ly, x2: lx, y2: ly + (h - LIFELINE_HEAD) * s,
+        stroke: this.stroke, 'stroke-width': 1 * s, 'stroke-dasharray': `${4 * s} ${4 * s}`, opacity: 0.7,
+      }));
+
+      const lines = (st.lines || '').split('\n').filter(Boolean);
+      const top = y + (LIFELINE_HEAD - lines.length * LINE) / 2;
+      lines.forEach((line, i) => {
+        const [tx, ty] = at(x + PAD_X, top + LINE * i + 11);
+        const t = el('text', {
+          x: tx, y: ty,
+          'font-size': (i === 0 ? 12 : 11) * s,
+          'font-weight': i === 0 ? 600 : 400,
+          'font-family': 'Helvetica, Arial, sans-serif',
+          fill: st.labelColor || '#1d2126',
+        });
+        t.textContent = line;
+        parts.push(t);
+      });
+      decorate(this.node, parts);
+    }
+  }
+
+  ShapeRegistry.add('oekaki-lifeline', LifelineShape);
   ShapeRegistry.add('oekaki-box', BoxShape);
   ShapeRegistry.add('oekaki-group', GroupShape);
 
@@ -873,7 +1048,12 @@
     // Anchoring needs every box in place, so it comes after the batch rather
     // than inside placeEdge: a line is spread along a side by the company it
     // keeps there, which is not known until the last one is drawn.
-    applyAnchors();
+    //
+    // A sequence has already said where every message meets every lifeline,
+    // and this pass takes the anchors off any line it does not route itself —
+    // which would drop every message back to the middle of the column it
+    // arrives at, all of them through the same point.
+    if (!isSequence()) applyAnchors();
 
     // A repaint builds new cells, so whatever was selected has to be marked
     // again — otherwise folding a container silently drops the highlight on
@@ -899,7 +1079,9 @@
       const x = c.x || 0, y = c.y || 0;
       const cell = c.infra.kind === 'group'
         ? placeGroup(parent, c, x, y)
-        : placeBox(parent, c, x, y);
+        : c.infra.kind === 'band'
+          ? placeBand(parent, c, x, y)
+          : placeBox(parent, c, x, y);
       // Where the cell actually went, which is not where ELK put it when the
       // box was placed by hand.
       const geo = cell.getGeometry();
@@ -947,6 +1129,7 @@
 
   function placeBox(parent, c, x, y) {
     const n = c.infra.node;
+    const lifeline = !!c.infra.lifeline;
     // A level draws the containers inside it as boxes, and a container that
     // looks like a resource is a container nobody opens. It keeps the colours
     // it has when it is nested, so the same namespace is the same shade
@@ -971,8 +1154,9 @@
       position: pinned ? [pinned.x, pinned.y] : [x, y],
       size: [c.width, c.height],
       style: {
-        shape: 'oekaki-box', noLabel: true, rounded: true, arcSize: 6,
-        fillColor: cat.fill, strokeColor: stroke,
+        shape: lifeline ? 'oekaki-lifeline' : 'oekaki-box',
+        noLabel: true, rounded: true, arcSize: 6,
+        fillColor: lifeline ? 'none' : cat.fill, headFill: cat.fill, strokeColor: stroke,
         strokeWidth: contestedEntities.has(n.id) || abnormal ? 2.6 : (cov && cov.width ? cov.width : 1.2),
         dashed, dashPattern: '5 3',
         icon: iconFor(n.type), lines: nodeLabels(n).join('\n'), labelColor: cat.text,
@@ -992,6 +1176,25 @@
     });
     cell.infra = c.infra;
     cells.set(n.id, cell);
+    return cell;
+  }
+
+  // What stands in for the steps somebody put aside. It says how many, and
+  // clicking it puts them back — a hidden step is not a deleted one, and a
+  // drawing that simply stopped mentioning them would be a different sequence.
+  function placeBand(parent, c, x, y) {
+    const cell = board.insertVertex({
+      parent, id: 'band:' + c.infra.steps[0], value: '',
+      position: [x, y], size: [c.width, c.height],
+      style: {
+        shape: 'oekaki-box', noLabel: true, rounded: true, arcSize: 6,
+        fillColor: '#f2f3f5', strokeColor: '#8a9099', strokeWidth: 1,
+        dashed: true, dashPattern: '4 3', labelColor: '#5b6169',
+        lines: `${c.infra.steps.length} 手順を隠している — クリックで戻す`,
+        movable: false,
+      },
+    });
+    cell.infra = c.infra;
     return cell;
   }
 
@@ -1018,6 +1221,10 @@
         // the drawing should not pass that off as something a parser found.
         endFill: asserted ? 0 : 1,
         rounded: true,
+        // A sequence says where on each lifeline the message belongs. Without
+        // it maxGraph routes between the borders of two tall columns, and
+        // every message in the sequence is drawn through the same point.
+        ...(e.infra.anchor || {}),
       },
     });
     cell.infra = e.infra;
@@ -1723,6 +1930,24 @@
     sub.textContent = e.relation ? `${e.kind} · ${e.relation}` : e.kind;
     detail.append(h, sub);
 
+    // A long call chain is read for one part of itself, and the hops in the
+    // middle are the reason nobody reads it. Putting one aside is not
+    // filtering: the drawing still says it is there, and says how many.
+    const step = (e.attrs || {}).step;
+    if (isSequence() && step) {
+      const s = section('この手順');
+      const hide = document.createElement('button');
+      hide.textContent = `${step} 番目を隠す`;
+      hide.addEventListener('click', () => {
+        hiddenSteps.add(hiddenKey(step));
+        selectedEdge = null;
+        detail.hidden = true;
+        render();
+      });
+      s.append(hide);
+      detail.append(s);
+    }
+
     if (editing) detail.append(attachmentControl(key));
 
     detail.append(withText(section('概要'), edgeMeaning(e)));
@@ -1914,6 +2139,7 @@
     // else, and carrying the viewport would leave the reader looking at empty
     // canvas where the old diagram used to be.
     collapsed.clear();
+    hiddenSteps.clear();
     picked.clear();
     board.clearSelection();
     selected = null; selectedGroup = null; selectedEdge = null;
@@ -1982,6 +2208,15 @@
         kind.className = 'kind';
         kind.textContent = page.kind;
         bar.append(kind);
+      }
+      // "A request went this way" and "the references say a request could go
+      // this way" are different claims, and a reader four pages down has no
+      // other way to tell which one they are looking at.
+      if (page && page.order) {
+        const order = document.createElement('span');
+        order.className = 'kind order-' + page.order;
+        order.textContent = page.order === 'observed' ? '観測された順序' : '導出された順序';
+        bar.append(order);
       }
       if (focus) {
         const sep = document.createElement('span'); sep.textContent = '·'; bar.append(sep);
@@ -2201,6 +2436,15 @@
     }
     if (cell.isEdge()) {
       if (cell.infra && cell.infra.edge) selectEdge(edgeKey(cell.infra.edge));
+      evt.consume();
+      return;
+    }
+    // A band is not a thing in the estate: it is the steps somebody put aside,
+    // and the only thing to do with it is put them back.
+    if (cell.infra && cell.infra.kind === 'band') {
+      for (const step of cell.infra.steps) hiddenSteps.delete(hiddenKey(step));
+      detail.hidden = true;
+      render();
       evt.consume();
       return;
     }
@@ -2941,6 +3185,12 @@
   async function render() {
     const mine = ++generation;
     try {
+      // A sequence is laid out here; everything else is a graph and ELK is
+      // better at those than this project will ever be.
+      if (isSequence()) {
+        paint(sequenceLayout());
+        return;
+      }
       const laid = await elk.layout(buildRoot());
       if (mine !== generation) return;   // a newer render started while we waited
       paint(laid);

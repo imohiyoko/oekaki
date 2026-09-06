@@ -102,5 +102,51 @@ Folding composes with this: `--fold` alongside `--atlas` folds each page on its
 own terms, so opening a namespace of forty replicas gives three boxes rather
 than forty. See [folding.md](folding.md).
 
-Still to connect: a sequence page should prefer a recorded path over the walk
-it derives, and say which of the two it is drawing.
+## Sequences
+
+A sequence page draws lifelines: the participants along the top, a column under
+each, and the messages between them in the order they happened. It is laid out
+by arithmetic rather than by ELK, because a sequence has no layout problem —
+the participants are a row and the messages are an order — and a graph engine
+asked to draw one produces a picture of the same edges, which is what the
+reader already had one level up.
+
+### Where the order came from
+
+A recorded route beats a walk this package worked out, and the page says which
+of the two it is drawing.
+
+| | |
+| --- | --- |
+| `observed` | something walked this route, and the document records it as a path |
+| `derived` | read off the declared references: A calls B and B calls C, so a request probably goes A, B, C. Nobody saw it happen |
+
+"A request went this way" and "the references say a request could go this way"
+are different claims, and a reader four pages down has no other way to tell
+which one they are looking at — so it is a field on the diagram and a badge in
+the breadcrumbs, not a sentence somewhere.
+
+Only an *observed* route wins. A declared route is the same kind of reading the
+walk already is, and preferring it would put "observed" on an order nobody saw.
+Where several routes start at the same participant the longest wins, because a
+route that goes further tells the reader more and the shorter ones are usually
+its beginning.
+
+A step of a recorded route with no edge under it is still drawn. The route
+saying a request went from here to there is already the claim that it went, and
+dropping the step would lose evidence the document has.
+
+One call is one step, however many kinds of evidence found it. A reference the
+configuration declares and a trace of the same call are two claims about one
+thing; numbering them separately would say the request went to the ledger
+twice, and the one that is drawn is the one that saw it happen.
+
+### Putting the middle aside
+
+A long call chain is read for one part of itself, and the hops in the middle
+are the reason nobody reads it. A message can be put aside from its own panel;
+the band left in its place says how many, and clicking it puts them back.
+
+Hiding is not filtering. The step is still in the document, the drawing still
+says it is there, and the participants keep their columns — taking a message
+away must not rearrange the sequence around it.
