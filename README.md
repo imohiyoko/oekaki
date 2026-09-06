@@ -510,21 +510,25 @@ what, and what was changed.
 oekaki serve --mode local site/
 ```
 
-The mode has to be said. `local` binds loopback, asks nobody who they are and
-refuses nothing; every other mode wants an identity provider, there is not one
-yet, and those modes refuse to start rather than pretending. Defaulting to
-`local` would put whoever did not think about it on the side without
-authentication, and not thinking about it is the common case.
+The mode has to be said. `local` binds loopback and asks nobody who they are:
+whoever reaches it may do anything it offers. Every other mode wants an
+identity provider, there is not one yet, and those modes refuse to start rather
+than pretending. Defaulting to `local` would put whoever did not think about it
+on the side without authentication, and not thinking about it is the common
+case.
 
-Binding loopback keeps the network out. It does not keep out the page in the
-tab next to this one — a name the attacker controls can be made to resolve to
-127.0.0.1 after their page has loaded, and the request that follows is
-same-origin as far as the browser is concerned. So the server also checks the
-name each request arrived under, and answers only to `localhost`, `127.0.0.1`
-and `::1`. A browser sends the name it was given and a script cannot change it,
-which is what makes that check worth having; a hostname of your own pointed at
-127.0.0.1 is refused along with the rest, and there is no flag to allow one
-because the flag would be the misconfiguration.
+*Whoever reaches it* is the load-bearing part, and it is not the same as
+whoever asks. Binding loopback keeps the network out; it does not keep out the
+page in the tab next to this one — a name the attacker controls can be made to
+resolve to 127.0.0.1 after their page has loaded, and the request that follows
+is same-origin as far as the browser is concerned.
+
+So every request is refused, before anything else looks at it, unless the name
+it arrived under is this machine: `localhost`, or a loopback address —
+anything in `127.0.0.0/8`, or `::1`. A browser sends the name it was given and
+a script cannot change it, which is what makes that check worth having. A
+hostname of your own pointed at 127.0.0.1 is refused along with the rest, and
+there is no flag to allow one, because the flag would be the misconfiguration.
 
 ### Three directories, three kinds of thing
 
