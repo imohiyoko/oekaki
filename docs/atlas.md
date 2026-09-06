@@ -98,5 +98,9 @@ and they share one noun the graph now has: a **path**. What it is, what the
 four findings mean, and how a count becomes an alert are in
 [paths.md](paths.md).
 
+Folding composes with this: `--fold` alongside `--atlas` folds each page on its
+own terms, so opening a namespace of forty replicas gives three boxes rather
+than forty. See [folding.md](folding.md).
+
 Still to connect: a sequence page should prefer a recorded path over the walk
 it derives, and say which of the two it is drawing.

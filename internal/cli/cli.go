@@ -427,17 +427,12 @@ func runRender(ctx context.Context, env Env, args []string) error {
 	// Folding comes after the view and the suppression, because it is about
 	// how much is left to draw. Folding first would spend the budget on boxes
 	// the drawing was never going to have.
-	// An atlas draws a page per level, and each page is its own graph. A fold
-	// worked out against the whole estate would land on a page holding three
-	// of its twelve members, and the box would say twelve. Folding per page is
-	// the right answer and is not built; until it is, saying so beats drawing
-	// a number that is not true.
-	if f.fold && f.atlas {
-		return errors.New("--fold and --atlas do not go together yet: an atlas draws a page per level, and a fold worked out against the whole estate would stand for boxes that page does not draw. Use one or the other")
-	}
-
+	// An atlas draws a page per level, and each page is its own graph, so its
+	// folding happens per page after the pages exist. Folding here instead
+	// would spend one budget against the whole estate and land on a page
+	// holding three of a fold's twelve members.
 	var foldRecord []byte
-	if f.fold {
+	if f.fold && !f.atlas {
 		var folded *core.Graph
 		var folds []views.Folded
 		folded, folds, err = views.Fold(g, views.FoldOptions{
@@ -524,6 +519,26 @@ func runRender(ctx context.Context, env Env, args []string) error {
 			if err != nil {
 				return err
 			}
+			if f.fold {
+				var folds []views.Folded
+				folds, err = views.FoldAtlas(bound, views.FoldOptions{
+					Budget: f.foldBudget,
+					Rules:  splitList(f.foldRules),
+					Axis:   f.axis,
+					Keep:   f.foldKeep,
+				})
+				if err != nil {
+					return err
+				}
+				reportAtlasFolds(env, bound, folds)
+				if len(folds) > 0 {
+					hopts.Folds, err = json.MarshalIndent(folds, "", "  ")
+					if err != nil {
+						return err
+					}
+				}
+			}
+
 			hopts.Atlas = raw
 			for i := range bound.Diagrams {
 				if bound.Diagrams[i].ID == bound.Root {
@@ -1188,6 +1203,31 @@ func loadGraphs(env Env, paths []string, opts terraform.Options, sourceOpts sour
 		return nil, fmt.Errorf("validating combined repositories: %w", err)
 	}
 	return combined, nil
+}
+
+// reportAtlasFolds says what was folded, and on how many of the pages, because
+// an atlas has no single drawing to give a before and after for.
+func reportAtlasFolds(env Env, a *views.Atlas, folds []views.Folded) {
+	if len(folds) == 0 {
+		fmt.Fprintf(env.Stderr, "nothing folded on any of the %d pages\n", len(a.Diagrams))
+		return
+	}
+	pages := map[string]bool{}
+	counts := map[string]int{}
+	stood := 0
+	for _, f := range folds {
+		pages[f.Diagram] = true
+		counts[f.Kind]++
+		stood += len(f.Members)
+	}
+	var parts []string
+	for _, kind := range views.FoldKinds() {
+		if counts[kind] > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", counts[kind], kind))
+		}
+	}
+	fmt.Fprintf(env.Stderr, "%d fold%s (%s) standing for %d boxes, on %d of %d pages\n",
+		len(folds), plural(len(folds)), strings.Join(parts, ", "), stood, len(pages), len(a.Diagrams))
 }
 
 // reportFolds says what was folded, because a drawing that quietly stands for

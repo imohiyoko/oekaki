@@ -180,16 +180,25 @@
       foldRecords = [];
     }
   }
-  const opened = new Set();     // folds the reader has put back
+  // Folds the reader has put back, named by the page they are on as well as
+  // by the box: the same crowd is a crowd on one page and three of twelve on
+  // another, and opening one on a level must not open something else on a
+  // detail page that happens to stand for the same first member.
+  const opened = new Set();
+  const openedKey = (stands) => (page ? page.id : '') + '\u0000' + stands;
   let standFor = new Map();     // a folded box -> the box standing for it
   let standIns = [];            // those boxes
+
+  // The folds that belong to the drawing on screen. A record with no page on
+  // it belongs to the only drawing there is.
+  const foldsHere = () => foldRecords.filter((f) => !f.diagram || (page && f.diagram === page.id));
 
   function applyFolds() {
     standFor = new Map();
     standIns = [];
     const byID = new Map(graph.nodes.map((n) => [n.id, n]));
-    for (const f of foldRecords) {
-      if (opened.has(f.stands)) continue;
+    for (const f of foldsHere()) {
+      if (opened.has(openedKey(f.stands))) continue;
       const members = (f.members || []).map((id) => byID.get(id)).filter(Boolean);
       // Fewer than two left means a filter or a view took the crowd away, and
       // a box standing for one box is worse than the box.
@@ -239,7 +248,7 @@
       standIns.push(box);
     }
   }
-  const foldFor = (id) => foldRecords.find((f) => f.stands === id) || null;
+  const foldFor = (id) => foldsHere().find((f) => f.stands === id) || null;
 
   // The part of a group's claims that all of them made. An absent claim means
   // a parser found it, so a fold of things nobody claimed claims nothing; a
@@ -1409,7 +1418,7 @@
       const button = document.createElement('button');
       button.textContent = `${fold.members.length} 個を開く`;
       button.addEventListener('click', () => {
-        opened.add(n.id);
+        opened.add(openedKey(n.id));
         applyFolds();
         bindGraph();
         selected = null;
@@ -2218,7 +2227,7 @@
     // for twenty is the one thing on the canvas that is certainly not what
     // the reader was looking for.
     if (foldFor(id) && !editing) {
-      opened.add(id);
+      opened.add(openedKey(id));
       applyFolds();
       bindGraph();
       selected = null;
