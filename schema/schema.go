@@ -44,6 +44,9 @@ var LegacyGraphSchema []byte
 //go:embed graph-v0.5.schema.json
 var LegacyGraphSchemaV05 []byte
 
+//go:embed graph-v0.6.schema.json
+var LegacyGraphSchemaV06 []byte
+
 //go:embed ai-candidates.schema.json
 var AICandidatesSchema []byte
 
@@ -75,6 +78,10 @@ var compileLegacyGraph = sync.OnceValues(func() (*jsonschema.Schema, error) {
 
 var compileLegacyGraphV05 = sync.OnceValues(func() (*jsonschema.Schema, error) {
 	return compileFrozen(LegacyGraphSchemaV05, "0.5")
+})
+
+var compileLegacyGraphV06 = sync.OnceValues(func() (*jsonschema.Schema, error) {
+	return compileFrozen(LegacyGraphSchemaV06, "0.6")
 })
 
 func compileFrozen(doc []byte, version string) (*jsonschema.Schema, error) {
@@ -171,6 +178,8 @@ func ValidateLegacyGraph(version string, doc []byte) error {
 		compile = compileLegacyGraph
 	case "0.5":
 		compile = compileLegacyGraphV05
+	case "0.6":
+		compile = compileLegacyGraphV06
 	default:
 		return fmt.Errorf("IR %s is not a version this build can read", version)
 	}

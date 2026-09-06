@@ -7,7 +7,7 @@ import (
 	"github.com/imohiyoko/oekaki/core"
 )
 
-func folded(t *testing.T, doc string) ([]core.Path, []core.Observation, []string) {
+func folded(t *testing.T, doc string) ([]core.Path, [][]core.Observation, []string) {
 	t.Helper()
 	d, err := Parse([]byte(doc))
 	if err != nil {
@@ -109,15 +109,15 @@ func TestTheSameRouteIsOnePathAndACount(t *testing.T) {
 	if len(paths) != 1 || len(counts) != 1 {
 		t.Fatalf("got %d paths and %d readings, want one of each: %v", len(paths), len(counts), routes(paths))
 	}
-	if counts[0].Value == nil || *counts[0].Value != 3 {
-		t.Fatalf("the count is %v, want 3", counts[0].Value)
+	if counts[0][0].Value == nil || *counts[0][0].Value != 3 {
+		t.Fatalf("the count is %v, want 3", counts[0][0].Value)
 	}
-	if counts[0].Subject != core.PathKey([]string{"a", "b"}) {
-		t.Fatalf("the reading is about %q", counts[0].Subject)
+	if counts[0][0].Subject != core.PathKey([]string{"a", "b"}) {
+		t.Fatalf("the reading is about %q", counts[0][0].Subject)
 	}
 	// The latest walk, not the last span that happened to be parsed.
-	if counts[0].ObservedAt != "2026-09-03T00:00:00Z" {
-		t.Fatalf("last walked %q", counts[0].ObservedAt)
+	if counts[0][0].ObservedAt != "2026-09-03T00:00:00Z" {
+		t.Fatalf("last walked %q", counts[0][0].ObservedAt)
 	}
 }
 
@@ -129,7 +129,7 @@ func TestOneTraceCallingTwiceCountsTwice(t *testing.T) {
 		{"trace_id":"t1","span_id":"2","parent_span_id":"1","service":"ledger"},
 		{"trace_id":"t1","span_id":"3","parent_span_id":"1","service":"ledger"}
 	]}`)
-	if len(counts) != 1 || counts[0].Value == nil || *counts[0].Value != 2 {
+	if len(counts) != 1 || counts[0][0].Value == nil || *counts[0][0].Value != 2 {
 		t.Fatalf("got %#v, want one route walked twice", counts)
 	}
 }
@@ -160,7 +160,7 @@ func TestASelfCallIsNotAnEntryPoint(t *testing.T) {
 		{"trace_id":"t1","service":"ledger","parent_service":"checkout"}
 	]}`)
 	want(t, routes(paths), "gateway>checkout>ledger")
-	if len(counts) != 1 || *counts[0].Value != 1 {
+	if len(counts) != 1 || *counts[0][0].Value != 1 {
 		t.Fatalf("the self call was counted as its own traffic: %#v", counts)
 	}
 }

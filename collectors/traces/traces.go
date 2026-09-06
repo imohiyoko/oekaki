@@ -19,6 +19,25 @@ type Span struct {
 	SpanID       string `json:"span_id,omitempty"`
 	ParentSpanID string `json:"parent_span_id,omitempty"`
 
+	// SessionID is what ties several requests together: the same person, the
+	// same job, the same run of a batch. A trace is one request; a session is
+	// the reason there were four.
+	//
+	// It is an opaque string and stays one. Whether it identifies a person is
+	// the caller's business and the caller's risk, so the guarantee this side
+	// offers has to be stated exactly, because an operator decides what to
+	// feed in on the strength of it:
+	//
+	// The value is read into this field and held for as long as the document
+	// is, and Document.Paths keeps the distinct values of a route in memory
+	// while folding — it has to, to count them. What it does not do is write
+	// one down. Nothing derived from a session id reaches the graph, the IR,
+	// or any file this program produces except the count of how many there
+	// were. In-memory for the length of one fold, and a number on the way out.
+	//
+	// That is a narrower promise than "never kept", and it is the true one.
+	SessionID string `json:"session_id,omitempty"`
+
 	Service       string  `json:"service"`
 	ParentService string  `json:"parent_service,omitempty"`
 	Operation     string  `json:"operation,omitempty"`

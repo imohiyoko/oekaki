@@ -10,7 +10,7 @@
     "version": {
       "description": "Schema version. Bumped when the shape changes incompatibly.",
       "type": "string",
-      "const": "0.7"
+      "const": "0.6"
     },
     "metadata": {
       "description": "Provenance. Deliberately free of timestamps so that identical input yields byte-identical output.",
@@ -82,11 +82,6 @@
       "description": "Ordered walks through the estate: this one called that one, and that one called the next. An edge records one hop; a path records the order, which is what \"this route has not been used in ninety days\" and \"this route fired when nothing declared it\" are statements about. Kinds mean what they mean on an edge, so a declared path and an observed one can be compared.",
       "type": "array",
       "items": { "$ref": "#/$defs/path" }
-    },
-    "notes": {
-      "description": "What people wrote about the things in the drawing. A note sits beside the graph rather than on the node for the same reason an observation does: it is evidence about a subject with somebody's name on it, not a property of the resource. The text is Markdown as written, which makes it somebody else's text arriving in a document that gets drawn — renderers build elements rather than markup.",
-      "type": "array",
-      "items": { "$ref": "#/$defs/note" }
     },
     "observations": {
       "description": "Time-scoped measurements and assessments attached to graph entities.",
@@ -269,24 +264,6 @@
         },
         "label": { "type": "string" },
         "attrs": { "type": "object" },
-        "claim": { "$ref": "#/$defs/claim" }
-      }
-    },
-    "note": {
-      "type": "object",
-      "required": ["subject", "text"],
-      "additionalProperties": false,
-      "properties": {
-        "subject": {
-          "description": "A node id, a group id, or an edge key.",
-          "type": "string",
-          "minLength": 1
-        },
-        "text": {
-          "description": "Markdown, as written.",
-          "type": "string",
-          "minLength": 1
-        },
         "claim": { "$ref": "#/$defs/claim" }
       }
     },

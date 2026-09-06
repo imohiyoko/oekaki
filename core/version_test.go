@@ -9,7 +9,7 @@ import (
 // right shape — but it declares a different contract, and a build that read it
 // without saying so would be claiming the document promised something it did
 // not.
-func TestAVersion05DocumentIsReadAndRestamped(t *testing.T) {
+func TestAnOlderDocumentIsReadAndRestamped(t *testing.T) {
 	const doc = `{"version":"0.5","axes":[],"nodes":[{"id":"a","type":"service","name":"a"},` +
 		`{"id":"b","type":"service","name":"b"}],` +
 		`"edges":[{"from":"a","to":"b","kind":"observed","relation":"calls"}],"groups":[]}`
@@ -29,7 +29,7 @@ func TestAVersion05DocumentIsReadAndRestamped(t *testing.T) {
 // The old contract is applied to the old document. Reading a broken 0.5
 // document against the 0.6 schema would let something that was invalid then
 // pass now, and the migration would launder it on the way through.
-func TestABroken05DocumentIsStillBroken(t *testing.T) {
+func TestABrokenOlderDocumentIsStillBroken(t *testing.T) {
 	const doc = `{"version":"0.5","axes":[],"nodes":[{"id":"a","name":"a"}],"edges":[],"groups":[]}`
 
 	_, err := Decode(strings.NewReader(doc))
