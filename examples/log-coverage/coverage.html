@@ -7734,14 +7734,46 @@ module.exports = Worker;
       // a box standing for one box is worse than the box.
       if (members.length < 2) continue;
       for (const m of members) standFor.set(m.id, f.stands);
-      standIns.push({
+
+      // What every member agrees on and nothing else, which is the rule the
+      // same box is built by in Go. Taking the first member's answer instead
+      // would draw a mixed run in whichever namespace one of them happened to
+      // be in, and a box in a colour none of them had.
+      const agreed = (of) => {
+        const first = of(members[0]);
+        return members.every((m) => of(m) === first) ? first : undefined;
+      };
+      const box = {
         id: f.stands,
-        type: members[0].type,
+        type: agreed((m) => m.type) || f.kind,
         name: f.label || `${members[0].name} ×${members.length}`,
-        groups: members[0].groups,
-        provider: members[0].provider,
+        provider: agreed((m) => m.provider),
         attrs: {fold: f.kind, members: members.length},
-      });
+      };
+      // Coverage is the subject of a whole class of these drawings, and no
+      // coverage means nobody knows — so dropping it turns a box everybody
+      // has looked at into one nobody has.
+      if (agreed((m) => (m.coverage ? m.coverage.state : ''))) box.coverage = members[0].coverage;
+      if (agreed((m) => (m.claim ? m.claim.origin + '\u0000' + (m.claim.author || '') : ''))) {
+        box.claim = members[0].claim;
+      }
+      const groups = {};
+      for (const axisID of Object.keys(members[0].groups || {})) {
+        const path = agreed((m) => (m.groups || {})[axisID]);
+        if (path) groups[axisID] = path;
+      }
+      if (Object.keys(groups).length) box.groups = groups;
+
+      // What happens inside the fold. A line from the box to itself says
+      // nothing and draws badly, so it is a number here as it is there.
+      const held = new Set(members.map((m) => m.id));
+      let internal = 0;
+      for (const e of graph.edges) {
+        if (!e.suppressed && held.has(e.from) && held.has(e.to)) internal++;
+      }
+      if (internal > 0) box.attrs.internal_references = internal;
+
+      standIns.push(box);
     }
   }
   const foldFor = (id) => foldRecords.find((f) => f.stands === id) || null;
@@ -7951,12 +7983,37 @@ module.exports = Worker;
     // An edge whose endpoint is folded away reattaches to the nearest visible
     // ancestor, so folding a container summarises its traffic instead of
     // silently deleting it.
+    //
+    // Twenty lines that land on the same pair are one line carrying how many
+    // it stands for. Without that the page draws twenty where the SVG of the
+    // same graph draws one — the folded picture, rendered as a hairball —
+    // because folding here happens after the document was normalized and
+    // nothing else would merge them.
     const edges = [];
+    const merged = new Map();
     for (const [i, e] of allEdges().entries()) {
       const from = anchorFor(e.from, drawn);
       const to = anchorFor(e.to, drawn);
       if (!from || !to || from === to) continue;
-      edges.push({id: 'e' + i, sources: [from], targets: [to], infra: {kind: 'edge', edge: e}});
+      const pair = [from, to, e.kind, e.relation || ''].join('\u0000');
+      const at = merged.get(pair);
+      if (at) {
+        at.infra.references++;
+        // A copy, because `graph` is what the input said. Writing the count
+        // onto the edge itself would edit the document the page carries, and
+        // the next render would count the counts.
+        at.infra.edge = {
+          ...at.infra.edge,
+          attrs: {...(at.infra.edge.attrs || {}), references: at.infra.references},
+        };
+        continue;
+      }
+      const drawnEdge = {
+        id: 'e' + i, sources: [from], targets: [to],
+        infra: {kind: 'edge', edge: e, references: 1},
+      };
+      merged.set(pair, drawnEdge);
+      edges.push(drawnEdge);
     }
 
     return {

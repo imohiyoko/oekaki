@@ -161,7 +161,7 @@ func Fold(g *core.Graph, opts FoldOptions) (*core.Graph, []Folded, error) {
 		case FoldTwins:
 			found = twins(out, axis, keep)
 		case FoldLeaves:
-			found = leaves(out, keep)
+			found = leaves(out, axis, keep)
 		case FoldChain:
 			found = chains(out, keep)
 		}
@@ -232,8 +232,15 @@ func apply(g *core.Graph, folds []Folded) error {
 	for id := range at {
 		delete(byID, id)
 	}
+	// Everything still drawn stands for itself. Containers included: either
+	// end of an edge may be a group, and a lift table that only knows about
+	// nodes drops those lines entirely — a fold nobody asked for, of a line
+	// nothing folded.
 	for _, n := range g.Nodes {
 		at[n.ID] = n.ID
+	}
+	for _, grp := range g.Groups {
+		at[grp.ID] = grp.ID
 	}
 	g.Edges = liftEdges(g.Edges, at)
 
@@ -242,7 +249,12 @@ func apply(g *core.Graph, folds []Folded) error {
 	// route that has nothing left to say — every participant inside one fold —
 	// goes with them.
 	var routes []core.Path
+	// A route that folded is still the same route, so a reading about it
+	// follows it to its new name. Only a route that lost its way entirely —
+	// every participant inside one fold — takes its readings with it.
+	renamed := map[string]string{}
 	for _, p := range g.Paths {
+		was := p.Key()
 		walk := make([]string, 0, len(p.Nodes))
 		for _, id := range p.Nodes {
 			stands, isMember := at[id]
@@ -258,6 +270,7 @@ func apply(g *core.Graph, folds []Folded) error {
 			continue
 		}
 		p.Nodes = walk
+		renamed[was] = p.Key()
 		routes = append(routes, p)
 	}
 	g.Paths = routes
@@ -278,6 +291,9 @@ func apply(g *core.Graph, folds []Folded) error {
 	}
 	observations := g.Observations[:0]
 	for _, o := range g.Observations {
+		if now, moved := renamed[o.Subject]; moved {
+			o.Subject = now
+		}
 		if present[o.Subject] || keys[o.Subject] {
 			observations = append(observations, o)
 		}
@@ -296,44 +312,94 @@ func apply(g *core.Graph, folds []Folded) error {
 }
 
 // standIn builds the box drawn in a fold's place.
+//
+// It carries what every member agrees on and nothing else. That is the whole
+// rule, and it is what keeps a fold from making a claim none of its members
+// made: a box drawn in the production namespace because the first member
+// happened to be there, or drawn as a workload whose logs are flowing because
+// the alphabetically first of a mixed group's were.
+//
+// Twins agree on all of it by construction — the cohort key is exactly this
+// list — so nothing is lost there. A chain of a queue, a worker and a bucket
+// agrees on almost none of it, and says so by carrying almost none of it.
 func standIn(f Folded, members map[string]core.Node, internal int) core.Node {
-	first := members[f.Members[0]]
+	agreed := func(of func(core.Node) string) string {
+		first, settled := "", false
+		for _, id := range f.Members {
+			m, ok := members[id]
+			if !ok {
+				continue
+			}
+			value := of(m)
+			if !settled {
+				first, settled = value, true
+				continue
+			}
+			if value != first {
+				return ""
+			}
+		}
+		return first
+	}
+
+	kind := agreed(func(n core.Node) string { return n.Type })
+	if kind == "" {
+		// A run of different things is not any of them. Naming it after the
+		// fold is the only description that is true of all of it.
+		kind = f.Kind
+	}
 	n := core.Node{
 		ID:   f.Stands,
-		Type: first.Type,
+		Type: kind,
 		Name: f.Label,
 		Attrs: map[string]any{
 			"fold":    f.Kind,
 			"members": len(f.Members),
 		},
-		Provider: first.Provider,
-		Groups:   first.Groups,
+		Provider: agreed(func(n core.Node) string { return n.Provider }),
 	}
 	if internal > 0 {
 		n.Attrs["internal_references"] = internal
 	}
-	// The claim travels only when every member agreed about who said so.
+
+	// Where it is drawn, when they are all in the same place. A box that
+	// stands for things in two containers belongs to neither.
+	for axis := range members[f.Members[0]].Groups {
+		path := agreed(func(m core.Node) string { return m.Groups[axis] })
+		if path == "" {
+			continue
+		}
+		if n.Groups == nil {
+			n.Groups = map[string]string{}
+		}
+		n.Groups[axis] = path
+	}
+
+	// Coverage is the subject of a whole class of these drawings, and absent
+	// coverage means nobody knows — so dropping it turns a box everybody has
+	// looked at into one nobody has.
+	if state := agreed(coverageOf); state != "" {
+		n.Coverage = members[f.Members[0]].Coverage
+	}
+
 	// A box standing for one thing a person asserted and three a parser found
 	// is not an assertion, and drawing it as one would put somebody's name on
 	// three things they never said.
-	same := true
-	for _, id := range f.Members {
-		if !sameClaim(members[id].Claim, first.Claim) {
-			same = false
-			break
-		}
-	}
-	if same {
-		n.Claim = first.Claim
+	if agreed(func(m core.Node) string { return claimKey(m.Claim) }) != "" || onlyParsers(f, members) {
+		n.Claim = members[f.Members[0]].Claim
 	}
 	return n
 }
 
-func sameClaim(a, b *core.Claim) bool {
-	if a == nil || b == nil {
-		return a == b
+// onlyParsers reports whether every member's claim is absent, which is the
+// common case and the one agreed() cannot tell from disagreement.
+func onlyParsers(f Folded, members map[string]core.Node) bool {
+	for _, id := range f.Members {
+		if m, ok := members[id]; ok && m.Claim != nil {
+			return false
+		}
 	}
-	return a.Origin == b.Origin && a.Author == b.Author
+	return true
 }
 
 // twins finds boxes that are the same thing, in the same place, joined to the
@@ -374,7 +440,8 @@ func twins(g *core.Graph, axis string, keep map[string]bool) []Folded {
 		if !candidate {
 			continue
 		}
-		sig[key+"\x03"+joinedKey(g, n, cohort)] = append(sig[key+"\x03"+joinedKey(g, n, cohort)], n.ID)
+		signature := key + "\x03" + joinedKey(g, n, cohort)
+		sig[signature] = append(sig[signature], n.ID)
 	}
 
 	var out []Folded
@@ -448,7 +515,7 @@ func claimKey(c *core.Claim) string {
 // it: a config map attached to one workload adds a box and a line and no path
 // through the picture. Folding them per neighbour and per type keeps the one
 // thing they say — this workload has seven of these — and gives back the room.
-func leaves(g *core.Graph, keep map[string]bool) []Folded {
+func leaves(g *core.Graph, axis string, keep map[string]bool) []Folded {
 	neighbours := map[string]map[string]bool{}
 	for _, e := range g.Edges {
 		if e.From == e.To {
@@ -464,7 +531,7 @@ func leaves(g *core.Graph, keep map[string]bool) []Folded {
 		neighbours[e.To][e.From] = true
 	}
 
-	type key struct{ host, kind string }
+	type key struct{ host, cohort string }
 	groups := map[key][]string{}
 	for _, n := range g.Nodes {
 		if keep[n.ID] || strings.HasPrefix(n.ID, foldPrefix) {
@@ -478,7 +545,10 @@ func leaves(g *core.Graph, keep map[string]bool) []Folded {
 		for id := range around {
 			host = id
 		}
-		groups[key{host, n.Type}] = append(groups[key{host, n.Type}], n.ID)
+		// The same cohort as twins, not merely the same type: two config maps
+		// in different namespaces, or from different providers, are not one
+		// box however alike they look from the host they hang off.
+		groups[key{host, cohortKey(n, axis)}] = append(groups[key{host, cohortKey(n, axis)}], n.ID)
 	}
 
 	var out []Folded
@@ -588,18 +658,20 @@ func commonName(g *core.Graph, ids []string) string {
 	if len(names) == 0 {
 		return kind
 	}
-	prefix := names[0]
+	// Trimmed a character at a time rather than a byte at a time. Cutting a
+	// multi-byte character in half leaves bytes that are not text: the prefix
+	// check is a byte comparison and matches happily, the length check counts
+	// each broken byte as a character and passes, and what reaches the label
+	// is mojibake.
+	prefix := []rune(names[0])
 	for _, name := range names[1:] {
-		for !strings.HasPrefix(name, prefix) {
+		for len(prefix) > 0 && !strings.HasPrefix(name, string(prefix)) {
 			prefix = prefix[:len(prefix)-1]
-			if prefix == "" {
-				break
-			}
 		}
 	}
-	prefix = strings.TrimRight(prefix, "-_. ")
-	if len([]rune(prefix)) < 2 {
+	trimmed := strings.TrimRight(string(prefix), "-_. ")
+	if len([]rune(trimmed)) < 2 {
 		return kind
 	}
-	return prefix
+	return trimmed
 }

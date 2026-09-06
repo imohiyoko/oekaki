@@ -81,6 +81,33 @@ func TestAFoldedPageCanBeUnfolded(t *testing.T) {
 	}
 }
 
+// An atlas draws a page per level, and a fold worked out against the whole
+// estate would stand for boxes that page does not draw.
+func TestFoldAndAtlasAreRefusedTogether(t *testing.T) {
+	r := run(t, "", "render", crowdedGraph(t), "-f", "html", "--fold", "--atlas")
+	if r.code == 0 {
+		t.Fatal("a fold worked out against the whole estate was applied to an atlas page")
+	}
+	if !strings.Contains(r.stderr, "do not go together") {
+		t.Errorf("the refusal does not say why: %q", r.stderr)
+	}
+}
+
+// A drawing that did not need help and one that needed it and could not be
+// given any are different facts, and the reader meets the mat of boxes either
+// way.
+func TestNothingFoldableSaysSoDifferently(t *testing.T) {
+	over := run(t, "", "render", crowdedGraph(t), "-f", "json", "--fold",
+		"--fold-budget", "2", "--fold-rules", "chain")
+	if !strings.Contains(over.stderr, "no rule applies") {
+		t.Errorf("a drawing over its budget with nothing foldable was called fine: %q", over.stderr)
+	}
+	under := mustRun(t, "", "render", crowdedGraph(t), "-f", "json", "--fold", "--fold-budget", "100")
+	if !strings.Contains(under.stderr, "already inside the budget") {
+		t.Errorf("a drawing inside its budget was reported as unfoldable: %q", under.stderr)
+	}
+}
+
 func TestUnknownFoldRuleIsRefused(t *testing.T) {
 	if r := run(t, "", "render", crowdedGraph(t), "-f", "json", "--fold", "--fold-rules", "squash"); r.code == 0 {
 		t.Error("an unknown fold rule was accepted")
