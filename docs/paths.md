@@ -22,7 +22,7 @@ $ oekaki graph plan.json --traces spans.json -o graph.json
 $ oekaki paths graph.json --since 30d
 ```
 
-```
+```text
 partial     gateway → reports → archive
             walked as far as reports; nothing has been seen going on to archive  (last 2026-05-01T10:00:00Z, 1 requests)
 unexpected  gateway → ledger
@@ -79,7 +79,7 @@ person, the same job, the same run of a batch. A span may carry a
 `session_id`, and when it does a route says how many distinct sessions walked
 it as well as how many times it was walked:
 
-```
+```text
 path_requests  gateway → checkout → ledger  3
 path_sessions  gateway → checkout → ledger  2
 ```
