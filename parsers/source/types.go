@@ -69,6 +69,10 @@ var (
 	colonRe   = regexp.MustCompile(`\b(?:class|interface|struct|enum|trait|protocol|record)\s+[A-Za-z_][A-Za-z0-9_]*\s*(?:\([^)]*\))?\s*:\s*([^{]+)`)
 	baseName  = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_.]*)`)
 	generics  = regexp.MustCompile(`<[^<>]*>`)
+
+	// leadingColon is the colon form on a line that does not name the type:
+	// the continuation of a declaration whose parameter list was wrapped.
+	leadingColon = regexp.MustCompile(`^[\s)]*:\s*([^{]+)`)
 )
 
 // declarationKeywords are the words that may follow a type's name and still be
@@ -185,19 +189,21 @@ func scanTypes(g *core.Graph, scan *typeScan, lines, codeLines []string, fileID,
 	current, currentName := "", ""
 	// depth is how deep inside the type's braces we are. pending means the
 	// declaration has been read and its body has not opened yet, because the
-	// declaration is still being written on the lines that follow.
+	// declaration is still being written on the lines that follow; more says
+	// it is in the middle of naming things, so a line that begins with a name
+	// is part of it.
 	depth, parens := 0, 0
 	pending := false
+	// clause is the relation whose list is still open across a line break. A
+	// declaration that wrapped after `implements A,` goes on with a bare name,
+	// and the name means nothing without the clause it belongs to.
+	clause := ""
 	declIndent := 0
-
-	// Members are collected and decided at the end of the body, not as they
-	// are met: which indentation is the type's own is not known until they
-	// have all been seen.
-	type candidate struct {
-		line, indent int
-		name         string
-	}
-	var found []candidate
+	// method is the indentation of the innermost function we are inside, or
+	// -1. It is what tells a method from a function nested in one, which is
+	// the only distinction that matters here: a `def` inside an `if` is still
+	// the class's, and a `def` inside a `def` is that method's business.
+	method := -1
 
 	note := func(bases []declaredBase) {
 		for _, b := range bases {
@@ -206,40 +212,19 @@ func scanTypes(g *core.Graph, scan *typeScan, lines, codeLines []string, fileID,
 			})
 		}
 	}
-
-	// closeType finishes a type: it decides which of the functions inside it
-	// were its members, and then forgets it.
-	//
-	// The shallowest wins. Latching onto the first function seen instead threw
-	// away every real member of a class whose first `def` was inside an `if
-	// TYPE_CHECKING:` — which is an ordinary thing to write, and the class
-	// went quiet without saying so.
 	closeType := func() {
-		if len(found) > 0 {
-			shallowest := found[0].indent
-			for _, c := range found {
-				if c.indent < shallowest {
-					shallowest = c.indent
-				}
-			}
-			for _, c := range found {
-				// Braces already said which functions are directly in the
-				// body; indentation is the only measure the other languages
-				// have, and there the deeper ones are somebody else's.
-				if !braced && c.indent != shallowest {
-					continue
-				}
-				out.method[c.line] = currentName
-				scan.methods = append(scan.methods, pendingMethod{
-					receiver: currentName,
-					function: fileID + "#" + currentName + "." + c.name,
-					dir:      dir,
-				})
-			}
-		}
-		found = nil
-		current, currentName, pending = "", "", false
-		depth, parens = 0, 0
+		current, currentName, pending, clause = "", "", false, ""
+		depth, parens, method = 0, 0, -1
+	}
+
+	// member records a function as the type's own.
+	member := func(line int, fn string) {
+		out.method[line] = currentName
+		scan.methods = append(scan.methods, pendingMethod{
+			receiver: currentName,
+			function: fileID + "#" + currentName + "." + fn,
+			dir:      dir,
+		})
 	}
 
 	for line, text := range codeLines {
@@ -258,7 +243,10 @@ func scanTypes(g *core.Graph, scan *typeScan, lines, codeLines []string, fileID,
 			case strings.Contains(text, "{"):
 				depth = braceDelta(text)
 				// A body that opens and closes on its own line is over where
-				// it started.
+				// it started. Anything written inside it goes unread, because
+				// every function pattern here is anchored to the start of a
+				// line — which is a limit of reading code with regular
+				// expressions, not of this scope tracking.
 				if depth <= 0 {
 					closeType()
 				}
@@ -270,7 +258,7 @@ func scanTypes(g *core.Graph, scan *typeScan, lines, codeLines []string, fileID,
 				// TypeScript one long enough to wrap — or it never had a body,
 				// which is how Kotlin writes `class Marker`. Which of the two
 				// is decided by the line that follows.
-				pending = true
+				pending, clause = true, openClause(text, "")
 			}
 			continue
 		}
@@ -286,13 +274,22 @@ func scanTypes(g *core.Graph, scan *typeScan, lines, codeLines []string, fileID,
 			// line that starts something else means the declaration was
 			// finished and had no body — and everything after it belongs to
 			// the file, not to the type.
-			if !continuesDeclaration(text) && parens <= 0 {
+			if !continuesDeclaration(text) && clause == "" && parens <= 0 {
 				closeType()
 				continue
 			}
-			note(basesFrom(text, currentName))
+			bases := basesFrom(text, currentName)
+			if len(bases) == 0 {
+				// A bare name under an open list: `implements A,` wrapped
+				// before its second interface. The name says nothing on its
+				// own; the clause it belongs to is what the line before left
+				// open.
+				bases = continuedBases(text, clause)
+			}
+			note(bases)
 			out.inside[line] = currentName
 			parens += parenDelta(text)
+			clause = openClause(text, clause)
 			switch {
 			case strings.Contains(text, "{"):
 				depth, pending = braceDelta(text), false
@@ -305,20 +302,41 @@ func scanTypes(g *core.Graph, scan *typeScan, lines, codeLines []string, fileID,
 			continue
 		}
 
-		if !braced && strings.TrimSpace(text) != "" && indentation(lines[line]) <= declIndent {
-			// Where the body ends is settled before what is on the line is
-			// read. A `def` at the class's own indentation is the first thing
-			// after the class, not the last thing in it.
-			closeType()
-			continue
+		at := indentation(lines[line])
+		if !braced && strings.TrimSpace(text) != "" {
+			if at <= declIndent {
+				// Where the body ends is settled before what is on the line is
+				// read. A `def` at the class's own indentation is the first
+				// thing after the class, not the last thing in it.
+				closeType()
+				continue
+			}
+			// And a function's body ends the same way. Once out of it, the
+			// next declaration is the class's again.
+			if method >= 0 && at <= method {
+				method = -1
+			}
 		}
 		out.inside[line] = currentName
 
-		if fn, isFn := functionName(text, lang); isFn && (!braced || depth == 1) {
-			// depth == 1 is "directly in the body". A function nested inside a
-			// method is that method's business, and a class does not declare
-			// it.
-			found = append(found, candidate{line: line, indent: indentation(lines[line]), name: fn})
+		if fn, isFn := functionName(text, lang); isFn {
+			// Directly in the type, and not inside one of its methods.
+			//
+			// A brace language says so with braces: depth 1 is the body, and
+			// anything deeper is inside something. Elsewhere the measure is
+			// whether a function is open around this one — because a `def`
+			// inside an `if sys.version_info` or a Ruby `class << self` is
+			// still the class's, and only a `def` inside a `def` is not.
+			own := depth == 1
+			if !braced {
+				own = method < 0
+			}
+			if own {
+				member(line, fn)
+			}
+			if !braced && method < 0 {
+				method = at
+			}
 		}
 
 		if braced {
@@ -328,7 +346,6 @@ func scanTypes(g *core.Graph, scan *typeScan, lines, codeLines []string, fileID,
 			}
 		}
 	}
-	closeType()
 	return out
 }
 
@@ -349,6 +366,60 @@ func continuesDeclaration(text string) bool {
 		}
 	}
 	return false
+}
+
+// openClause is the relation whose list a line has stopped in the middle of,
+// so that the next line goes on with it even though it begins with a name of
+// its own.
+//
+// `implements A,` wrapped before its second interface is the ordinary way a
+// long declaration is written, and a continuation judged only by the word it
+// starts with reads `B {` as something new. The clause carries over from the
+// line before when this one does not name a fresh one.
+func openClause(text, carried string) string {
+	t := strings.TrimSpace(text)
+	open := strings.HasSuffix(t, ",")
+	for _, tail := range []string{"extends", "implements", ":", "&", "+"} {
+		if strings.HasSuffix(t, tail) {
+			open = true
+		}
+	}
+	if !open {
+		return ""
+	}
+	// The last clause the line named, if it named one. Nothing else can say
+	// which relation the names after it belong to.
+	extends := strings.LastIndex(t, "extends")
+	implements := strings.LastIndex(t, "implements")
+	switch {
+	case implements >= 0 && implements > extends:
+		return RelationImplements
+	case extends >= 0:
+		return RelationExtends
+	case carried != "":
+		return carried
+	case strings.HasSuffix(t, ":") || strings.HasSuffix(t, "&") || strings.HasSuffix(t, "+"):
+		// The colon form names no relation, and cannot tell generalization
+		// from realization, so it says extends like everywhere else.
+		return RelationExtends
+	}
+	return ""
+}
+
+// continuedBases reads the names on a line that goes on with an open list.
+func continuedBases(text, relation string) []declaredBase {
+	if relation == "" {
+		return nil
+	}
+	list := strip(text)
+	if at := strings.Index(list, "{"); at >= 0 {
+		list = list[:at]
+	}
+	var out []declaredBase
+	for _, n := range splitBases(list) {
+		out = append(out, declaredBase{relation, n})
+	}
+	return out
 }
 
 // endsStatement reports whether a line finishes what it started, which is how a
@@ -478,12 +549,22 @@ func basesFrom(text, name string) []declaredBase {
 	// The colon form. Kotlin, Swift, Scala, C# and C++ write a base class and
 	// an interface the same way, so this cannot tell generalization from
 	// realization — and says extends rather than choosing one at random.
+	//
+	// Two shapes of it: on the declaration line, where the type's own name is
+	// in front of the colon, and on a continuation line, where it is not —
+	// `) : Marker {` under a wrapped Kotlin parameter list. Anchoring only on
+	// the first made the wrapped one unreadable, which is the case the
+	// continuation was added for.
 	if len(bases) == 0 {
+		clause := ""
 		if c := colonRe.FindStringSubmatch(text); len(c) > 1 {
-			for _, one := range splitBases(c[1]) {
-				if one != name {
-					bases = append(bases, declaredBase{RelationExtends, one})
-				}
+			clause = c[1]
+		} else if c := leadingColon.FindStringSubmatch(text); len(c) > 1 {
+			clause = c[1]
+		}
+		for _, one := range splitBases(clause) {
+			if one != name {
+				bases = append(bases, declaredBase{RelationExtends, one})
 			}
 		}
 	}

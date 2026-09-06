@@ -457,6 +457,15 @@ func resolveCall(funcs, byName map[string]string, inside, name string) (string, 
 			return id, true
 		}
 	}
+	// A function of that name, before anybody's method. Reaching for the first
+	// declaration in the file instead let a method win where a plain function
+	// of the same name existed — so a call outside every class went to a
+	// class's method, and the real function was left with nothing pointing at
+	// it. Its own declaration line, which the scanner reads for calls too,
+	// then drew an edge from it to the method.
+	if id, ok := funcs[name]; ok {
+		return id, true
+	}
 	id, ok := byName[name]
 	return id, ok
 }
