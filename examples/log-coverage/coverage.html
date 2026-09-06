@@ -8007,7 +8007,12 @@ module.exports = Worker;
     const extra = members.length ? members.length * LINE + 8 : 0;
     return {
       width: sized.width || Math.max(104, Math.ceil(w) + PAD_X * 2 + ICON + ICON_GAP + door),
-      height: sized.height || BOX_HEIGHT + extra,
+      // A size given by hand can make a box bigger but not smaller than what
+      // it has to hold. A layout document is a file somebody edits, and a
+      // height saved before the type had members — or simply typed in — would
+      // otherwise draw the member list and the compartment rule outside the
+      // box they belong to.
+      height: Math.max(sized.height || 0, BOX_HEIGHT + extra),
     };
   }
 
