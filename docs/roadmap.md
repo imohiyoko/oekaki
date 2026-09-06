@@ -93,6 +93,38 @@ richer model before anything can say who is asking would be guessing at which
 parts of it matter. Until then every mode that wants authentication refuses to
 start.
 
+### What builds this image — the missing half of the code-to-infrastructure join
+
+The code graph says what the source declares. The Terraform graph says what
+runs. Between them is an image tag, and nothing here reads the thing that
+decides it.
+
+In an enterprise the join is already automated and already written down: a
+pipeline builds an image from a commit, and a pull request writes that image's
+digest into the IaC. So **the record of "this container is that repository at
+that commit" lives in the CI system** — GitHub Actions, or whatever stands in
+its place — and it is the only place it exists. Guessing it from a repository
+name that happens to match an image name would be exactly the kind of invention
+this project refuses.
+
+What that wants:
+
+- a collector that reads a build's own record — commit, repository, image
+  reference, digest, workflow run — and writes it as ordinary evidence, on the
+  same terms as every other collector: the credentials stay outside, the vendor
+  API stays outside, and what arrives here is a document somebody can read;
+- an `observed` join from the image reference in the IaC to the repository the
+  code graph was read from, carrying a claim that names the run it came from,
+  so "which system is this container" has an answer with provenance rather than
+  a coincidence of names;
+- a flag that refuses to read it. The reading is the entry point, and whether
+  an estate wants a CI system in the picture at all is the estate's decision,
+  not this program's default.
+
+The shape of the answer is the shape every other outside fact already has here,
+which is the reason to write it down now rather than invent a mechanism for it
+later.
+
 ## v1.0 — a frozen boundary
 
 - Schema v1, with the parser and renderer boundaries frozen
