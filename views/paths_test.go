@@ -198,3 +198,46 @@ func TestAListingIsDeterministic(t *testing.T) {
 		}
 	}
 }
+
+// Deriving nothing has two causes and they are not the same one. A graph built
+// from traces alone has no declared call to follow, and there is nothing wrong
+// with it. A graph full of declared calls where each one leads to something
+// also called has its entry point inside a cycle, which is a real thing to go
+// and look at. One message covering both sends half its readers hunting for a
+// cycle that is not there.
+func TestWhyNothingCouldBeDerivedSaysWhichOfTheTwo(t *testing.T) {
+	traced := core.New()
+	for _, id := range []string{"gateway", "checkout"} {
+		traced.Nodes = append(traced.Nodes, core.Node{ID: id, Type: "service", Name: id})
+	}
+	traced.Paths = []core.Path{{Nodes: []string{"gateway", "checkout"}, Kind: core.EdgeObserved}}
+	traced.Normalize()
+
+	if got := WhyNoDeclaredPaths(traced); got != NoReferences {
+		t.Errorf("a graph with nothing to follow is reported as %q", got)
+	}
+
+	cycle := core.New()
+	for _, id := range []string{"a", "b"} {
+		cycle.Nodes = append(cycle.Nodes, core.Node{ID: id, Type: "service", Name: id})
+	}
+	cycle.Edges = []core.Edge{
+		{From: "a", To: "b", Kind: core.EdgeIACRef, Relation: "calls"},
+		{From: "b", To: "a", Kind: core.EdgeIACRef, Relation: "calls"},
+	}
+	cycle.Normalize()
+
+	if len(DeclarePaths(cycle, DeclareOptions{})) != 0 {
+		t.Fatal("the fixture is not the case it is meant to be")
+	}
+	if got := WhyNoDeclaredPaths(cycle); got != NoStart {
+		t.Errorf("a graph whose entry point is in a cycle is reported as %q", got)
+	}
+
+	// And it says nothing at all when there was nothing to explain.
+	ok := watched()
+	ok.Paths = nil
+	if got := WhyNoDeclaredPaths(ok); got != "" {
+		t.Errorf("a graph that derives routes fine is explained as %q", got)
+	}
+}

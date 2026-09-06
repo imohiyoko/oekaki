@@ -131,14 +131,39 @@ bound, because dropping it would take every reading from a collector that
 records no time out of every rule, quietly and for a reason nobody could see.
 Where two readings compete for "newest", one with a time wins.
 
+`quiet` is the exception, and for the same reason rather than against it.
+Silence is the claim that *nothing arrived*, and an undated reading says
+something arrived and says nothing about when. It is not silence, so the rule
+does not fire; it cannot be placed inside the window either, so the rule does
+not pass. The rule is simply not answering the question for that subject, and
+the run says so on stderr:
+
+```console
+$ oekaki alerts graph.json --rules rules.json --since 30d
+stopped: ledger measured with no time on the reading, so there is no telling
+whether it went quiet; not reported
+1 rule, nothing fired
+```
+
+Which is the thing worth saying out loud, because the alternative was worse in
+both directions: treating an undated reading as older than every moment fired
+every subject of such a collector on every run, and dropping it silently would
+have left a `quiet` rule that can never fire and never says why.
+
 ## Where the declared side comes from
 
 A rule about routes needs both sides of the comparison. When the graph carries
 no declared routes, they are derived by following declared references — the
 same thing `oekaki paths` does, and the run says so on stderr.
 
-When *none* can be derived either — an estate whose only way in is called by
-something else has nowhere for a route to start — the run says that instead.
+When *none* can be derived either, the run says which of the two happened,
+because they are different situations with different things to do about them:
+
+| | |
+| --- | --- |
+| this graph records no declared calls to follow | a graph built from traces alone. Nothing is wrong with it; the declared side simply is not there yet, and belongs in an overlay |
+| everything that calls something is also called by something | there is nowhere a route starts. An estate whose entry point sits inside a cycle looks like this |
+
 Silence there reads as "everything observed is a surprise", which is exactly
 what a rule about unexpected routes then reports: one alert per route, none of
 them about anything that happened.

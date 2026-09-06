@@ -95,15 +95,21 @@ func runAlerts(env Env, args []string) error {
 				// which is exactly what a rule about unexpected routes then
 				// says — one alert per route, none of them about anything
 				// that happened.
-				fmt.Fprintln(env.Stderr,
-					"no declared routes could be derived: nothing here is called only from outside, so there is nowhere a route starts. Until the routes are written down, every observed route will read as unannounced")
+				fmt.Fprintln(env.Stderr, whyNoRoutes(g)+
+					" Until the routes are written down, every observed route will read as unannounced")
 			}
 		}
 	}
 
-	alerts, err := views.Alerts(g, doc)
+	alerts, unanswered, err := views.Alerts(g, doc)
 	if err != nil {
 		return err
+	}
+	// What the rules could not answer, before what they did. A rule that had
+	// nothing to apply itself to reports the same silence as one that applied
+	// itself and found nothing, and only one of the two is good news.
+	for _, notice := range unanswered {
+		fmt.Fprintln(env.Stderr, notice)
 	}
 
 	var out []byte
@@ -124,21 +130,33 @@ func runAlerts(env Env, args []string) error {
 				head = a.Severity + "  " + head
 			}
 			line := a.Reason
-			// When it was last measured, and what it said. It is what the path
-			// listing prints and what somebody deciding whether to act needs;
-			// a reason without them is a claim to go and check elsewhere.
-			if a.LastSeen != "" || a.Value != nil {
-				line += "  ("
-				if a.LastSeen != "" {
-					line += "last " + a.LastSeen
-				}
-				if a.Value != nil {
-					if a.LastSeen != "" {
-						line += ", "
+			// When it was last measured and what it said — the two things
+			// somebody deciding whether to act needs, and a reason without
+			// them is a claim to go and check elsewhere.
+			//
+			// Only the half the reason does not already carry. A bound names
+			// its value in the reason and a quiet alert names its moment, so
+			// appending both unconditionally printed the same fact twice on
+			// one line, which reads as two facts.
+			var also []string
+			if a.LastSeen != "" && !strings.Contains(a.Reason, a.LastSeen) {
+				also = append(also, "last "+a.LastSeen)
+			}
+			if a.Value != nil {
+				// Named only when the reason has not named it already. The
+				// name goes first because these are metric names rather than
+				// units: "beat 5" reads as a measurement where "5 beat" reads
+				// as a typo, while the path listing puts the number first
+				// because what follows it there is a unit — "1284 requests".
+				if v := fmt.Sprintf("%g", *a.Value); !strings.Contains(a.Reason, v) {
+					if a.Metric != "" && !strings.Contains(a.Reason, a.Metric) {
+						v = a.Metric + " " + v
 					}
-					line += fmt.Sprintf("%g", *a.Value)
+					also = append(also, v)
 				}
-				line += ")"
+			}
+			if len(also) > 0 {
+				line += "  (" + strings.Join(also, ", ") + ")"
 			}
 			fmt.Fprintf(&b, "%s\n    %s\n    %s\n", head, a.Label, line)
 		}

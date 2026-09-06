@@ -90,11 +90,9 @@ func runPaths(env Env, args []string) error {
 			"%d declared route%s derived by following references; nothing wrote them down\n", derived, plural(derived))
 	case attempted:
 		// Silence here reads as "everything observed is a surprise", which is
-		// exactly what the listing then says. The usual reason is that every
-		// way in is also called by something else: an estate whose entry
-		// point sits in a cycle has nowhere for a route to start.
-		fmt.Fprintln(env.Stderr,
-			"no declared routes could be derived: nothing here is called only from outside, so there is nowhere a route starts. Write the routes down in an overlay, or every observed route will read as unannounced")
+		// exactly what the listing then says.
+		fmt.Fprintln(env.Stderr, whyNoRoutes(g)+
+			" Write the routes down in an overlay, or every observed route will read as unannounced")
 	}
 
 	// A graph with no routes in it is the ordinary case until somebody runs a
@@ -183,4 +181,22 @@ func resolveSince(since string, now func() time.Time) (string, error) {
 		return "", fmt.Errorf("--since %q: want an RFC3339 time, or a span like 30d, 12h or 90m", since)
 	}
 	return now().UTC().Add(-time.Duration(n) * scale).Format(time.RFC3339), nil
+}
+
+// whyNoRoutes says why following references derived nothing.
+//
+// There are two situations and they are not the same one. A graph built from
+// traces alone has no declared call to follow, and there is nothing wrong with
+// it — the declared side simply is not there yet. A graph full of declared
+// calls where every one of them leads to something else that is also called
+// has an entry point inside a cycle, which is a real thing to go and look at.
+// One message covering both sent half its readers hunting for a cycle that was
+// never there.
+func whyNoRoutes(g *core.Graph) string {
+	switch views.WhyNoDeclaredPaths(g) {
+	case views.NoReferences:
+		return "no declared routes could be derived: this graph records no declared calls to follow, only what was observed."
+	default:
+		return "no declared routes could be derived: everything that calls something is also called by something, so there is nowhere a route starts."
+	}
 }

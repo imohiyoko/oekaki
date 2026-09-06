@@ -87,3 +87,69 @@ func TestTheTableSaysWhenAndHowMuch(t *testing.T) {
 		t.Errorf("the listing does not say when it was measured or what it said: %q", r.stdout)
 	}
 }
+
+// The suffix carries what the reason does not. A bound already names its value
+// and a silence already names its moment, so appending both unconditionally
+// printed the same fact twice on one line — which a reader parses as two
+// facts, then goes looking for the difference between them.
+func TestTheTableDoesNotSayTheSameThingTwice(t *testing.T) {
+	g := core.New()
+	g.Nodes = []core.Node{{ID: "ledger", Type: "service", Name: "ledger"}}
+	value := 4000.0
+	g.Observations = []core.Observation{
+		{Subject: "ledger", Metric: "request_rate", Value: &value, ObservedAt: "2026-09-05T00:00:00Z"},
+	}
+	g.Normalize()
+
+	r := mustRun(t, "", "alerts", graphFile(t, g), "--rules",
+		rulesFile(t, `{"kind":"oekaki.rules","version":"0.1","rules":[
+			{"name":"too busy","when":{"is":"above","metric":"request_rate","value":1000}}]}`))
+
+	if n := strings.Count(r.stdout, "4000"); n != 1 {
+		t.Errorf("the value is printed %d times on one line: %q", n, r.stdout)
+	}
+}
+
+// Nothing measured, nothing said about when: the rule cannot answer the
+// question. It does not fire, and it does not pass in silence either — a run
+// that says "nothing fired" about a rule that was never applied is telling the
+// operator all is well.
+func TestARuleThatCouldNotAnswerSaysSo(t *testing.T) {
+	g := core.New()
+	g.Nodes = []core.Node{{ID: "ledger", Type: "service", Name: "ledger"}}
+	value := 5.0
+	g.Observations = []core.Observation{{Subject: "ledger", Metric: "beat", Value: &value}}
+	g.Normalize()
+
+	r := mustRun(t, "", "alerts", graphFile(t, g), "--rules",
+		rulesFile(t, `{"kind":"oekaki.rules","version":"0.1","rules":[
+			{"name":"stopped","about":{"subject":"ledger"},
+			 "when":{"is":"quiet","metric":"beat"}}]}`),
+		"--since", "2026-08-01T00:00:00Z")
+
+	if strings.Contains(r.stdout, "stopped") {
+		t.Errorf("a reading with no time on it fired a silence rule: %q", r.stdout)
+	}
+	if !strings.Contains(r.stderr, "no time on the reading") {
+		t.Errorf("the run does not say the rule could not answer: %q", r.stderr)
+	}
+}
+
+// A graph with no declared call to follow is the ordinary shape of one built
+// from traces alone, and it is not the cycle the other message describes.
+func TestNothingToFollowIsNotACycle(t *testing.T) {
+	g := core.New()
+	for _, id := range []string{"a", "b"} {
+		g.Nodes = append(g.Nodes, core.Node{ID: id, Type: "service", Name: id})
+	}
+	g.Paths = []core.Path{{Nodes: []string{"a", "b"}, Kind: core.EdgeObserved}}
+	g.Normalize()
+
+	r := mustRun(t, "", "alerts", graphFile(t, g), "--rules",
+		rulesFile(t, `{"kind":"oekaki.rules","version":"0.1","rules":[
+			{"name":"unannounced","when":{"is":"unexpected"}}]}`))
+
+	if !strings.Contains(r.stderr, "records no declared calls to follow") {
+		t.Errorf("the run blames a cycle that is not there: %q", r.stderr)
+	}
+}

@@ -52,7 +52,7 @@ func watched() *core.Graph {
 
 func firing(t *testing.T, g *core.Graph, doc *Rules) map[string]Alert {
 	t.Helper()
-	alerts, err := Alerts(g, doc)
+	alerts, _, err := Alerts(g, doc)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +178,7 @@ func TestTheOrderIsTheOneSomebodyWroteAndIsStable(t *testing.T) {
 		{"name":"first","when":{"is":"unused"}},
 		{"name":"second","when":{"is":"above","metric":"request_rate","value":10}}]}`)
 
-	first, err := Alerts(g, doc)
+	first, _, err := Alerts(g, doc)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +186,7 @@ func TestTheOrderIsTheOneSomebodyWroteAndIsStable(t *testing.T) {
 		t.Fatalf("the rule written first is not at the top: %#v", first)
 	}
 	for range 5 {
-		again, err := Alerts(g, doc)
+		again, _, err := Alerts(g, doc)
 		if err != nil {
 			t.Fatal(err)
 		}
