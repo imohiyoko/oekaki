@@ -293,15 +293,15 @@ func TestDecodeEnforcesThePublishedSchema(t *testing.T) {
 	}{
 		{
 			name: "missing required collection",
-			doc:  `{"version":"0.6","axes":[],"nodes":[],"edges":[]}`,
+			doc:  `{"version":"0.7","axes":[],"nodes":[],"edges":[]}`,
 		},
 		{
 			name: "observation missing metric",
-			doc:  `{"version":"0.6","axes":[],"nodes":[{"id":"app","type":"service","name":"app"}],"edges":[],"groups":[],"observations":[{"subject":"app"}]}`,
+			doc:  `{"version":"0.7","axes":[],"nodes":[{"id":"app","type":"service","name":"app"}],"edges":[],"groups":[],"observations":[{"subject":"app"}]}`,
 		},
 		{
 			name: "unknown threshold operator",
-			doc:  `{"version":"0.6","axes":[],"nodes":[{"id":"app","type":"service","name":"app"}],"edges":[],"groups":[],"observations":[{"subject":"app","metric":"latency","threshold":{"operator":"about","value":1}}]}`,
+			doc:  `{"version":"0.7","axes":[],"nodes":[{"id":"app","type":"service","name":"app"}],"edges":[],"groups":[],"observations":[{"subject":"app","metric":"latency","threshold":{"operator":"about","value":1}}]}`,
 		},
 	}
 	for _, tt := range tests {
@@ -457,14 +457,14 @@ func TestDecodeMigratesAnOlderVersionAndEncodeWritesOnlyTheCurrentOne(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(encoded), `"version": "0.6"`) {
+	if !strings.Contains(string(encoded), `"version": "0.7"`) {
 		t.Fatalf("migrated encoding did not contain the current version:\n%s", encoded)
 	}
 	if err := schema.Validate(encoded); err != nil {
 		t.Fatalf("migrated encoding does not satisfy the current schema: %v", err)
 	}
 	g.Version = legacyV04
-	if _, err := g.MarshalIndent(); err == nil || !strings.Contains(err.Error(), "want \"0.6\"") {
+	if _, err := g.MarshalIndent(); err == nil || !strings.Contains(err.Error(), "want \"0.7\"") {
 		t.Fatalf("Encode legacy version error = %v", err)
 	}
 }

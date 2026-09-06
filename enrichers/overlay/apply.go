@@ -252,6 +252,17 @@ func (e *enricher) applyDocument(g *core.Graph, ix *Index, doc *Document, tallie
 			applyNodeAssertion(g, id, a, claim, nodeClaims)
 			report.Applied++
 
+		case AssertNote:
+			id, ok := e.subject(g, ix, doc, a, a.Subject, claim, report)
+			if !ok {
+				continue
+			}
+			// Appended, never replacing. Two people writing about the same
+			// service is the ordinary case, and the later one does not delete
+			// the earlier one any more than a second opinion does.
+			g.Notes = append(g.Notes, core.Note{Subject: id, Text: a.Text, Claim: &claim})
+			report.Applied++
+
 		case AssertLogsDeclared, AssertLogsObserved, AssertLogsNone:
 			id, ok := e.subject(g, ix, doc, a, a.Subject, claim, report)
 			if !ok {

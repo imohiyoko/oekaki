@@ -5,19 +5,20 @@ them know about each other; they only agree on this. The machine-readable
 version is [`schema/graph.schema.json`](../schema/graph.schema.json), which is
 also embedded in the binary and printed by `oekaki schema`.
 
-Current version: **0.6**. It will change again before v1.0 freezes it.
+Current version: **0.7**. It will change again before v1.0 freezes it.
 
 ## Shape
 
 ```json
 {
-  "version": "0.6",
+  "version": "0.7",
   "metadata": { "generator": "oekaki/0.2.0", "source": "terraform" },
   "axes":   [ … ],
   "nodes":  [ … ],
   "edges":  [ … ],
   "groups": [ … ],
-  "paths":  [ … ]
+  "paths":  [ … ],
+  "notes":  [ … ]
 }
 ```
 
@@ -339,7 +340,7 @@ any other separator collision-free for implementations in any language.
 The displayed value is first. Ranking is human over ai over parser, and it is a
 total order so that the choice does not depend on which overlay was read first.
 
-Writers and `oekaki encode` emit only version 0.6. `Decode` still reads two
+Writers and `oekaki encode` emit only version 0.7. `Decode` still reads three
 older versions, and validates the original bytes against the frozen schema of
 whichever the document declares — the only contract it is fair to judge it by,
 and the thing that stops a field that was invalid then from being laundered
@@ -348,12 +349,13 @@ into validity by the migration.
 From 0.4 it migrates unambiguous conflict targets, rejecting an old target that
 could name both an entity and an edge (or more than one edge) instead of
 guessing. From 0.5 there is nothing to migrate: 0.6 adds `paths` and changes
-nothing else, so a 0.5 document is already the right shape. It is still checked
-against the 0.5 contract and re-stamped rather than waved through, because
-"shaped like the current version" and "declared as it" are different claims and
-only the second one has been checked.
+nothing else, so a 0.5 document is already the right shape. From 0.6 there is
+likewise nothing to migrate: 0.7 adds `notes`. Each is still checked against the
+contract it declares and re-stamped rather than waved through, because "shaped
+like the current version" and "declared as it" are different claims and only the
+second one has been checked.
 
-The version moved for `paths` because the top-level shape changed and every
+The version moved for `paths`, and again for `notes`, because the top-level shape changed and every
 published schema says `additionalProperties: false`. A 0.5 validator shown a
 document carrying routes would reject it, so the two shapes cannot share a
 version number, however additive the change looks from inside this repository.
@@ -397,3 +399,34 @@ oekaki.
 	]
 }
 ```
+
+## Notes
+
+`notes` is what people wrote about the things in the drawing. Each one names a
+subject — a node id, a group id, or an [edge key](#conflicts) — carries
+Markdown as it was typed, and is signed by whoever wrote it.
+
+```json
+{
+  "subject": "aws_ecs_service.checkout",
+  "text": "**決済の入り口。** リトライは `3` 回まで。",
+  "claim": { "origin": "human", "author": "operator" }
+}
+```
+
+A note is not a field on the node. Claims here are things with an author, and a
+string on the resource would be the graph saying so itself, when the whole point
+is that a person said it and which person. Beside the graph it sits exactly
+where an observation sits: evidence about a subject rather than a property of
+it.
+
+Several notes about one thing are several notes — two people writing about the
+same service is the ordinary case, and the later one does not replace the
+earlier one. `Normalize` folds only notes that match exactly, subject, text and
+claim together; two that differ in a character are two, because nothing here can
+know which one the writer meant to keep. `Validate` refuses a note about a
+subject the document does not contain, and one with no text.
+
+The text is Markdown because it is what people already write, and because the
+alternative is deciding what a note may contain. That makes the renderers
+responsible for it: see [notes.md](notes.md).

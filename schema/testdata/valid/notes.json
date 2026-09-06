@@ -1,0 +1,29 @@
+{
+  "version": "0.7",
+  "axes": [],
+  "nodes": [
+    { "id": "checkout", "type": "service", "name": "checkout" },
+    { "id": "ledger", "type": "service", "name": "ledger" }
+  ],
+  "edges": [
+    { "from": "checkout", "to": "ledger", "kind": "observed", "relation": "calls" }
+  ],
+  "groups": [],
+  "notes": [
+    {
+      "subject": "checkout",
+      "text": "**決済の入り口。** リトライは `3` 回まで。\n\n- 401 は上流に返す\n- 502 は 1 回だけ再試行する",
+      "claim": { "origin": "human", "author": "operator", "note": "オンコール引き継ぎのときに書いた" }
+    },
+    {
+      "subject": "checkout",
+      "text": "9 月から *ledger* の呼び出しがタイムアウトしやすい。",
+      "claim": { "origin": "human", "author": "another-operator" }
+    },
+    {
+      "subject": "edge:Y2hlY2tvdXQ.bGVkZ2Vy.b2JzZXJ2ZWQ.Y2FsbHM",
+      "text": "遅いのはこの線。",
+      "claim": { "origin": "human", "author": "operator" }
+    }
+  ]
+}
