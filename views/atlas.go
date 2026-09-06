@@ -228,6 +228,7 @@ func BuildAtlas(in *core.Graph, opts AtlasOptions) (*Atlas, error) {
 	}
 
 	b := &builder{in: in, axis: axis, depth: depth, limit: limit, seen: map[string]bool{}}
+	b.readDeclarations()
 	if err := b.level("", "", ""); err != nil {
 		return nil, err
 	}
@@ -298,6 +299,16 @@ type builder struct {
 
 	out  []Diagram
 	seen map[string]bool
+
+	// declares is what each type declares, read out of the document once.
+	//
+	// Once, because a class page asks the question for every member of every
+	// type and detail recurses over every node — asking it by walking the
+	// edges each time turns an estate into a quadratic one. And read rather
+	// than compared: the relation is matched the way holdsFrom and isCall
+	// match theirs, without regard to case, so a document that writes
+	// "Declares" does not lose every method it names.
+	declares map[string]map[string]bool
 }
 
 // room reports whether another diagram may be added, and records the id so a
@@ -419,7 +430,18 @@ func (b *builder) detailOpening(id string) (Opening, bool) {
 	// A type is drawn as a class. It is the same page — one element has one
 	// inside — read the way the thing itself is written: members listed in the
 	// box, and a line to every other type the declaration mentions.
+	//
+	// A class page keeps less than a detail page does, so the question "is
+	// there anything in there" has to be asked of what the class page will
+	// actually show. A type reached only by things it is not related to —
+	// a function that takes one, a file that contains it — has an empty class
+	// diagram, and a door into an empty room is the thing this guard exists to
+	// prevent.
 	if n, ok := b.in.Node(id); ok && n.Type == codeType {
+		declares, drawn := b.classOf(id, dedupe(sorted(append(append([]string{}, held...), touched...))))
+		if len(declares) == 0 && len(drawn) == 0 {
+			return Opening{}, false
+		}
 		kind, label = KindClass, "クラス図"
 	}
 	return Opening{Element: id, Diagram: detailID(id), Kind: kind, Label: label}, true
@@ -473,25 +495,7 @@ func (b *builder) detail(id string) error {
 	// — the file that contains the type contains its functions too, and that
 	// page still draws every one of them as a box a reader can open.
 	if centre.Type == codeType {
-		var drawn []string
-		var declares []string
-		for _, other := range members {
-			n, ok := b.in.Node(other)
-			if !ok {
-				continue
-			}
-			if n.Type == codeFunction && b.relates(id, other, relDeclares) {
-				// Inside the class the receiver is the box it is written in,
-				// so "Rule.check" is "check". The function keeps its full name
-				// everywhere else, where it needs to say whose it is.
-				declares = append(declares,
-					strings.TrimPrefix(orDefault(n.Name, n.ID), centre.Name+"."))
-				continue
-			}
-			if n.Type == codeType {
-				drawn = append(drawn, other)
-			}
-		}
+		declares, drawn := b.classOf(id, members)
 		members = drawn
 		if len(declares) > 0 {
 			if centre.Attrs == nil {
@@ -571,17 +575,45 @@ func (b *builder) detail(id string) error {
 	return nil
 }
 
-// relates reports whether the document joins two elements by one relation.
-func (b *builder) relates(from, to, relation string) bool {
+// readDeclarations reads the declares edges out of the document, once.
+func (b *builder) readDeclarations() {
+	b.declares = map[string]map[string]bool{}
 	for _, e := range b.in.Edges {
-		if e.Suppressed || e.Relation != relation {
+		if e.Suppressed || !strings.EqualFold(e.Relation, relDeclares) {
 			continue
 		}
-		if e.From == from && e.To == to {
-			return true
+		if b.declares[e.From] == nil {
+			b.declares[e.From] = map[string]bool{}
+		}
+		b.declares[e.From][e.To] = true
+	}
+}
+
+// classOf splits what is around a type into what it declares and what it is
+// drawn beside: the member list in the box, and the other types on the page.
+func (b *builder) classOf(id string, around []string) (declares, drawn []string) {
+	centre, ok := b.in.Node(id)
+	if !ok {
+		return nil, nil
+	}
+	for _, other := range around {
+		n, ok := b.in.Node(other)
+		if !ok {
+			continue
+		}
+		if n.Type == codeFunction && b.declares[id][other] {
+			// Inside the class the receiver is the box it is written in, so
+			// "Rule.check" is "check". The function keeps its full name
+			// everywhere else, where it needs to say whose it is.
+			declares = append(declares,
+				strings.TrimPrefix(orDefault(n.Name, n.ID), centre.Name+"."))
+			continue
+		}
+		if n.Type == codeType {
+			drawn = append(drawn, other)
 		}
 	}
-	return false
+	return declares, drawn
 }
 
 // sorted is sort.Strings with a value to hand back, for the places where the

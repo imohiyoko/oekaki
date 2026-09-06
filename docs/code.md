@@ -141,6 +141,18 @@ contains the type contains its functions too, and that page still draws every
 one of them as a box a reader can open — with its calls, and a sequence where
 there is a chain to make one from.
 
+The class page keeps types and members and nothing else, so a function that is
+merely *near* a type — a constructor, something that takes one as an argument —
+is not on it. That is the page saying what a class diagram says: this is the
+thing, this is what it declares, these are the other things it mentions. Who
+uses it is a different question, and the file's page and the function's own
+page are where it is answered.
+
+A type with nothing to say — no members, and no relation to another type — has
+no class page at all, and no box offers a door into one. A door into an empty
+room is worse than no door: a reader who opens two of them stops trying the
+third.
+
 A type with more members than fit says how many it left out, rather than
 growing into a box the length of the page.
 

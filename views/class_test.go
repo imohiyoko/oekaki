@@ -173,3 +173,75 @@ func TestAClassPageValidates(t *testing.T) {
 		}
 	}
 }
+
+// A class page keeps less than a detail page does, so "is there anything in
+// there" has to be asked of what the class page will actually show. A type
+// reached only by things it is not related to — a function that takes one, the
+// file that contains it — has an empty class diagram, and a door into an empty
+// room is what the guard above it exists to prevent.
+func TestATypeWithNothingToDrawDoesNotOpen(t *testing.T) {
+	g := core.New()
+	g.Axes = []core.Axis{{ID: "source", Label: "Source"}}
+	g.Nodes = []core.Node{
+		{ID: "file:shop/order.go", Type: "code_file", Name: "shop/order.go"},
+		{ID: "file:shop/order.go#type:Bare", Type: "code_type", Name: "Bare",
+			Attrs: map[string]any{"kind": "struct"}},
+		{ID: "file:shop/order.go#Free", Type: "code_function", Name: "Free"},
+	}
+	g.Edges = []core.Edge{
+		{From: "file:shop/order.go", To: "file:shop/order.go#type:Bare",
+			Kind: core.EdgeIACRef, Relation: "contains"},
+		{From: "file:shop/order.go", To: "file:shop/order.go#Free",
+			Kind: core.EdgeIACRef, Relation: "contains"},
+	}
+	g.Normalize()
+
+	a, err := BuildAtlas(g, AtlasOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range a.Diagrams {
+		if d.ID == "detail:file:shop/order.go#type:Bare" {
+			t.Fatalf("a type with nothing to draw opened as a page of %d boxes",
+				len(d.Graph.Nodes))
+		}
+		for _, o := range d.Opens {
+			if o.Diagram == "detail:file:shop/order.go#type:Bare" {
+				t.Errorf("%s offers a door into an empty room", d.ID)
+			}
+		}
+	}
+}
+
+// The relation is matched the way holdsFrom and isCall match theirs, without
+// regard to case. A document that writes "Declares" would otherwise lose every
+// method it names — not merely from the box, but from the page and from the
+// recursion, so the function would vanish from the atlas entirely.
+func TestTheDeclaresRelationIsReadWhateverItsCase(t *testing.T) {
+	g := typed()
+	for i := range g.Edges {
+		if g.Edges[i].Relation == "declares" {
+			g.Edges[i].Relation = "Declares"
+		}
+	}
+	g.Normalize()
+
+	a, err := BuildAtlas(g, AtlasOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := page(t, a, "detail:file:shop/order.go#type:Order")
+	var centre *core.Node
+	for i := range d.Graph.Nodes {
+		if d.Graph.Nodes[i].ID == "file:shop/order.go#type:Order" {
+			centre = &d.Graph.Nodes[i]
+		}
+	}
+	if centre == nil {
+		t.Fatal("the class is not on its own page")
+	}
+	declares, _ := centre.Attrs["declares"].([]string)
+	if len(declares) != 2 {
+		t.Fatalf("the members were lost with the spelling: %#v", centre.Attrs["declares"])
+	}
+}
