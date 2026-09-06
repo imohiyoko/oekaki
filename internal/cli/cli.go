@@ -105,6 +105,8 @@ func Run(ctx context.Context, env Env, args []string) int {
 		err = runCollapse(env, args[1:])
 	case "paths":
 		err = runPaths(env, args[1:])
+	case "alerts":
+		err = runAlerts(env, args[1:])
 	case "export":
 		err = runExport(env, args[1:])
 	case "validate":
@@ -142,6 +144,7 @@ Usage:
   oekaki focus  <graph> [flags]     keep one group whole, fold the rest to a box each
   oekaki collapse <graph> [flags]   fold every group to one box, lines carry their weight
   oekaki paths  <graph> [flags]     list routes nothing walks, stopped walking, or nobody declared
+  oekaki alerts <graph> --rules R   run rules somebody wrote down against a graph
   oekaki export <graph> [flags]     write the graph out as a table
   oekaki serve  [dir]               hand out rendered pages, their layouts and what was decided
   oekaki validate <graph.json>      check a graph against the IR schema
@@ -958,6 +961,14 @@ func runValidate(env Env, args []string) error {
 			return err
 		}
 		fmt.Fprintln(env.Stdout, "ok: AI candidate document")
+		return nil
+	}
+	if schema.IsRules(raw) {
+		doc, err := views.ParseRules(raw)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(env.Stdout, "ok: %d rules\n", len(doc.Rules))
 		return nil
 	}
 	if schema.IsReachability(raw) {
