@@ -953,9 +953,12 @@ func TestEveryBoxIsTheSameHeightUntilAHandSaysOtherwise(t *testing.T) {
 		t.Fatal("there is no height a box has by default")
 	}
 	// The one thing that changes it is a member list, because that is what
-	// the type declares rather than how long its name happens to be.
-	if !strings.Contains(app, "height: sized.height || BOX_HEIGHT + extra,") {
-		t.Error("a box's height is no longer the same by default")
+	// the type declares rather than how long its name happens to be. A size
+	// given by hand can make a box bigger, and not smaller than what it has to
+	// hold: a layout document is a file somebody edits, and a height saved
+	// before the type had members would draw them outside their own box.
+	if !strings.Contains(app, "height: Math.max(sized.height || 0, BOX_HEIGHT + extra),") {
+		t.Error("a saved height can be smaller than what the box has to hold")
 	}
 	if !strings.Contains(app, "const extra = members.length ? members.length * LINE + 8 : 0;") {
 		t.Error("a box's height follows something other than the members a document declared")
