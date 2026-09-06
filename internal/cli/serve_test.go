@@ -71,6 +71,10 @@ func ask(t *testing.T, s *site, method, path string, body string, headers map[st
 	} else {
 		r = httptest.NewRequest(method, path, strings.NewReader(body))
 	}
+	// The name a request arrived under is part of what the server checks, and
+	// httptest fills in a name that is not this machine. Every test but the
+	// one about that check is asking about something else.
+	r.Host = "127.0.0.1:8080"
 	for k, v := range headers {
 		r.Header.Set(k, v)
 	}
@@ -126,7 +130,7 @@ func TestAnotherPageInTheSameBrowserCannotDriveThisOne(t *testing.T) {
 func TestAWriteFromThisPageIsAllowedThrough(t *testing.T) {
 	s := testSite(t)
 	got := ask(t, s, http.MethodPost, "/api/layouts/core/wide", servedLayout,
-		map[string]string{"Origin": "http://example.com"})
+		map[string]string{"Origin": "http://127.0.0.1:8080"})
 	if got.Code != http.StatusOK {
 		t.Fatalf("%d %s", got.Code, got.Body.String())
 	}

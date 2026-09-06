@@ -17,6 +17,14 @@ Nothing here is a commitment.
 Short entries, each one a conclusion somebody can point at instead of
 relitigating.
 
+**`serve` answers only to its own name.** Loopback binding stops the network;
+it does not stop DNS rebinding, where a name the attacker controls starts
+resolving to 127.0.0.1 and their page then talks to this server as the same
+origin. The Host header is the one thing that trick cannot forge, so every
+route checks it — not only the ones that write, because in local mode nobody is
+asked who they are and the drawings, the graph, the journal and the roles are
+all readable. No flag loosens it: the flag would be the misconfiguration.
+
 **Alert rules are documents, not an expression language.** A rule names a
 subject selector, a metric, a comparison, a window and a severity — the same
 shape as the roles and overlay documents, validated by a schema, diffable in a

@@ -247,6 +247,34 @@ func (s *site) may(r *http.Request, permission, item string) authz.Decision {
 }
 
 func (s *site) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// The name this request arrived under has to be this machine.
+	//
+	// Binding loopback keeps the network out. It does not keep out a page in
+	// the browser next to this one: the attacker publishes a name that
+	// resolves to their address, the browser fetches it, and then the name is
+	// made to resolve to 127.0.0.1. The second request goes to this server,
+	// and to the browser it is the same origin as the attacker's page — so
+	// their script may read the answers.
+	//
+	// The one thing that does not survive that trick is the name. A browser
+	// sends the name it was given, and a script cannot change it, so a request
+	// that says it came to anything but loopback did not come from a page
+	// somebody opened at this server. Refusing those closes the whole class
+	// for every route, which matters most for the ones with no origin check at
+	// all — a drawing, a graph, the journal and who holds which role are all
+	// readable, and in local mode nobody is asked who they are.
+	//
+	// A hostname of your own pointed at 127.0.0.1 is refused too. There is no
+	// flag to allow one, because the flag would be the misconfiguration this
+	// check exists to prevent, and the address it is already listening on
+	// works.
+	if !loopbackHost(r.Host) {
+		http.Error(w,
+			"this server answers on loopback only; reach it at the address it is listening on",
+			http.StatusForbidden)
+		return
+	}
+
 	switch {
 	case r.URL.Path == "/layouts":
 		s.index(w, r)
@@ -259,6 +287,27 @@ func (s *site) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		s.page(w, r)
 	}
+}
+
+// loopbackHost reports whether a Host header names this machine.
+//
+// Everything a browser may put there: a bare name, a name with a port, an
+// address, and an IPv6 address in brackets with or without one. Anything that
+// does not parse is not this machine.
+func loopbackHost(host string) bool {
+	if host == "" {
+		return false
+	}
+	name := host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		name = h
+	}
+	name = strings.TrimSuffix(strings.TrimPrefix(name, "["), "]")
+	if strings.EqualFold(name, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(name)
+	return ip != nil && ip.IsLoopback()
 }
 
 // inside reports whether path is at or below dir.
@@ -281,6 +330,10 @@ func inside(path, dir string) bool {
 // sameOrigin keeps another page open in the same browser from driving this
 // one. The server is on loopback, which stops the network but not the tab next
 // to it.
+//
+// It compares against the Host, which ServeHTTP has already refused unless it
+// names this machine — so an origin that matches is an origin somebody opened
+// here, rather than a name that was made to resolve here after the fact.
 func sameOrigin(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
