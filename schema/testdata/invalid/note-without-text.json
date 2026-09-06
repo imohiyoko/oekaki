@@ -1,0 +1,8 @@
+{
+  "version": "0.7",
+  "axes": [],
+  "nodes": [{ "id": "checkout", "type": "service", "name": "checkout" }],
+  "edges": [],
+  "groups": [],
+  "notes": [{ "subject": "checkout", "claim": { "origin": "human" } }]
+}

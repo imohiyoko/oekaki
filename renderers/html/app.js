@@ -1817,6 +1817,7 @@
         n.source.file + (n.source.line ? ':' + n.source.line : '')));
     }
     detail.append(withText(section('id'), n.id));
+    detail.append(notesControl(n.id));
     detail.append(linkControl());
 
     if (neighborhood) {
@@ -1952,6 +1953,7 @@
     detail.append(withText(section('members'), `${members.size} nodes`));
     if (g.source) detail.append(withText(section('declared in'), g.source.file + (g.source.line ? ':' + g.source.line : '')));
     detail.append(withText(section('id'), g.id));
+    detail.append(notesControl(g.id));
     highlight(cells.get(id));
     rememberSelection();
   }
@@ -2038,6 +2040,7 @@
     const ends = section('ends');
     ends.append(text('from: ' + e.from), text('to: ' + e.to));
     detail.append(ends);
+    detail.append(notesControl(key));
     detail.append(linkControl());
     rememberSelection();
 
@@ -2873,6 +2876,160 @@
   // here. The field sits in the detail panel rather than on the box: a
   // double-click already means drill-down, and a name typed into the diagram
   // would have to fight the layout for the space to type it in.
+  /* ---- what people wrote ------------------------------------------------
+     A note is somebody else's text arriving in a document that gets drawn,
+     which is the sentence this whole section is written around. Everything
+     below builds elements and sets textContent; nothing anywhere near it
+     produces markup from what a note says.
+
+     The formatting understood here is deliberately small — paragraphs, bold,
+     italic, inline code and bullets — because every addition to it is another
+     shape somebody else's text can take in this page. Links are absent on
+     purpose: a link is a destination, and a destination in a note is a place
+     this page would send a reader on somebody's say-so. */
+
+  function noteBody(text) {
+    const body = document.createElement('div');
+    body.className = 'note-body';
+
+    for (const block of String(text).split(/\n{2,}/)) {
+      const lines = block.split('\n').filter((l) => l.trim() !== '');
+      if (!lines.length) continue;
+
+      if (lines.every((l) => /^\s*[-*]\s+/.test(l))) {
+        const ul = document.createElement('ul');
+        for (const line of lines) {
+          const li = document.createElement('li');
+          inlineInto(li, line.replace(/^\s*[-*]\s+/, ''));
+          ul.append(li);
+        }
+        body.append(ul);
+        continue;
+      }
+      const p = document.createElement('p');
+      inlineInto(p, lines.join(' '));
+      body.append(p);
+    }
+    return body;
+  }
+
+  // The inline pass. It walks the text once and appends a text node or a
+  // wrapper — there is no string being assembled anywhere, so there is nothing
+  // that could be read back as markup.
+  function inlineInto(parent, text) {
+    const pattern = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g;
+    let at = 0;
+    for (const match of String(text).matchAll(pattern)) {
+      if (match.index > at) parent.append(document.createTextNode(text.slice(at, match.index)));
+      const found = match[0];
+      const el = document.createElement(
+        found.startsWith('**') ? 'strong' : found.startsWith('`') ? 'code' : 'em');
+      el.textContent = found.startsWith('**') ? found.slice(2, -2) : found.slice(1, -1);
+      parent.append(el);
+      at = match.index + found.length;
+    }
+    if (at < text.length) parent.append(document.createTextNode(text.slice(at)));
+  }
+
+  // What is written about one thing, and the way to write more.
+  //
+  // The pen is in the panel rather than on the box: a note is read next to
+  // everything else known about the thing, and the box is a few pixels tall on
+  // a drawing scaled to fit.
+  function notesControl(subject) {
+    const written = (graph.notes || []).filter((n) => n.subject === subject)
+      .concat(pending.map((p) => p.note).filter((n) => n && n.subject === subject));
+
+    const s = section('メモ');
+    s.firstChild.append(pen(subject));
+
+    for (const note of written) {
+      const entry = document.createElement('div');
+      entry.className = 'note';
+      entry.append(noteBody(note.text));
+      if (note.claim) {
+        const who = document.createElement('div');
+        who.className = 'sub';
+        who.textContent = claimLine(note.claim);
+        entry.append(who);
+      }
+      s.append(entry);
+    }
+    if (!written.length) {
+      const empty = document.createElement('div');
+      empty.className = 'note-empty';
+      empty.textContent = 'まだ何も書かれていません';
+      s.append(empty);
+    }
+    return s;
+  }
+
+  function pen(subject) {
+    const button = document.createElement('button');
+    button.className = 'pen';
+    button.type = 'button';
+    button.textContent = '✎';
+    button.title = 'メモを書く';
+    button.setAttribute('aria-label', 'メモを書く');
+    button.addEventListener('click', () => {
+      const panel = button.closest('section');
+      if (panel.querySelector('form.note-form')) return;
+      panel.append(noteForm(subject));
+      panel.querySelector('form.note-form textarea').focus();
+    });
+    return button;
+  }
+
+  function noteForm(subject) {
+    const form = document.createElement('form');
+    form.className = 'note-form';
+    const input = document.createElement('textarea');
+    input.rows = 4;
+    input.setAttribute('aria-label', 'メモ');
+    input.placeholder = 'Markdown で書けます（**強調**、*斜体*、`コード`、- 箇条書き）';
+    const go = document.createElement('button');
+    go.type = 'submit';
+    go.textContent = '書く';
+    form.append(input, go);
+
+    // Enter is a newline in a textarea, so it cannot also be the commit.
+    input.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) {
+        ev.preventDefault();
+        form.requestSubmit();
+      }
+    });
+    form.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const text = input.value.trim();
+      if (!text) return;
+      write(subject, text);
+    });
+    return form;
+  }
+
+  // Writing is asserting, so it produces an assertion like every other edit
+  // here: it is not written into `graph`, and it becomes real when the overlay
+  // is exported.
+  function write(subject, text) {
+    pending.push({
+      assertion: {assert: 'note', subject: subjectOf(subject), text},
+      note: {subject, text, claim: {origin: 'human'}},
+    });
+    syncTools();
+    if (selectedEdge === subject) selectEdge(subject);
+    else if (selectedGroup === subject) selectGroup(subject);
+    else select(subject);
+  }
+
+  // How an overlay names the thing a note is about. A line is named the way
+  // the IR names one, which is what its own key already is.
+  function subjectOf(subject) {
+    if (nodes.has(subject)) return {node: subject};
+    if (groups.has(subject)) return {group: subject};
+    return {edge: claimedKey(subject)};
+  }
+
   function renameControl(n) {
     const s = section('name');
     const form = document.createElement('form');
@@ -3254,8 +3411,13 @@
     for (const {shape, button} of shapeButtons) {
       button.setAttribute('aria-pressed', String(shape === lineShape));
     }
-    document.getElementById('export').hidden = !editing || !claims;
-    document.getElementById('copy').hidden = !editing || !claims;
+    // Offered in either mode, on the same terms as the layout export below:
+    // as soon as there is something to hand over. Most assertions can only be
+    // made while editing, so this changes nothing for them — but a note is
+    // written from the panel, which is open while reading, and a claim that
+    // cannot be exported from where it was made is a claim that gets lost.
+    document.getElementById('export').hidden = !claims;
+    document.getElementById('copy').hidden = !claims;
     // Offered as soon as there is a drawing to hand over, in either mode.
     //
     // It used to be hidden while reading, and the reason was sound at the

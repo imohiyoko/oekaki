@@ -211,3 +211,21 @@ body[data-mode="edit"] .hint-edit { display: inline; }
 .sparkline svg { display: block; width: 100%; max-width: 260px; height: 74px; overflow: visible; }
 
 .pending { stroke: var(--accent); stroke-dasharray: 5 3; }
+
+/* ---- notes ------------------------------------------------------------
+   Somebody else's text, in the panel next to everything else known about the
+   thing it is about. */
+#detail .pen {
+  float: right; padding: 0 6px; line-height: 1.4;
+  border: 1px solid var(--line); border-radius: 5px; background: var(--surface);
+}
+#detail .note { border-left: 2px solid var(--line); padding-left: 10px; margin: 8px 0; }
+#detail .note-body p { margin: 4px 0; }
+#detail .note-body ul { margin: 4px 0; padding-left: 18px; }
+#detail .note-body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+  background: #f2f3f5; border-radius: 3px; padding: 0 3px;
+}
+#detail .note-empty { color: var(--muted); }
+#detail .note-form { display: flex; gap: 6px; margin-top: 8px; }
+#detail .note-form textarea { flex: 1; font: inherit; }

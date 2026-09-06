@@ -47,6 +47,23 @@ security when you are in the middle of a feature. They are:
 The point of writing them down is that each one is a decision somebody could
 undo in a single line while doing something else.
 
+**A note is a claim, not a field, and the viewer never builds markup from it.**
+What somebody wrote about a thing lives beside the graph with a subject and a
+signature, exactly where an observation lives — a string on the resource would
+be the graph saying it itself, when the whole point is that a person said it and
+which person. Several notes about one thing are several notes; `Normalize` folds
+only the ones that match exactly.
+
+The rendering half is the part that is easy to undo by accident. The viewer
+understands paragraphs, bold, italic, inline code and bullets, and it builds
+those as elements with `textContent` — there is no string being assembled in
+that path, so there is nothing that could be read back as markup. The list is
+short on purpose: every addition is another shape somebody else's text can take
+inside a page that draws your estate. Links are absent because a link is a
+destination, and a destination in a note is a place this page would send a
+reader on the say-so of whoever wrote the note. A general Markdown-to-HTML pass
+here would give all of that back in one line.
+
 **`serve` answers only to its own name.** Loopback binding stops the network;
 it does not stop DNS rebinding, where a name the attacker controls starts
 resolving to 127.0.0.1 and their page then talks to this server as the same
@@ -163,18 +180,10 @@ which generation. Three parts: generation, diagram, element. This is what makes
 a link usable in a conversation ("look at this one") rather than an invitation
 to go and search.
 
-**Free-text notes on a node or an edge, in Markdown.** A pen affordance in the
-detail panel opens an editor; what comes out is an assertion like every other
-edit here, so it carries a claim, exports with the overlay, and says who wrote
-it. Two things to be careful about:
-
-- Rendering Markdown must not become a way to put HTML into the page. This
-  renderer escapes `</script>` in its own data for exactly this reason; a note
-  is somebody else's text arriving in the same document. Escape, then render a
-  small known set of formatting — not a general Markdown-to-HTML pass.
-- Authoring is `write`. Reading is `read`, unless notes turn out to be
-  something the diagram may show one person and not another, in which case see
-  the decision above.
+**Free-text notes on a node or an edge, in Markdown.** Done — see
+[notes.md](notes.md) and the decision above. What is still open is anything
+finer than the diagram's own `read`: a note only some readers should see, or a
+reader who may read every note and write none.
 
 ---
 

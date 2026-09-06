@@ -17,7 +17,7 @@ import (
 )
 
 // Version is the IR schema version this package reads and writes.
-const Version = "0.6"
+const Version = "0.7"
 
 // The versions Decode still reads. Each is validated against the frozen
 // contract it was written to before it is migrated, so a document that was
@@ -31,6 +31,7 @@ const Version = "0.6"
 const (
 	legacyV04 = "0.4"
 	legacyV05 = "0.5"
+	legacyV06 = "0.6"
 )
 
 // GroupSeparator joins group ids into the paths stored on Node.Groups.
@@ -279,7 +280,11 @@ type Graph struct {
 	// Paths are ordered walks: this one called that one, and that one called
 	// the next. See path.go for why an order is an entity here rather than a
 	// query somebody runs.
-	Paths        []Path               `json:"paths,omitempty"`
+	Paths []Path `json:"paths,omitempty"`
+
+	// Notes are what people wrote about the things in the drawing. See
+	// note.go for why they sit beside the graph rather than on the nodes.
+	Notes        []Note               `json:"notes,omitempty"`
 	Observations []Observation        `json:"observations,omitempty"`
 	LogRecords   []LogRecordSummary   `json:"log_records,omitempty"`
 	LogStatus    *LogCollectionStatus `json:"log_status,omitempty"`
@@ -762,6 +767,7 @@ func (g *Graph) Normalize() {
 		return edgeAssertionLess(a, b)
 	})
 	g.normalizePaths()
+	g.normalizeNotes()
 	sort.SliceStable(g.Observations, func(i, j int) bool {
 		a, b := g.Observations[i], g.Observations[j]
 		if a.Subject != b.Subject {
@@ -1273,6 +1279,7 @@ func (g *Graph) Validate() error {
 		problems = append(problems, g.checkCoverage(&n, ids)...)
 	}
 	problems = append(problems, g.checkPaths(nodeIDs)...)
+	problems = append(problems, g.checkNotes(ids)...)
 
 	// A measurement may be about a route rather than about one box, and a
 	// route is named by its key. The key is only a subject when the document
@@ -1469,6 +1476,13 @@ func (g *Graph) ApplyScope(scope string) {
 		g.Edges[i].To = qualify(g.Edges[i].To)
 	}
 	g.QualifyPaths(qualify)
+	for i := range g.Notes {
+		if renamed, isPath := QualifySubject(g.Notes[i].Subject, qualify); isPath {
+			g.Notes[i].Subject = renamed
+			continue
+		}
+		g.Notes[i].Subject = qualify(g.Notes[i].Subject)
+	}
 	// A reading names what it is about, and after a rename that name is a
 	// different string. Leaving it alone leaves the document pointing at ids
 	// that no longer exist.
