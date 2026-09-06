@@ -234,9 +234,7 @@ func declares(rest string) bool {
 		return true
 	}
 	word := rest
-	if at := strings.IndexFunc(word, func(r rune) bool {
-		return !(r == '_' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9')
-	}); at >= 0 {
+	if at := strings.IndexFunc(word, notIdentifier); at >= 0 {
 		word = word[:at]
 	}
 	return declarationKeywords[word]
@@ -244,6 +242,14 @@ func declares(rest string) bool {
 
 func isIdentifierStart(b byte) bool {
 	return b == '_' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z'
+}
+
+func notIdentifier(r rune) bool {
+	switch {
+	case r == '_', r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		return false
+	}
+	return true
 }
 
 // strip removes type parameters, innermost first, so that what is left is the
