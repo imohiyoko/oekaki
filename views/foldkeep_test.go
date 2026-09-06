@@ -180,3 +180,56 @@ func TestAReadingFollowsARouteThroughAFold(t *testing.T) {
 		t.Fatalf("the reading was dropped when the route it is about folded: %#v", out.Observations)
 	}
 }
+
+// A claim is more than who said so. Two things the same person asserted with
+// different notes are still two things that person asserted — so they fold —
+// but the box must not show one of those notes as though it had been said
+// about all of them.
+func TestAFoldCarriesOnlyTheClaimItsMembersAllMade(t *testing.T) {
+	confidence := 0.8
+	g := crowded()
+	for i := range g.Nodes {
+		switch g.Nodes[i].ID {
+		case "pod:worker-a", "pod:worker-b", "pod:worker-c", "pod:worker-d":
+			g.Nodes[i].Claim = &core.Claim{Origin: core.OriginHuman, Author: "operator"}
+		}
+	}
+	// Only one of them carries a note and a confidence.
+	for i := range g.Nodes {
+		if g.Nodes[i].ID == "pod:worker-a" {
+			g.Nodes[i].Claim.Note = "found by hand"
+			g.Nodes[i].Claim.Confidence = &confidence
+		}
+	}
+	g.Normalize()
+
+	out, _ := folded(t, g, FoldOptions{Rules: []string{FoldTwins}})
+	for _, n := range out.Nodes {
+		if !IsFold(n.ID) {
+			continue
+		}
+		if n.Claim == nil {
+			t.Fatal("four things one person asserted folded into a box nobody claimed")
+		}
+		if n.Claim.Origin != core.OriginHuman || n.Claim.Author != "operator" {
+			t.Fatalf("the part they agreed on was lost: %#v", n.Claim)
+		}
+		if n.Claim.Note != "" {
+			t.Fatalf("one member's note is shown as everybody's: %q", n.Claim.Note)
+		}
+		if n.Claim.Confidence != nil {
+			t.Fatalf("one member's confidence is shown as everybody's: %v", *n.Claim.Confidence)
+		}
+	}
+}
+
+// A fold of things nobody claimed claims nothing, which is what an absent
+// claim already means.
+func TestAFoldOfParserFindingsClaimsNothing(t *testing.T) {
+	out, _ := folded(t, crowded(), FoldOptions{Rules: []string{FoldTwins}})
+	for _, n := range out.Nodes {
+		if IsFold(n.ID) && n.Claim != nil {
+			t.Fatalf("a fold of things a parser found carries %#v", n.Claim)
+		}
+	}
+}
