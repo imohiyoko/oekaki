@@ -187,6 +187,30 @@ reader who may read every note and write none.
 
 ---
 
+## Wanted, not started
+
+**Which system is this container?** The code graph says what the source
+declares and the Terraform graph says what runs, and between them is an image
+tag that nothing here reads the source of.
+
+In an enterprise that join is already automated and already written down: a
+pipeline builds an image from a commit, and a pull request writes that image's
+digest into the IaC. So the record of "this container is that repository at that
+commit" lives in the CI system — GitHub Actions or whatever stands in its place
+— and that is the only place it exists. Matching a repository name against an
+image name because they look alike is precisely the invention this project
+refuses.
+
+The shape follows the boundary that is already here: a collector reads the
+build's own record and writes it as ordinary evidence, the join arrives as an
+`observed` edge with a claim naming the run it came from, and a flag refuses to
+read any of it — whether a CI system belongs in the picture is the estate's
+decision, not this program's default. Written down in
+[roadmap.md](roadmap.md#what-builds-this-image--the-missing-half-of-the-code-to-infrastructure-join)
+so the mechanism is not invented in a hurry later.
+
+---
+
 ## Older things still true
 
 **Cross-module references are not resolved**, `--source-dir` does not recurse,
