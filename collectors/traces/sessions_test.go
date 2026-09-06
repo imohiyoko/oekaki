@@ -82,10 +82,9 @@ func TestNoSessionMeansNoReading(t *testing.T) {
 	}
 }
 
-// Spans that carry no trace id all land in the same bucket, which is harmless
-// for a counter and wrong for a distinct set: taking one session id per bucket
-// would report three people as one. Nothing in the input promises that a trace
-// names a single session, so nothing in the fold assumes it.
+// A trace id is what says two spans belong to the same request. Without one,
+// the only thing left that groups them is the session, so that is what groups
+// them — three sessions walking the same route are three, not one.
 func TestEverySessionInATraceIsCounted(t *testing.T) {
 	_, readings, _ := folded(t, `{"version":"1","spans":[
 		{"session_id":"s1","service":"gateway"},
@@ -99,5 +98,65 @@ func TestEverySessionInATraceIsCounted(t *testing.T) {
 	sessions := reading(t, readings[0], "path_sessions")
 	if sessions == nil || *sessions.Value != 3 {
 		t.Fatalf("three sessions walked it: %#v", sessions)
+	}
+}
+
+// And the other half of it: unrelated walks in a file of trace-less spans are
+// unrelated. Reading the whole file as one request would credit every session
+// in it to every route in it, so two walks by two people become two routes
+// each walked by two people — twice the callers, and none of them real.
+func TestTraceLessWalksDoNotShareEachOthersSessions(t *testing.T) {
+	paths, readings, _ := folded(t, `{"version":"1","spans":[
+		{"session_id":"s1","service":"gateway"},
+		{"session_id":"s1","service":"checkout","parent_service":"gateway"},
+		{"session_id":"s2","service":"api"},
+		{"session_id":"s2","service":"ledger","parent_service":"api"}
+	]}`)
+
+	if len(paths) != 2 {
+		t.Fatalf("got %v, want the two walks kept apart", routes(paths))
+	}
+	for i, about := range readings {
+		sessions := reading(t, about, "path_sessions")
+		if sessions == nil || *sessions.Value != 1 {
+			t.Errorf("%s: %#v, want one session", routes(paths)[i], sessions)
+		}
+	}
+}
+
+// The same person walking two routes is one person on each of them, which is
+// the case that must not be fixed by splitting everything apart.
+func TestOneSessionWalkingTwoRoutesCountsOnceOnEach(t *testing.T) {
+	paths, readings, _ := folded(t, `{"version":"1","spans":[
+		{"session_id":"s1","service":"gateway"},
+		{"session_id":"s1","service":"checkout","parent_service":"gateway"},
+		{"session_id":"s1","service":"api"},
+		{"session_id":"s1","service":"ledger","parent_service":"api"}
+	]}`)
+
+	if len(paths) != 2 {
+		t.Fatalf("got %v, want both walks", routes(paths))
+	}
+	for i, about := range readings {
+		sessions := reading(t, about, "path_sessions")
+		if sessions == nil || *sessions.Value != 1 {
+			t.Errorf("%s: %#v, want the one session", routes(paths)[i], sessions)
+		}
+	}
+}
+
+// A trace id groups spans, and a session id does not override it: two sessions
+// named inside one trace are two, because nothing in the input promises a
+// trace names only one and reporting them as one is the failure this counts
+// against.
+func TestATraceIdStillDoesTheGrouping(t *testing.T) {
+	_, readings, _ := folded(t, `{"version":"1","spans":[
+		{"trace_id":"t1","session_id":"s1","service":"gateway"},
+		{"trace_id":"t1","session_id":"s2","service":"checkout","parent_service":"gateway"}
+	]}`)
+
+	sessions := reading(t, readings[0], "path_sessions")
+	if sessions == nil || *sessions.Value != 2 {
+		t.Fatalf("both sessions named in the trace: %#v", sessions)
 	}
 }
