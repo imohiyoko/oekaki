@@ -17,6 +17,36 @@ Nothing here is a commitment.
 Short entries, each one a conclusion somebody can point at instead of
 relitigating.
 
+**The properties a security review found, and what keeps them true.** A review
+of the whole repository found nothing above its reporting bar. That is a
+statement about how the code is written today, not a permanent one, and the
+things it checked are easy to break by accident because none of them look like
+security when you are in the middle of a feature. They are:
+
+- **The page never builds markup from data.** `innerHTML` and `eval` appear
+  nowhere in `renderers/html/app.js`; every label goes in through
+  `textContent`, and maxGraph is told `setHtmlLabels(false)`. A label is
+  somebody's resource name, and a resource name is somebody's input.
+- **Every JSON block embedded in a page escapes `</`.** There are four of them
+  — the graph, the atlas, the folds, the layout — and each writes `<\/`
+  instead. A resource named `</script>` would otherwise end the block early
+  and drop the rest of the document into the page as markup. A fifth block
+  added without this is the whole class back again.
+- **DOT quotes what it interpolates**, in `renderers/dot`'s `quote`. Graphviz
+  itself runs as WebAssembly under wazero with an in-memory filesystem, so an
+  `image=` that got through could still not read a file off this machine —
+  that is a property of *how* Graphviz is embedded, and it would be lost by
+  switching to a `dot` binary on PATH.
+- **Names of saved things go through one regular expression.** `manage`'s
+  `safeName` is the only thing between a caller and the state directory's
+  filenames, and `page()` refuses `..` and anything outside the directory it
+  serves.
+- **Nothing shells out except the AI adapter**, which takes an explicitly
+  selected executable and passes arguments without a shell.
+
+The point of writing them down is that each one is a decision somebody could
+undo in a single line while doing something else.
+
 **`serve` answers only to its own name.** Loopback binding stops the network;
 it does not stop DNS rebinding, where a name the attacker controls starts
 resolving to 127.0.0.1 and their page then talks to this server as the same
