@@ -115,6 +115,21 @@
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   const edgeKey = (e) => 'edge:' + [e.from, e.to, e.kind, e.relation || ''].map(b64url).join('.');
 
+  // What a *drawn* line is called, which is not always what the edge is called.
+  //
+  // A sequence can walk the same pair twice — a retry through the gateway is
+  // an ordinary trace — and those are two messages, at two heights, with two
+  // numbers. Keyed by the edge alone they are one entry in every map the
+  // canvas keeps, so clicking the first arrow opens the second one's panel and
+  // putting one aside takes the wrong message away.
+  //
+  // The step is appended rather than folded into the encoded parts, so the
+  // name of the edge itself is still in there and can be recovered: an anchor
+  // and a conflict are about the edge, whichever of its steps was clicked.
+  const drawnKey = (e) => edgeKey(e) + ((e.attrs && e.attrs.step) ? '#' + e.attrs.step : '');
+  // base64url has no "#", so the edge's own name is everything before it.
+  const claimedKey = (key) => key.split('#')[0];
+
   // Which side of a box a line was told to leave and arrive on. Only the side:
   // where along it the line lands is worked out from the drawing, because
   // lines that share a side are spread along it and a number written down for
@@ -599,7 +614,11 @@
       y += STEP_GAP;
     });
 
-    return {id: 'root', children, edges};
+    // ELK reports the size of what it laid out, and fitting the view is done
+    // from that. A layout that does not say how big it is arrives as a page
+    // the view never moves to — which, coming from a page that was zoomed in,
+    // is a blank canvas.
+    return {id: 'root', children, edges, width: Math.max(x - COLUMN_GAP, 0), height};
   }
 
   function buildRoot() {
@@ -1147,7 +1166,11 @@
     const placed = positions.get(n.id);
     const container = parent && String(parent.id || '').startsWith('group:')
       ? String(parent.id).replace(/^group:/, '') : undefined;
-    const pinned = placed && (placed.parent || undefined) === container ? placed : null;
+    // A lifeline is a column in an order, not a box somebody arranged. A
+    // position saved from another drawing of the same estate would move one
+    // participant out of the row and leave its messages pointing at where it
+    // used to be.
+    const pinned = !lifeline && placed && (placed.parent || undefined) === container ? placed : null;
 
     const cell = board.insertVertex({
       parent, id: 'node:' + n.id, value: '',
@@ -1228,7 +1251,7 @@
       },
     });
     cell.infra = e.infra;
-    const key = edgeKey(edge);
+    const key = drawnKey(edge);
     const fromID = idOf(from), toID = idOf(to);
     edgeCells.set(key, cell);
     edgeInfo.set(key, edge);
@@ -1246,7 +1269,7 @@
       const bends = (section.bendPoints || []).map((p) => new Point(ox + p.x, oy + p.y));
       if (bends.length) {
         elkRoutes.set(key, bends);
-        if (!placed && !edgeAnchors.has(key)) cell.geometry.points = bends;
+        if (!placed && !edgeAnchors.has(claimedKey(key))) cell.geometry.points = bends;
       }
     }
   }
@@ -1434,7 +1457,7 @@
       const e = edgeInfo.get(key);
       const cell = edgeCells.get(key);
       if (!e || !cell) continue;
-      const chosen = edgeAnchors.get(key);
+      const chosen = edgeAnchors.get(claimedKey(key));
       if (!chosen && !positions.has(e.from) && !positions.has(e.to)) continue;
       if (chosen && !chosen.source && !chosen.target && chosen.line === lineShape) continue;
       const from = absRect.get(ends[0]), to = absRect.get(ends[1]);
@@ -1502,7 +1525,7 @@
             : (z.y - a.y) * oa.y > 0 && (a.y - z.y) * ob.y > 0);
         const bypass = (vertical(r.source) === vertical(r.target) && !facing)
           ? bypassLine(r.from, r.to, a, z, vertical(r.source), channel) : undefined;
-        geo.points = lineShapeOf(r.key) === 'orthogonal'
+        geo.points = lineShapeOf(claimedKey(r.key)) === 'orthogonal'
           ? elbowBetween(a, z, r.source, r.target, channel, bypass)
           : curveBetween(a, z, r.source, r.target, channel, bypass);
         model.setGeometry(r.cell, geo);
@@ -1515,11 +1538,14 @@
   function setAnchor(key, role, value) {
     const e = edgeInfo.get(key);
     if (!e) return;
-    const chosen = {...(edgeAnchors.get(key) || {}),
+    // An anchor is about the edge, whichever of its steps was clicked, and it
+    // is written into a layout document that names edges the way the IR does.
+    const named = claimedKey(key);
+    const chosen = {...(edgeAnchors.get(named) || {}),
       from: e.from, to: e.to, kind: e.kind, relation: e.relation || ''};
     if (value) chosen[role] = value; else delete chosen[role];
-    if (chosen.source || chosen.target || chosen.line) edgeAnchors.set(key, chosen);
-    else edgeAnchors.delete(key);
+    if (chosen.source || chosen.target || chosen.line) edgeAnchors.set(named, chosen);
+    else edgeAnchors.delete(named);
     applyAnchors();
     syncTools();
   }
@@ -2001,7 +2027,7 @@
   // as soon as another line arrived.
   function attachmentControl(key) {
     const s = section('attachment');
-    const chosen = edgeAnchors.get(key) || {};
+    const chosen = edgeAnchors.get(claimedKey(key)) || {};
     for (const [role, label] of [['source', '出口'], ['target', '入口']]) {
       const row = document.createElement('div');
       row.className = 'anchor-row';
@@ -2435,7 +2461,7 @@
       return;
     }
     if (cell.isEdge()) {
-      if (cell.infra && cell.infra.edge) selectEdge(edgeKey(cell.infra.edge));
+      if (cell.infra && cell.infra.edge) selectEdge(drawnKey(cell.infra.edge));
       evt.consume();
       return;
     }
@@ -2565,6 +2591,14 @@
       dragged = false;
       pressedAt = {x: me.getX(), y: me.getY()};
       if (!editing || !me.getEvent().shiftKey) return;
+      // A sequence is an order this page worked out, and it draws the steps
+      // of that order and nothing else. A line asserted here would have no
+      // place in it — there is no step it belongs to — so it would be made
+      // and never drawn, which is worse than not being offered.
+      if (isSequence()) {
+        flash('シーケンスは導出された図です。主張はもとの図で足してください');
+        return;
+      }
       const cell = me.getCell();
       if (!cell || !cell.isVertex() || kindOf(cell) === 'group') return;
       asserting = idOf(cell);
@@ -2748,6 +2782,10 @@
   // CLI builds it for this selector, so re-applying the export lands on the
   // same node rather than a second one beside it.
   function addNode() {
+    if (isSequence()) {
+      flash('シーケンスは導出された図です。箱はもとの図で足してください');
+      return;
+    }
     const typed = window.prompt(
       'Add a box\n\nIt asserts that something exists which is in no input file.\n' +
       'Leave empty to cancel.', '');
