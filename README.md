@@ -190,6 +190,17 @@ $ oekaki render . -f html -o checkout.html --view code-dependency --file service
 $ oekaki render graph.json -f html -o reachable.html --view reachability --root service:checkout --depth 5
 ```
 
+### Reading a source tree
+
+A repository read with `--source-dir` (or `--repo`) becomes a graph of files,
+packages, functions and **types**: classes, structs, interfaces, enums and
+aliases, with the methods declared on them, what they extend or implement, what
+Go embeds, and which fields hold which other type.
+
+It is a conservative reading. A relation is recorded only when the other end is
+a type this parser also read, nothing is inferred from method sets, and a name
+two types carry is dropped rather than guessed at. See [docs/code.md].
+
 ### Combining repositories
 
 The graph input can be a repository directory, Terraform JSON document, or a
@@ -688,6 +699,7 @@ The binaries embed Graphviz, which is EPL-2.0. Every release archive carries
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) with the full attribution.
 
 [docs/kubernetes.md]: docs/kubernetes.md
+[docs/code.md]: docs/code.md
 [docs/folding.md]: docs/folding.md
 [docs/notes.md]: docs/notes.md
 [docs/roadmap.md]: docs/roadmap.md

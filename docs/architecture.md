@@ -18,7 +18,7 @@ where contributions come in.
 | `core/` | IR types, normalization, validation, grouping |
 | `providers/` | What is known about each provider: containment, attributes, categories |
 | `parsers/terraform/` | `terraform show -json` → IR |
-| `parsers/source/` | multi-language source tree → code dependency IR; extensible parser registry |
+| `parsers/source/` | multi-language source tree → code IR: files, packages, functions and types; extensible parser registry ([docs/code.md](code.md)) |
 | `collectors/` | vendor-neutral adapters for logs, metrics, traces, and explicit reachability probes |
 | `enrichers/` | What an enricher is, and what it may write |
 | `enrichers/overlay/` | Assertions a human or a model wrote → IR annotations |
