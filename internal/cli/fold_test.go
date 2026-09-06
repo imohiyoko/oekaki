@@ -133,3 +133,28 @@ func TestFoldingIsOptIn(t *testing.T) {
 		t.Fatalf("got %d boxes, want all of them", len(g.Nodes))
 	}
 }
+
+// Every format but the page has no pages for an atlas to be, so there is
+// nothing to fold per page and the estate is folded as a whole. A flag that
+// quietly does nothing is the one outcome worth avoiding: a reader who asked
+// for a readable drawing and got the mat of boxes cannot tell that the
+// combination was the reason.
+func TestFoldStillWorksWhenAnAtlasCannotBeDrawn(t *testing.T) {
+	r := mustRun(t, "", "render", crowdedGraph(t), "-f", "json", "--fold", "--fold-budget", "5", "--atlas")
+
+	var g core.Graph
+	if err := json.Unmarshal([]byte(r.stdout), &g); err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Nodes) != 2 {
+		t.Fatalf("got %d boxes: --atlas turned --fold into a flag that does nothing", len(g.Nodes))
+	}
+	if !strings.Contains(r.stderr, "folded to") {
+		t.Errorf("the run does not say what it folded: %q", r.stderr)
+	}
+	// And the flag that could not do anything says so, rather than being
+	// dropped on the floor.
+	if !strings.Contains(r.stderr, "ignored here") {
+		t.Errorf("--atlas was ignored without saying so: %q", r.stderr)
+	}
+}
