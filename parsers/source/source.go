@@ -219,14 +219,29 @@ func parseFile(g *core.Graph, path, fileID, root string, scan *typeScan) error {
 	lang := language(path)
 	braceDelimited := isBraceDelimitedLanguage(lang)
 	codeLines := sanitizeSource(lines, lang)
-	scanTypes(g, scan, lines, codeLines, fileID, filepath.ToSlash(mustRel(root, path)), lang)
+	// Which lines declare a method, and on what. A method's node has to say
+	// whose it is, the way Go's receiver naming already does: one file with two
+	// classes that both declare `run` has two methods, and a single node named
+	// `run` made them one — every class in the file declaring the same box, and
+	// clicking a member taking the reader to another class's page.
+	owner := scanTypes(g, scan, lines, codeLines, fileID, filepath.ToSlash(mustRel(root, path)), lang)
+
 	funcs := map[string]string{}
+	// What a call written by name resolves to. It is the name as written, so
+	// it cannot be the same map: a call to `run` says `run`, whoever declared
+	// it. The first declaration wins, which is what happened before there were
+	// methods to tell apart.
+	byName := map[string]string{}
 	for line, text := range codeLines {
-		name, ok := functionName(text, lang)
+		raw, ok := functionName(text, lang)
 		if ok {
+			name := qualify(owner, line, raw)
 			id := fileID + "#" + name
 			if _, exists := funcs[name]; !exists {
 				funcs[name] = id
+				if _, taken := byName[raw]; !taken {
+					byName[raw] = id
+				}
 				g.Nodes = append(g.Nodes, core.Node{ID: id, Type: "code_function", Name: name, Attrs: map[string]any{"language": language(path)}, Source: &core.Source{File: filepath.ToSlash(mustRel(root, path)), Line: line + 1}})
 				g.Edges = append(g.Edges, core.Edge{From: fileID, To: id, Kind: core.EdgeIACRef, Relation: "contains", Attrs: map[string]any{"language": language(path), "reference_kind": "structural", "resolution": "static"}})
 			}
@@ -243,8 +258,8 @@ func parseFile(g *core.Graph, path, fileID, root string, scan *typeScan) error {
 	depth, defIndent := 0, 0
 	for line, text := range codeLines {
 		declared := false
-		if name, ok := functionName(text, lang); ok {
-			current = funcs[name]
+		if raw, ok := functionName(text, lang); ok {
+			current = funcs[qualify(owner, line, raw)]
 			depth = 0
 			if braceDelimited {
 				depth = braceDelta(text)
@@ -254,7 +269,7 @@ func parseFile(g *core.Graph, path, fileID, root string, scan *typeScan) error {
 		}
 		if current != "" {
 			for _, match := range callExpr.FindAllStringSubmatch(text, -1) {
-				if to, exists := funcs[match[1]]; exists && to != current {
+				if to, exists := byName[match[1]]; exists && to != current {
 					g.Edges = append(g.Edges, core.Edge{From: current, To: to, Kind: core.EdgeIACRef, Relation: "calls", Attrs: map[string]any{"language": language(path), "reference_kind": "application", "resolution": "static_same_file"}})
 				}
 			}
@@ -414,6 +429,15 @@ func braceDelta(s string) int {
 
 func indentation(s string) int {
 	return len(s) - len(strings.TrimLeft(s, " \t"))
+}
+
+// qualify is the name a function goes into the graph under: its own, or the
+// type's and its own, when a type declared it.
+func qualify(owner map[int]string, line int, name string) string {
+	if t := owner[line]; t != "" {
+		return t + "." + name
+	}
+	return name
 }
 
 func parseGoFile(g *core.Graph, path, fileID, root string, scan *typeScan) error {

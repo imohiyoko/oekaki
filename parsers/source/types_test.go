@@ -227,13 +227,13 @@ class Container:
 	if !related(g, "Order", RelationImplements, "Priced") {
 		t.Error("the implemented interface was not recorded")
 	}
-	if !related(g, "Order", RelationDeclares, "total") {
+	if !related(g, "Order", RelationDeclares, "Order.total") {
 		t.Error("the method declared in the class body is not on the class")
 	}
 	if !related(g, "Basket", RelationExtends, "Container") {
 		t.Error("the Python base was not recorded")
 	}
-	if !related(g, "Basket", RelationDeclares, "add") {
+	if !related(g, "Basket", RelationDeclares, "Basket.add") {
 		t.Error("the Python method is not on its class")
 	}
 }
@@ -246,10 +246,10 @@ func TestAFunctionAfterTheClassBodyIsNotAMethod(t *testing.T) {
 		"app/free.py":  "class Basket:\n    def add(self):\n        pass\n\ndef free():\n    pass\n",
 	})
 
-	if related(g, "Order", RelationDeclares, "free") {
+	if related(g, "Order", RelationDeclares, "Order.free") {
 		t.Error("a function after the closing brace was made a method")
 	}
-	if related(g, "Basket", RelationDeclares, "free") {
+	if related(g, "Basket", RelationDeclares, "Basket.free") {
 		t.Error("a function after the class body was made a method")
 	}
 }
@@ -275,10 +275,10 @@ func TestAOneLineTypeBodyDoesNotSwallowTheRestOfTheFile(t *testing.T) {
 	})
 
 	typeNamed(t, g, "Order") // the file was read at all
-	if related(g, "Order", RelationDeclares, "free") {
+	if related(g, "Order", RelationDeclares, "Order.free") {
 		t.Error("a function after a one-line class body was made a method")
 	}
-	if related(g, "Priced", RelationDeclares, "alsoFree") {
+	if related(g, "Priced", RelationDeclares, "Priced.alsoFree") {
 		t.Error("a function after an empty interface was made a method")
 	}
 }
@@ -290,7 +290,7 @@ func TestATypeWithNoBodyHasNothingInside(t *testing.T) {
 		"app/lib.rs": "struct Marker;\n\nfn free() {}\n",
 	})
 	typeNamed(t, g, "Marker") // a unit struct is still a type
-	if related(g, "Marker", RelationDeclares, "free") {
+	if related(g, "Marker", RelationDeclares, "Marker.free") {
 		t.Error("a function after a bodyless declaration was made a method")
 	}
 }
@@ -356,7 +356,7 @@ func TestATypeParameterBoundIsNotABase(t *testing.T) {
 		t.Error("a type parameter bound was recorded as a base class")
 	}
 	// And the declaration is still read: the class, and its method.
-	if !related(g, "Box", RelationDeclares, "put") {
+	if !related(g, "Box", RelationDeclares, "Box.put") {
 		t.Error("stripping the type parameters lost the declaration with them")
 	}
 }
@@ -372,5 +372,144 @@ func TestAGenericArgumentIsNotASecondInterface(t *testing.T) {
 	}
 	if !related(g, "Registry", RelationImplements, "Map") {
 		t.Error("the interface that was implemented was lost")
+	}
+}
+
+// Two classes in one file that declare the same method have two methods.
+//
+// A single node named `run` made them one: every class in the file declaring
+// the same box, a member click landing on another class's page, and — where a
+// top-level function shared the name — a class declaring a function that was
+// never inside it. The wrong arrow in a design diagram this file's own comment
+// says it will not draw.
+func TestTwoClassesDeclaringTheSameNameHaveTwoMethods(t *testing.T) {
+	g := parsed(t, map[string]string{
+		"app/work.py": `def run():
+    pass
+
+class Job:
+    def run(self):
+        pass
+
+class Task:
+    def run(self):
+        pass
+`,
+		"app/ship.ts": `class Truck {
+  ship(): void {}
+}
+class Train {
+  ship(): void {}
+}
+`,
+	})
+
+	for _, owner := range []string{"Job", "Task"} {
+		if !related(g, owner, RelationDeclares, owner+".run") {
+			t.Errorf("%s does not declare its own run", owner)
+		}
+	}
+	if related(g, "Job", RelationDeclares, "run") {
+		t.Error("a class declares the module's top-level function")
+	}
+	for _, owner := range []string{"Truck", "Train"} {
+		if !related(g, owner, RelationDeclares, owner+".ship") {
+			t.Errorf("%s does not declare its own ship", owner)
+		}
+	}
+	// And each of them is a node of its own, so a member click goes to the
+	// method it names.
+	for _, id := range []string{
+		"file:app/work.py#Job.run", "file:app/work.py#Task.run", "file:app/work.py#run",
+		"file:app/ship.ts#Truck.ship", "file:app/ship.ts#Train.ship",
+	} {
+		if _, ok := g.Node(id); !ok {
+			t.Errorf("%s is not a node of its own", id)
+		}
+	}
+}
+
+// A function nested inside a method is that method's business. The class does
+// not declare it.
+func TestAFunctionInsideAMethodIsNotAMember(t *testing.T) {
+	g := parsed(t, map[string]string{
+		"app/outer.py": `class Outer:
+    def method(self):
+        def helper():
+            pass
+        return helper
+`,
+		"app/outer.ts": `class Wrapper {
+  method(): void {
+    function inner(): void {}
+    inner();
+  }
+}
+`,
+	})
+
+	if !related(g, "Outer", RelationDeclares, "Outer.method") {
+		t.Fatal("the method itself was lost")
+	}
+	if related(g, "Outer", RelationDeclares, "Outer.helper") {
+		t.Error("a function nested in a method was made a member")
+	}
+	if !related(g, "Wrapper", RelationDeclares, "Wrapper.method") {
+		t.Fatal("the method itself was lost")
+	}
+	if related(g, "Wrapper", RelationDeclares, "Wrapper.inner") {
+		t.Error("a function nested in a method was made a member")
+	}
+}
+
+// An interface may extend several. The implements clause was already read as a
+// list and this one was not, which made the two halves of the same sentence
+// behave differently.
+func TestExtendsIsAListLikeImplementsIs(t *testing.T) {
+	g := parsed(t, map[string]string{
+		"app/c.ts": "interface A {}\ninterface B {}\ninterface C extends A, B {}\n",
+	})
+	for _, base := range []string{"A", "B"} {
+		if !related(g, "C", RelationExtends, base) {
+			t.Errorf("%s was dropped from the base list", base)
+		}
+	}
+}
+
+// C++ writes its access in the base list. Taking the first word there named
+// `public` as the base, which matches no type and is dropped — so C++
+// inheritance produced no edge at all.
+func TestAnAccessSpecifierIsNotTheBase(t *testing.T) {
+	g := parsed(t, map[string]string{
+		"app/d.cpp": "class Base {\n};\n\nclass Derived : public Base {\n};\n",
+	})
+	typeNamed(t, g, "Derived")
+	if !related(g, "Derived", RelationExtends, "Base") {
+		t.Error("the base was lost behind its access specifier")
+	}
+}
+
+// A declaration long enough to wrap puts its brace, and often its bases, on a
+// later line. Judging the scope from the declaration line alone closed the type
+// at once and lost its members and its bases together.
+func TestADeclarationMayWrapBeforeItsBody(t *testing.T) {
+	g := parsed(t, map[string]string{
+		"app/d.ts": `class A {}
+interface P {}
+class D
+  extends A
+  implements P {
+  m(): void {}
+}
+`,
+	})
+	if !related(g, "D", RelationExtends, "A") {
+		t.Error("the base on the continuation line was lost")
+	}
+	if !related(g, "D", RelationImplements, "P") {
+		t.Error("the interface on the continuation line was lost")
+	}
+	if !related(g, "D", RelationDeclares, "D.m") {
+		t.Error("the member was lost with the wrapped declaration")
 	}
 }

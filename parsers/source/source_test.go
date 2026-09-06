@@ -287,7 +287,10 @@ char *copy(void) { return 0; }
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range []string{"file:App.java#Run", "file:App.java#helper", "file:main.c#main", "file:main.c#copy"} {
+	// A method carries the type that declared it, the way a Go method always
+	// has: one file with two classes that both declare `run` has two methods,
+	// and one node named `run` would make them one.
+	for _, id := range []string{"file:App.java#App.Run", "file:App.java#App.helper", "file:main.c#main", "file:main.c#copy"} {
 		if _, ok := g.Node(id); !ok {
 			t.Errorf("normal Java/C-family function %s was not represented", id)
 		}
@@ -301,7 +304,7 @@ char *copy(void) { return 0; }
 			t.Errorf("non-function %s was represented as a function", id)
 		}
 	}
-	if !hasCallEdge(g, "file:App.java#Run", "file:App.java#helper") {
+	if !hasCallEdge(g, "file:App.java#App.Run", "file:App.java#App.helper") {
 		t.Fatal("Java method call was not recovered")
 	}
 }
