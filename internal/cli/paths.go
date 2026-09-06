@@ -196,7 +196,15 @@ func whyNoRoutes(g *core.Graph) string {
 	switch views.WhyNoDeclaredPaths(g) {
 	case views.NoReferences:
 		return "no declared routes could be derived: this graph records no declared calls to follow, only what was observed."
-	default:
+	case views.NoStart:
 		return "no declared routes could be derived: everything that calls something is also called by something, so there is nowhere a route starts."
+	default:
+		// There are calls and there is somewhere to start, and still nothing
+		// came back. Today the walk's own bounds are the only way that can
+		// happen and it takes a chain longer than the default depth; naming a
+		// cause here would be guessing, so it says what it knows. Falling
+		// through to the cycle sentence instead would state a cause that is
+		// not the one, which is worse than admitting ignorance.
+		return "no declared routes could be derived from the references in this graph."
 	}
 }

@@ -95,6 +95,15 @@ type Alert struct {
 	Label    string `json:"label,omitempty"`
 	Reason   string `json:"reason"`
 
+	// Is is the condition that fired, and it is what a reader has to go on to
+	// know what the rest of the alert means. The reason is a sentence written
+	// for the condition — a bound names its value in it, a silence names its
+	// moment — so anything deciding what to do with Value and LastSeen has to
+	// ask which condition wrote it. Looking for the digits in the sentence
+	// instead answers a different question, and answers it wrong the first
+	// time a value is 0 or 1.
+	Is string `json:"is"`
+
 	// Metric is what was measured, when the rule was about a measurement. A
 	// value with no name beside it is a number somebody has to go and look up,
 	// and the rule knew it all along.
@@ -267,7 +276,7 @@ func (r Rule) readings(g *core.Graph) ([]Alert, []string) {
 			}
 			alert := Alert{
 				Rule: r.Name, Severity: r.Severity, Subject: subject, Label: labelOf(g, subject),
-				Metric: r.When.Metric,
+				Is: r.When.Is, Metric: r.When.Metric,
 				Reason: fmt.Sprintf("nothing measured %s since %s", r.When.Metric, r.When.Since),
 			}
 			if seen {
@@ -302,7 +311,7 @@ func (r Rule) readings(g *core.Graph) ([]Alert, []string) {
 		}
 		out = append(out, Alert{
 			Rule: r.Name, Severity: r.Severity, Subject: subject, Label: labelOf(g, subject),
-			Metric: r.When.Metric, Value: o.Value, LastSeen: o.ObservedAt,
+			Is: r.When.Is, Metric: r.When.Metric, Value: o.Value, LastSeen: o.ObservedAt,
 			Reason: fmt.Sprintf("%s is %g, %s %g", r.When.Metric, *o.Value, word, *r.When.Value),
 		})
 	}
@@ -324,7 +333,12 @@ func (r Rule) routes(g *core.Graph) ([]Alert, error) {
 		}
 		out = append(out, Alert{
 			Rule: r.Name, Severity: r.Severity, Subject: f.Key, Label: PathLabel(g, f.Path),
-			Reason: f.Reason, Value: f.Requests, LastSeen: f.LastSeen,
+			Is: f.Kind, Reason: f.Reason,
+			// The walks the finding counted. It is a measurement like any
+			// other and it has a name, which is the name the collector wrote
+			// it under — without one, a listing prints a number and leaves the
+			// reader to guess what was counted.
+			Metric: DefaultPathMetric, Value: f.Requests, LastSeen: f.LastSeen,
 		})
 	}
 	return out, nil

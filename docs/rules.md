@@ -173,3 +173,33 @@ them about anything that happened.
 `--exit-code` makes the command exit 1 when anything fired. Without it the
 command reports and carries on, because a listing is also something people read
 while nothing is wrong.
+
+`-f json` writes the same run for something else to read:
+
+```json
+{
+  "since": "2026-08-07T00:00:00Z",
+  "unanswered": [
+    "stopped: ledger measured with no time on the reading, so there is no telling whether it went quiet; not reported"
+  ],
+  "alerts": [
+    { "rule": "too busy", "subject": "ledger", "is": "above",
+      "metric": "request_rate", "value": 4000, "last_seen": "2026-09-05T00:00:00Z",
+      "reason": "request_rate is 4000, above 1000" }
+  ]
+}
+```
+
+`unanswered` is there for the same reason the stderr line is: an empty `alerts`
+is what a rule that was applied and found nothing produces, and it is also what
+a rule that could not be applied at all produces. Something reading only
+`alerts` cannot tell those apart, and one of them is not good news.
+
+`is` says which condition fired, and it is what the rest of the alert is read
+in the light of. The `reason` is a sentence written for that condition — a
+bound names its value in it, a silence names its moment — so anything deciding
+what to do with `value` and `last_seen` asks `is` rather than searching the
+sentence for the digits. The table does exactly this, and it is not a nicety:
+a quiet reason contains the moment, a moment contains `0` and `1` and `2026`,
+and a heartbeat of `0` under a rule called "stopped" is the reading somebody
+most wants to see.
