@@ -28,7 +28,7 @@ func goTypes(g *core.Graph, scan *typeScan, f *ast.File, fset *token.FileSet, fi
 			if !ok || ts.Name == nil {
 				continue
 			}
-			id := declareType(g, fileID, ts.Name.Name, goTypeKind(ts), "go", rel,
+			id := declareType(g, scan, fileID, ts.Name.Name, goTypeKind(ts), "go", rel,
 				fset.Position(ts.Pos()).Line)
 
 			switch t := ts.Type.(type) {

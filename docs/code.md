@@ -1,12 +1,18 @@
 # The code graph
 
-`--source-dir` (and `--repo`) read a source tree and produce a graph in the
-same IR everything else here uses. It is deliberately a *conservative* reading:
-one that would rather record less than record something nobody wrote.
+A directory of source given as the input — as the argument, or with `--repo` —
+becomes a graph in the same IR everything else here uses. It is deliberately a
+*conservative* reading: one that would rather record less than record something
+nobody wrote.
 
 ```console
-$ oekaki graph src --source-dir src -o code.json
+$ oekaki graph src -o code.json
+$ oekaki graph --repo ../checkout --repo ../payments -o estate.json
 ```
+
+(`--source-dir` is a different flag, and not this one: it points at a directory
+of `.tf` files so a Terraform graph can say which file and line declared each
+resource.)
 
 ## What is in it
 
@@ -44,6 +50,24 @@ first — a directory is one package in Go and one module's worth of code nearly
 everywhere else — and then against the whole tree, but only when exactly one
 type carries that name. Two `Order`s in two packages is the ordinary shape of a
 repository, and choosing one of them would draw an arrow nobody meant.
+
+**A qualified name is not resolved at all.** `*http.Client` and `models.User`
+name another package, and this parser has no notion of which package is which.
+Dropping the qualifier and matching the bare name would join a field to
+whatever local type happened to be called `Client` — an arrow to something the
+declaration never mentioned, in a document whose whole purpose is telling apart
+what was claimed from what was seen.
+
+**A declaration has to look like one.** `struct sockaddr_in addr;` declares a
+variable, not a type: a name followed by another name is never a declaration,
+and reading it as one produced a box for something the file never wrote. An
+anonymous class (`export default class extends Base`) declares nothing this can
+name, so it declares nothing here.
+
+**Type parameters are not bases.** `class Box<T extends Number>` bounds a
+parameter and descends from nothing, and `implements Map<String, Integer>`
+implements one interface rather than two. The angle brackets come off before
+the bases are read.
 
 **Nothing is inferred from method sets.** A type is not recorded as
 implementing an interface because it happens to have the right methods. That is
@@ -83,6 +107,10 @@ function declared inside that scope is a method on the type.
 
 A type declared inside another type is not followed. It is rare enough that
 reading it wrong is worse than not reading it.
+
+A body that opens and closes on one line, or a declaration with no body at all
+— a Rust unit struct, a C forward declaration — is over where it started. The
+next function in the file is the file's, not the type's.
 
 ## Adding a real parser
 

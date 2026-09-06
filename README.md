@@ -192,8 +192,8 @@ $ oekaki render graph.json -f html -o reachable.html --view reachability --root 
 
 ### Reading a source tree
 
-A repository read with `--source-dir` (or `--repo`) becomes a graph of files,
-packages, functions and **types**: classes, structs, interfaces, enums and
+A directory of source given as the input — as the argument, or with `--repo` —
+becomes a graph of files, packages, functions and **types**: classes, structs, interfaces, enums and
 aliases, with the methods declared on them, what they extend or implement, what
 Go embeds, and which fields hold which other type.
 
