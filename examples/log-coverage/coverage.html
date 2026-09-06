@@ -7991,6 +7991,17 @@ module.exports = Worker;
     // nothing else would merge them.
     const edges = [];
     const merged = new Map();
+
+    // A copy, because `graph` is what the input said. Writing a count onto the
+    // edge itself would edit the document the page carries, and the next
+    // render would count the counts.
+    const summarise = (at) => {
+      const attrs = {...(at.infra.stands.attrs || {})};
+      if (at.infra.references > 1) attrs.references = at.infra.references;
+      if (at.infra.denied > 0) attrs.suppressed_references = at.infra.denied;
+      at.infra.edge = {...at.infra.stands, attrs};
+    };
+
     for (const [i, e] of allEdges().entries()) {
       const from = anchorFor(e.from, drawn);
       const to = anchorFor(e.to, drawn);
@@ -7998,20 +8009,24 @@ module.exports = Worker;
       const pair = [from, to, e.kind, e.relation || ''].join('\u0000');
       const at = merged.get(pair);
       if (at) {
-        at.infra.references++;
-        // A copy, because `graph` is what the input said. Writing the count
-        // onto the edge itself would edit the document the page carries, and
-        // the next render would count the counts.
-        at.infra.edge = {
-          ...at.infra.edge,
-          attrs: {...(at.infra.edge.attrs || {}), references: at.infra.references},
-        };
+        if (e.suppressed) at.infra.denied++; else at.infra.references++;
+        // The line is the references nobody denied, on the same terms the
+        // projection settles it: a pair with one real reference and three
+        // denied ones is a real relationship, and which of the two a reader
+        // is shown must not depend on the order they arrived in.
+        if (at.infra.stands.suppressed && !e.suppressed) at.infra.stands = e;
+        summarise(at);
         continue;
       }
       const drawnEdge = {
         id: 'e' + i, sources: [from], targets: [to],
-        infra: {kind: 'edge', edge: e, references: 1},
+        infra: {
+          kind: 'edge', edge: e, stands: e,
+          references: e.suppressed ? 0 : 1,
+          denied: e.suppressed ? 1 : 0,
+        },
       };
+      summarise(drawnEdge);
       merged.set(pair, drawnEdge);
       edges.push(drawnEdge);
     }
