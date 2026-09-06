@@ -131,11 +131,16 @@ func ParseFiles(files []string, root string) (*core.Graph, error) {
 		fileIDs[path] = id
 		g.Nodes = append(g.Nodes, core.Node{ID: id, Type: "code_file", Name: rel, Attrs: map[string]any{"language": language(path)}, Source: &core.Source{File: rel}})
 	}
+	// What one file said about a type another file declares. It is collected
+	// as the files are read and joined once they all have been; see
+	// resolveTypes.
+	scan := &typeScan{}
 	for _, path := range files {
-		if err := parseFile(g, path, fileIDs[path], root); err != nil {
+		if err := parseFile(g, path, fileIDs[path], root, scan); err != nil {
 			return nil, err
 		}
 	}
+	resolveTypes(g, scan)
 	if err := addCrossFileCalls(g, root); err != nil {
 		return nil, err
 	}
@@ -184,15 +189,18 @@ func pathIDs(parts []string) []string {
 	return ids
 }
 
-func parseFile(g *core.Graph, path, fileID, root string) error {
+func parseFile(g *core.Graph, path, fileID, root string, scan *typeScan) error {
 	parserMu.RLock()
 	custom := languageParsers[strings.ToLower(filepath.Ext(path))]
 	parserMu.RUnlock()
 	if custom != nil {
+		// A registered parser emits whatever it likes, including types: it is
+		// handed the graph, and the resolution afterwards works on names it
+		// left in the graph rather than on anything it had to tell us.
 		return custom(g, path, fileID, root)
 	}
 	if strings.EqualFold(filepath.Ext(path), ".go") {
-		return parseGoFile(g, path, fileID, root)
+		return parseGoFile(g, path, fileID, root, scan)
 	}
 	f, err := os.Open(path)
 	if err != nil {
@@ -211,6 +219,7 @@ func parseFile(g *core.Graph, path, fileID, root string) error {
 	lang := language(path)
 	braceDelimited := isBraceDelimitedLanguage(lang)
 	codeLines := sanitizeSource(lines, lang)
+	scanTypes(g, scan, lines, codeLines, fileID, filepath.ToSlash(mustRel(root, path)), lang)
 	funcs := map[string]string{}
 	for line, text := range codeLines {
 		name, ok := functionName(text, lang)
@@ -407,7 +416,7 @@ func indentation(s string) int {
 	return len(s) - len(strings.TrimLeft(s, " \t"))
 }
 
-func parseGoFile(g *core.Graph, path, fileID, root string) error {
+func parseGoFile(g *core.Graph, path, fileID, root string, scan *typeScan) error {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
 	if err != nil {
@@ -423,6 +432,8 @@ func parseGoFile(g *core.Graph, path, fileID, root string) error {
 		line := fset.Position(imp.Pos()).Line
 		g.Edges = append(g.Edges, core.Edge{From: fileID, To: id, Kind: core.EdgeIACRef, Relation: "imports", Attrs: map[string]any{"line": line, "reference_kind": "library", "resolution": "static"}})
 	}
+	goTypes(g, scan, f, fset, fileID, rel)
+
 	funcs := map[string]string{}
 	for _, decl := range f.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
@@ -433,6 +444,13 @@ func parseGoFile(g *core.Graph, path, fileID, root string) error {
 		if fn.Recv != nil && len(fn.Recv.List) > 0 {
 			if receiver := goReceiverName(fn.Recv.List[0].Type); receiver != "" {
 				name = receiver + "." + name
+				// A method is declared beside its type as often as not — in
+				// another file of the same package — so which type this is on
+				// is settled after every file has been read.
+				scan.methods = append(scan.methods, pendingMethod{
+					receiver: receiver, function: fileID + "#" + name,
+					dir: filepath.ToSlash(filepath.Dir(rel)),
+				})
 			}
 		} else {
 			funcs[fn.Name.Name] = fileID + "#" + name
