@@ -8096,9 +8096,15 @@ module.exports = Worker;
     // not move the participants it named to the end of the row —— the reader
     // put one message away and the whole drawing rearranged itself.
     const first = new Map();
+    let appearance = 0;
     for (const e of allEdges().filter((e) => e.attrs && e.attrs.step).sort((a, b) => a.attrs.step - b.attrs.step)) {
+      // Counted per participant rather than per step: both ends of the first
+      // message share a step number, and two columns that tie fall back to
+      // the order the document happens to list them in — which can put the
+      // one being called to the left of the one calling it, and draw the
+      // first message of the sequence right to left.
       for (const id of [e.from, e.to]) {
-        if (!first.has(id)) first.set(id, e.attrs.step);
+        if (!first.has(id)) first.set(id, appearance++);
       }
     }
     order.sort((a, b) => {
@@ -9541,7 +9547,9 @@ module.exports = Worker;
     if (Object.keys(attrs).length) detail.append(defList('attributes', attrs));
     if (e.claim) detail.append(withText(section('claim'), claimLine(e.claim)));
 
-    const conflicts = edgeConflicts.filter((c) => c.target === key);
+    // A disagreement is about the edge, not about which of its steps was
+    // clicked, and the document names it the way the IR does.
+    const conflicts = edgeConflicts.filter((c) => c.target === claimedKey(key));
     if (conflicts.length) {
       const s = section('disagreement');
       for (const c of conflicts) {
