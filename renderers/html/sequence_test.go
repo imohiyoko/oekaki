@@ -70,3 +70,23 @@ func TestThePageSaysWhereASequencesOrderCameFrom(t *testing.T) {
 		t.Error("an observed order and a derived one are drawn as the same badge")
 	}
 }
+
+// Both ends of the first message share a step number, so ranking the columns
+// by step leaves them tied — and two columns that tie fall back to the order
+// the document happens to list them in, which can put the one being called to
+// the left of the one calling it and draw the first message right to left.
+func TestTheColumnsAreRankedPerParticipant(t *testing.T) {
+	app := string(Assets(nil)[AssetApp])
+	if !strings.Contains(app, "first.set(id, appearance++)") {
+		t.Error("the columns are ranked by step, so the first message can be drawn backwards")
+	}
+}
+
+// A disagreement is about the edge, not about which of its steps was clicked,
+// and the document names it the way the IR does.
+func TestAConflictOnAStepIsStillFound(t *testing.T) {
+	app := string(Assets(nil)[AssetApp])
+	if !strings.Contains(app, "edgeConflicts.filter((c) => c.target === claimedKey(key))") {
+		t.Error("a contested message in a sequence never shows its disagreement")
+	}
+}
