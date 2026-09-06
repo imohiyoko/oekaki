@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -151,5 +152,153 @@ func TestNothingToFollowIsNotACycle(t *testing.T) {
 
 	if !strings.Contains(r.stderr, "records no declared calls to follow") {
 		t.Errorf("the run blames a cycle that is not there: %q", r.stderr)
+	}
+}
+
+// Which half of the suffix the reason already carries is a property of the
+// condition that wrote it, not of whether the digits happen to appear in the
+// sentence. A quiet reason names a moment, and a moment contains 0, 1, 2 and
+// 2026 — so looking for the value in the text dropped exactly the reading
+// somebody most wants to see under a rule called "stopped".
+func TestAHeartbeatOfZeroIsPrinted(t *testing.T) {
+	g := core.New()
+	g.Nodes = []core.Node{{ID: "ledger", Type: "service", Name: "ledger"}}
+	zero := 0.0
+	g.Observations = []core.Observation{
+		{Subject: "ledger", Metric: "beat", Value: &zero, ObservedAt: "2026-01-01T00:00:00Z"},
+	}
+	g.Normalize()
+
+	r := mustRun(t, "", "alerts", graphFile(t, g), "--rules",
+		rulesFile(t, `{"kind":"oekaki.rules","version":"0.1","rules":[
+			{"name":"stopped","about":{"subject":"ledger"},
+			 "when":{"is":"quiet","metric":"beat"}}]}`),
+		"--since", "2026-08-01T00:00:00Z")
+
+	if !strings.Contains(r.stdout, "(0)") {
+		t.Errorf("the reading the rule is about is not on the line: %q", r.stdout)
+	}
+}
+
+// The same for a route: its reason names neither the moment nor the count, so
+// both belong in the suffix — and the count is named, because a bare number
+// after a route leaves the reader guessing what was counted.
+func TestARouteAlertKeepsItsCount(t *testing.T) {
+	g := core.New()
+	for _, id := range []string{"gateway", "reports", "archive"} {
+		g.Nodes = append(g.Nodes, core.Node{ID: id, Type: "service", Name: id})
+	}
+	g.Edges = []core.Edge{
+		{From: "gateway", To: "reports", Kind: core.EdgeIACRef, Relation: "calls"},
+		{From: "reports", To: "archive", Kind: core.EdgeIACRef, Relation: "calls"},
+	}
+	g.Paths = []core.Path{
+		{Nodes: []string{"gateway", "reports", "archive"}, Kind: core.EdgeIACRef},
+		{Nodes: []string{"gateway", "reports"}, Kind: core.EdgeObserved},
+	}
+	one := 1.0
+	g.Observations = []core.Observation{{
+		Subject: core.PathKey([]string{"gateway", "reports"}), Metric: "path_requests",
+		Value: &one, Unit: "requests", ObservedAt: "2026-05-01T10:00:00Z",
+	}}
+	g.Normalize()
+
+	r := mustRun(t, "", "alerts", graphFile(t, g), "--rules",
+		rulesFile(t, `{"kind":"oekaki.rules","version":"0.1","rules":[
+			{"name":"stops short","when":{"is":"partial"}}]}`),
+		"--since", "2026-08-01T00:00:00Z")
+
+	for _, want := range []string{"last 2026-05-01T10:00:00Z", "path_requests 1"} {
+		if !strings.Contains(r.stdout, want) {
+			t.Errorf("the line does not carry %q: %q", want, r.stdout)
+		}
+	}
+}
+
+// A bound names its value in the reason and a silence names its moment. Saying
+// either again puts one fact on the line twice, which reads as two facts.
+func TestTheSuffixDoesNotRepeatTheReason(t *testing.T) {
+	g := core.New()
+	g.Nodes = []core.Node{{ID: "ledger", Type: "service", Name: "ledger"}}
+	busy := 4000.0
+	g.Observations = []core.Observation{
+		{Subject: "ledger", Metric: "request_rate", Value: &busy, ObservedAt: "2026-09-05T00:00:00Z"},
+	}
+	g.Normalize()
+
+	r := mustRun(t, "", "alerts", graphFile(t, g), "--rules",
+		rulesFile(t, `{"kind":"oekaki.rules","version":"0.1","rules":[
+			{"name":"too busy","when":{"is":"above","metric":"request_rate","value":1000}}]}`))
+
+	if n := strings.Count(r.stdout, "4000"); n != 1 {
+		t.Errorf("the value is on the line %d times: %q", n, r.stdout)
+	}
+	if !strings.Contains(r.stdout, "last 2026-09-05T00:00:00Z") {
+		t.Errorf("the moment the reason does not carry is missing: %q", r.stdout)
+	}
+}
+
+// A consumer reading only `alerts` reads an empty list as "all well", and a
+// rule that could not be applied produces exactly that empty list. Saying so
+// on stderr fixes the table and leaves the machine-readable side telling the
+// same lie the table used to.
+func TestTheJSONSaysWhatCouldNotBeAnswered(t *testing.T) {
+	g := core.New()
+	g.Nodes = []core.Node{{ID: "ledger", Type: "service", Name: "ledger"}}
+	five := 5.0
+	g.Observations = []core.Observation{{Subject: "ledger", Metric: "beat", Value: &five}}
+	g.Normalize()
+
+	r := mustRun(t, "", "alerts", graphFile(t, g), "-f", "json", "--rules",
+		rulesFile(t, `{"kind":"oekaki.rules","version":"0.1","rules":[
+			{"name":"stopped","about":{"subject":"ledger"},
+			 "when":{"is":"quiet","metric":"beat"}}]}`),
+		"--since", "2026-08-01T00:00:00Z")
+
+	var got struct {
+		Unanswered []string `json:"unanswered"`
+		Alerts     []struct {
+			Is     string `json:"is"`
+			Metric string `json:"metric"`
+		} `json:"alerts"`
+	}
+	if err := json.Unmarshal([]byte(r.stdout), &got); err != nil {
+		t.Fatalf("%v: %q", err, r.stdout)
+	}
+	if len(got.Unanswered) != 1 || !strings.Contains(got.Unanswered[0], "ledger") {
+		t.Fatalf("the JSON does not say the rule could not answer: %#v", got.Unanswered)
+	}
+	if len(got.Alerts) != 0 {
+		t.Fatalf("something fired: %#v", got.Alerts)
+	}
+}
+
+// An alert says which condition wrote it, because the reason is a sentence
+// written for that condition and everything else about the alert is read in
+// its light.
+func TestAnAlertSaysWhichConditionFired(t *testing.T) {
+	g := core.New()
+	g.Nodes = []core.Node{{ID: "ledger", Type: "service", Name: "ledger"}}
+	busy := 4000.0
+	g.Observations = []core.Observation{
+		{Subject: "ledger", Metric: "request_rate", Value: &busy, ObservedAt: "2026-09-05T00:00:00Z"},
+	}
+	g.Normalize()
+
+	r := mustRun(t, "", "alerts", graphFile(t, g), "-f", "json", "--rules",
+		rulesFile(t, `{"kind":"oekaki.rules","version":"0.1","rules":[
+			{"name":"too busy","when":{"is":"above","metric":"request_rate","value":1000}}]}`))
+
+	var got struct {
+		Alerts []struct {
+			Is     string `json:"is"`
+			Metric string `json:"metric"`
+		} `json:"alerts"`
+	}
+	if err := json.Unmarshal([]byte(r.stdout), &got); err != nil {
+		t.Fatalf("%v: %q", err, r.stdout)
+	}
+	if len(got.Alerts) != 1 || got.Alerts[0].Is != "above" || got.Alerts[0].Metric != "request_rate" {
+		t.Fatalf("the alert does not say what fired or what was measured: %#v", got.Alerts)
 	}
 }

@@ -115,9 +115,15 @@ func runAlerts(env Env, args []string) error {
 	var out []byte
 	if *format == "json" {
 		out, err = json.MarshalIndent(struct {
-			Since  string        `json:"since,omitempty"`
-			Alerts []views.Alert `json:"alerts"`
-		}{cutoff, alerts}, "", "  ")
+			Since string `json:"since,omitempty"`
+			// What the rules could not answer, beside what they did. A
+			// consumer reading only `alerts` reads an empty list as "all
+			// well", and a rule that was never applied produces exactly that
+			// empty list — which is the failure this whole change is about,
+			// moved from the table to the machine-readable side.
+			Unanswered []string      `json:"unanswered,omitempty"`
+			Alerts     []views.Alert `json:"alerts"`
+		}{cutoff, unanswered, alerts}, "", "  ")
 		if err != nil {
 			return err
 		}
@@ -129,35 +135,7 @@ func runAlerts(env Env, args []string) error {
 			if a.Severity != "" {
 				head = a.Severity + "  " + head
 			}
-			line := a.Reason
-			// When it was last measured and what it said — the two things
-			// somebody deciding whether to act needs, and a reason without
-			// them is a claim to go and check elsewhere.
-			//
-			// Only the half the reason does not already carry. A bound names
-			// its value in the reason and a quiet alert names its moment, so
-			// appending both unconditionally printed the same fact twice on
-			// one line, which reads as two facts.
-			var also []string
-			if a.LastSeen != "" && !strings.Contains(a.Reason, a.LastSeen) {
-				also = append(also, "last "+a.LastSeen)
-			}
-			if a.Value != nil {
-				// Named only when the reason has not named it already. The
-				// name goes first because these are metric names rather than
-				// units: "beat 5" reads as a measurement where "5 beat" reads
-				// as a typo, while the path listing puts the number first
-				// because what follows it there is a unit — "1284 requests".
-				if v := fmt.Sprintf("%g", *a.Value); !strings.Contains(a.Reason, v) {
-					if a.Metric != "" && !strings.Contains(a.Reason, a.Metric) {
-						v = a.Metric + " " + v
-					}
-					also = append(also, v)
-				}
-			}
-			if len(also) > 0 {
-				line += "  (" + strings.Join(also, ", ") + ")"
-			}
+			line := a.Reason + suffix(a)
 			fmt.Fprintf(&b, "%s\n    %s\n    %s\n", head, a.Label, line)
 		}
 		out = []byte(b.String())
@@ -183,3 +161,41 @@ func runAlerts(env Env, args []string) error {
 // errFired is not a mistake anybody made, so it says nothing about how to fix
 // itself. It exists to move the exit code.
 var errFired = fmt.Errorf("rules fired")
+
+// suffix is when it was last measured and what it said — the two things
+// somebody deciding whether to act needs, and a reason without them is a claim
+// to go and check somewhere else.
+//
+// Only the half the reason does not already carry. Which half that is follows
+// from the condition that wrote the reason: a bound's sentence names its value
+// ("request_rate is 4000, above 1000"), a silence's names its moment ("beat
+// last measured 2026-01-01T00:00:00Z"). Asking the condition is the only way
+// to know. Looking for the digits in the sentence instead is a different
+// question with a nearly-right answer: the moment in a quiet reason contains
+// 0, 1, 2 and 2026, so a heartbeat of 0 — the reading somebody most wants to
+// see under a rule called "stopped" — disappears from the line.
+func suffix(a views.Alert) string {
+	// What the condition's own sentence already said.
+	namesMoment := a.Is == views.Quiet
+	namesValue := a.Is == views.Above || a.Is == views.Below
+
+	var also []string
+	if a.LastSeen != "" && !namesMoment {
+		also = append(also, "last "+a.LastSeen)
+	}
+	if a.Value != nil && !namesValue {
+		v := fmt.Sprintf("%g", *a.Value)
+		// The name first, because these are metric names rather than units:
+		// "path_requests 1" reads as a measurement where "1 path_requests"
+		// reads as a typo. The path listing puts the number first because what
+		// follows it there is a unit — "1284 requests".
+		if a.Metric != "" && !strings.Contains(a.Reason, a.Metric) {
+			v = a.Metric + " " + v
+		}
+		also = append(also, v)
+	}
+	if len(also) == 0 {
+		return ""
+	}
+	return "  (" + strings.Join(also, ", ") + ")"
+}
