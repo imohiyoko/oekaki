@@ -122,7 +122,14 @@ enough to wrap, on the other hand, is still being written: its brace and often
 its bases are on a later line, and the type stays open until one arrives.
 
 Only what is directly in the body is a member. A function nested inside a
-method is that method's business, and the class does not declare it.
+method is that method's business, and the class does not declare it. Where a
+language has no braces to say so, the members are the functions at the
+shallowest indentation the body has — decided when the body ends, because which
+indentation is the class's own is not known until every function in it has been
+seen. A `def` inside an `if TYPE_CHECKING:` is not the measure.
+
+A call written inside a type means that type's method when it has one of that
+name. Two classes in one file with a `paint` each call their own.
 
 ## Adding a real parser
 

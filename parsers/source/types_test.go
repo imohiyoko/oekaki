@@ -513,3 +513,164 @@ class D
 		t.Error("the member was lost with the wrapped declaration")
 	}
 }
+
+// A call written in one class means that class's method.
+//
+// Resolving it by the bare name reached whichever class was declared first —
+// including from a method's own declaration line, which the call scanner reads
+// too, so a class was drawn calling another class's method of the same name for
+// no reason at all.
+func TestACallInAClassMeansThatClassesMethod(t *testing.T) {
+	g := parsed(t, map[string]string{
+		"app/shapes.js": `class BoxShape {
+  paint() { this.render(); }
+  render() {}
+}
+class GroupShape {
+  paint() { this.render(); }
+  render() {}
+}
+`,
+	})
+
+	calls := map[string]bool{}
+	for _, e := range g.Edges {
+		if e.Relation != "calls" {
+			continue
+		}
+		var from, to string
+		for _, n := range g.Nodes {
+			if n.ID == e.From {
+				from = n.Name
+			}
+			if n.ID == e.To {
+				to = n.Name
+			}
+		}
+		calls[from+" -> "+to] = true
+	}
+	for _, want := range []string{
+		"BoxShape.paint -> BoxShape.render",
+		"GroupShape.paint -> GroupShape.render",
+	} {
+		if !calls[want] {
+			t.Errorf("%q was not recovered: %v", want, calls)
+		}
+	}
+	for _, unwanted := range []string{
+		"GroupShape.paint -> BoxShape.render",
+		"BoxShape.paint -> GroupShape.render",
+		"GroupShape.paint -> BoxShape.paint",
+		"BoxShape.paint -> GroupShape.paint",
+	} {
+		if calls[unwanted] {
+			t.Errorf("%q was invented", unwanted)
+		}
+	}
+}
+
+// A declaration with no brace and no semicolon is not always unfinished.
+// Kotlin writes `class Marker` and `data class Point(val x: Int)` and means
+// them: the type has no body, and what follows belongs to the file. Waiting for
+// a brace made the next one that came along the type's own.
+func TestADeclarationWithoutABodyDoesNotSwallowTheFile(t *testing.T) {
+	g := parsed(t, map[string]string{
+		"app/point.kt": `data class Point(val x: Int, val y: Int)
+
+fun square(p: Point): Int {
+    return p.x * p.y
+}
+
+class Marker
+
+fun other(): Int {
+    return 0
+}
+`,
+	})
+
+	typeNamed(t, g, "Point")
+	typeNamed(t, g, "Marker")
+	for _, id := range []string{"file:app/point.kt#square", "file:app/point.kt#other"} {
+		if _, ok := g.Node(id); !ok {
+			t.Errorf("%s was taken for somebody's method", id)
+		}
+	}
+	for _, owner := range []string{"Point", "Marker"} {
+		for _, fn := range []string{"square", "other"} {
+			if related(g, owner, RelationDeclares, owner+"."+fn) {
+				t.Errorf("%s declares %s, which is the file's", owner, fn)
+			}
+		}
+	}
+}
+
+// Which indentation is the class's own is not known until every function in it
+// has been seen. Latching onto the first threw away every real member of a
+// class whose first `def` was inside an `if TYPE_CHECKING:` — an ordinary thing
+// to write, and the class went quiet without saying so.
+func TestAGuardedMethodDoesNotHideTheRealOnes(t *testing.T) {
+	g := parsed(t, map[string]string{
+		"app/guarded.py": `import sys
+
+
+class Guarded:
+    if sys.version_info >= (3, 9):
+        def new_way(self):
+            pass
+
+    def ordinary(self):
+        pass
+
+    def also(self):
+        pass
+`,
+	})
+
+	for _, fn := range []string{"ordinary", "also"} {
+		if !related(g, "Guarded", RelationDeclares, "Guarded."+fn) {
+			t.Errorf("%s was hidden by the guarded definition above it", fn)
+		}
+	}
+	// The nested one is not a member: it is inside the `if`, not in the body.
+	if related(g, "Guarded", RelationDeclares, "Guarded.new_way") {
+		t.Error("a definition nested inside a guard was made a member")
+	}
+}
+
+// A comma inside parentheses is an argument separator. `extends mixin(A, B)`
+// names one thing — a call — and splitting on every comma read its second
+// argument as a base, which is a relation the declaration never claimed.
+func TestAMixinCallIsNotABaseList(t *testing.T) {
+	g := parsed(t, map[string]string{
+		"app/mixin.ts": `class A {}
+class B {}
+declare function mixin(...args: unknown[]): typeof A;
+class Foo extends mixin(A, B) {
+  run(): void {}
+}
+`,
+	})
+
+	typeNamed(t, g, "Foo")
+	for _, base := range []string{"A", "B"} {
+		if related(g, "Foo", RelationExtends, base) {
+			t.Errorf("an argument of the mixin call was recorded as a base: %s", base)
+		}
+	}
+	// The declaration is still read, so the class and its member survive.
+	if !related(g, "Foo", RelationDeclares, "Foo.run") {
+		t.Error("the class was lost with its base list")
+	}
+}
+
+// A word that is neither a name nor an access specifier is not the end of the
+// entry. Stopping on it dropped the base without saying so.
+func TestAQualifiedBaseDoesNotSwallowTheEntry(t *testing.T) {
+	g := parsed(t, map[string]string{
+		"app/d.cpp": "class Base {\n};\n\nclass Derived : public virtual Base {\n};\n",
+	})
+	if !related(g, "Derived", RelationExtends, "Base") {
+		t.Error("the base was lost behind the words in front of it")
+	}
+}
