@@ -9,7 +9,7 @@ import (
 
 func rulesFrom(t *testing.T, body string) *Rules {
 	t.Helper()
-	doc, err := ParseRules([]byte(body))
+	doc, err := ParseRules([]byte(body), "")
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
@@ -161,7 +161,7 @@ func TestARuleThatCannotMeanAnythingIsRefused(t *testing.T) {
 		`{"kind":"oekaki.rules","version":"0.1","rules":[{"name":"x","when":{"is":"sideways"}}]}`,
 		`{"kind":"oekaki.roles","version":"0.1","rules":[{"name":"x","when":{"is":"unused"}}]}`,
 	} {
-		if _, err := ParseRules([]byte(body)); err == nil {
+		if _, err := ParseRules([]byte(body), ""); err == nil {
 			t.Errorf("accepted a rule that cannot mean anything: %s", body)
 		}
 	}

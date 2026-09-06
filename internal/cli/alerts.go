@@ -52,17 +52,16 @@ func runAlerts(env Env, args []string) error {
 	if err != nil {
 		return err
 	}
-	doc, err := views.ParseRules(raw)
+	// The moment goes in with the document. A rule that asks what has gone
+	// quiet cannot be judged without one, so filling it in afterwards meant
+	// --since could never reach the one condition that needs it: the document
+	// was refused before the flag was applied.
+	//
+	// Rules that name their own keep them: a document that says "since the
+	// first of August" means it whoever runs it and whenever.
+	doc, err := views.ParseRules(raw, cutoff)
 	if err != nil {
 		return err
-	}
-	// A rule that named no moment gets the one this run was given. Rules that
-	// name their own keep them: a document that says "ninety days" means it
-	// whoever runs it and whenever.
-	for i := range doc.Rules {
-		if doc.Rules[i].When.Since == "" {
-			doc.Rules[i].When.Since = cutoff
-		}
 	}
 
 	g, err := loadGraph(env, fs.Arg(0), terraform.Options{}, sourceparser.Options{})
@@ -84,12 +83,20 @@ func runAlerts(env Env, args []string) error {
 		}
 		if !written {
 			routes := views.DeclarePaths(g, views.DeclareOptions{})
-			if len(routes) > 0 {
+			switch {
+			case len(routes) > 0:
 				g.Paths = append(g.Paths, routes...)
 				g.Normalize()
 				fmt.Fprintf(env.Stderr,
 					"%d declared route%s derived by following references; nothing wrote them down\n",
 					len(routes), plural(len(routes)))
+			case len(g.Paths) > 0:
+				// Silence here reads as "everything observed is a surprise",
+				// which is exactly what a rule about unexpected routes then
+				// says — one alert per route, none of them about anything
+				// that happened.
+				fmt.Fprintln(env.Stderr,
+					"no declared routes could be derived: nothing here is called only from outside, so there is nowhere a route starts. Until the routes are written down, every observed route will read as unannounced")
 			}
 		}
 	}
@@ -116,7 +123,24 @@ func runAlerts(env Env, args []string) error {
 			if a.Severity != "" {
 				head = a.Severity + "  " + head
 			}
-			fmt.Fprintf(&b, "%s\n    %s\n    %s\n", head, a.Label, a.Reason)
+			line := a.Reason
+			// When it was last measured, and what it said. It is what the path
+			// listing prints and what somebody deciding whether to act needs;
+			// a reason without them is a claim to go and check elsewhere.
+			if a.LastSeen != "" || a.Value != nil {
+				line += "  ("
+				if a.LastSeen != "" {
+					line += "last " + a.LastSeen
+				}
+				if a.Value != nil {
+					if a.LastSeen != "" {
+						line += ", "
+					}
+					line += fmt.Sprintf("%g", *a.Value)
+				}
+				line += ")"
+			}
+			fmt.Fprintf(&b, "%s\n    %s\n    %s\n", head, a.Label, line)
 		}
 		out = []byte(b.String())
 	}

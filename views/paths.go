@@ -274,7 +274,10 @@ func Paths(g *core.Graph, opts PathOptions) ([]Finding, error) {
 		declared = append(declared, p)
 	}
 
-	var out []Finding
+	// Empty rather than absent, for the same reason an alert listing is: a
+	// caller reading the JSON should not have to tell "nothing to report" from
+	// "this field is missing".
+	out := []Finding{}
 	for _, p := range g.PathsOfKind(core.EdgeIACRef) {
 		out = append(out, compare(p, observed, readings, opts.Since)...)
 	}
