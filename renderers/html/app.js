@@ -414,6 +414,10 @@
   // contains the type contains its functions too, and that page still draws
   // every one of them as a box a reader can open.
   function declaredBy(n) {
+    // Only a type. `declares` is this vocabulary's word and another document
+    // may use it for something else, and a compartment rule through the middle
+    // of an unrelated box is a promise the drawing cannot keep.
+    if (!n || n.type !== 'code_type') return [];
     const members = n.attrs && n.attrs.declares;
     if (!Array.isArray(members) || !members.length) return [];
     const shown = members.slice(0, MEMBERS).map((m) => String(m));
@@ -820,16 +824,29 @@
       const {s, at} = screen(c);
       const parts = [];
 
+      const lines = (st.lines || '').split('\n').filter(Boolean);
+      const top = y + (h - lines.length * LINE) / 2;
+
+      // What the box is about, and what it declares. The header is the name
+      // and the note under it — one line or two, depending on whether they
+      // would say the same thing — so where the members start is counted back
+      // from the end rather than assumed to be the third line.
+      const members = Math.min(Number(st.members) || 0, lines.length);
+      const header = lines.length - members;
+      // A member list makes the box tall. The glyph and the chevron belong to
+      // the thing, not to its members, so they centre on the first
+      // compartment; centring them on the whole box left them floating in the
+      // middle of the list.
+      const headMiddle = members ? top + (header * LINE) / 2 : y + h / 2;
+
       if (st.icon) {
-        const [ix, iy] = at(x + PAD_X, y + (h - ICON) / 2);
+        const [ix, iy] = at(x + PAD_X, headMiddle - ICON / 2);
         parts.push(el('use', {
           href: '#' + st.icon, x: ix, y: iy, width: ICON * s, height: ICON * s,
           color: this.stroke, opacity: 0.85,
         }));
       }
 
-      const lines = (st.lines || '').split('\n').filter(Boolean);
-      const top = y + (h - lines.length * LINE) / 2;
       lines.forEach((line, i) => {
         const [tx, ty] = at(x + PAD_X + ICON + ICON_GAP, top + LINE * i + 11);
         const t = el('text', {
@@ -838,17 +855,19 @@
           'font-weight': i === 0 ? 600 : 400,
           'font-family': 'Helvetica, Arial, sans-serif',
           fill: st.labelColor || '#1d2126',
-          opacity: i >= 2 ? 0.85 : 1,
+          opacity: i >= header ? 0.85 : 1,
         });
         t.textContent = line;
         parts.push(t);
       });
 
-      // The compartment rule. Two lines are a name and a note about it; a
-      // third is a list of members, and the line between them is what makes
-      // the box read as a class rather than as a name that ran on.
-      if (lines.length > 2) {
-        const [rx1, ry] = at(x, top + LINE * 2 - 5);
+      // The compartment rule: the line between what the box is and what it
+      // declares, which is what makes it read as a class rather than as a name
+      // that ran on. It goes in the gap under the last header line — a text's
+      // y is its baseline, so measuring from the top of the next line is the
+      // only place it does not cross one.
+      if (members > 0 && header > 0) {
+        const [rx1, ry] = at(x, top + LINE * header + 2);
         parts.push(el('line', {
           x1: rx1, y1: ry, x2: rx1 + w * s, y2: ry,
           stroke: this.stroke, 'stroke-width': 1 * s, opacity: 0.45,
@@ -865,7 +884,7 @@
 
       if (st.opens) {
         const r = 5.5;
-        const [cx, cy] = at(x + w - PAD_X, y + h / 2);
+        const [cx, cy] = at(x + w - PAD_X, headMiddle);
         parts.push(el('circle', {
           cx, cy, r: r * s, fill: 'none', stroke: this.stroke, 'stroke-width': 1.1 * s, opacity: 0.7,
         }));
@@ -1235,6 +1254,10 @@
         strokeWidth: contestedEntities.has(n.id) || abnormal ? 2.6 : (cov && cov.width ? cov.width : 1.2),
         dashed, dashPattern: '5 3',
         icon: iconFor(n.type), lines: nodeLabels(n).join('\n'), labelColor: cat.text,
+        // How many of those lines are members. The header is one line or two
+        // depending on whether the name and the type say the same thing, so
+        // counting from the top would put the rule through a name.
+        members: declaredBy(n).length,
         // Drawn as a chevron on the right edge. Without it the only way to
         // learn that a box has an inside is to try it, and a reader who tries
         // two boxes that have none stops trying the third.
