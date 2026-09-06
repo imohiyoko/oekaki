@@ -384,6 +384,13 @@ would be wrong as soon as another arrived. A side left on **自動** is worked
 out from where the two boxes ended up, and taking one back puts the line
 straight back on the route the layout gave it.
 
+A node, a group and a line can each be written about, in Markdown, from the
+pen at the top right of the panel — what somebody knows that no file says.
+Notes are claims like everything else here: signed, kept beside the graph
+rather than folded into the resource, and exported as an overlay. The
+formatting understood is deliberately small, and links are not part of it. See
+[docs/notes.md].
+
 Two caveats worth knowing before you use it. Every page is at least 1.5 MB,
 because ELK is inlined. And the `.html` file is deterministic while the layout
 inside it is computed in your browser — so **SVG is still the output to commit
@@ -682,6 +689,7 @@ The binaries embed Graphviz, which is EPL-2.0. Every release archive carries
 
 [docs/kubernetes.md]: docs/kubernetes.md
 [docs/folding.md]: docs/folding.md
+[docs/notes.md]: docs/notes.md
 [docs/roadmap.md]: docs/roadmap.md
 [docs/notebook.md]: docs/notebook.md
 [docs/schema.md]: docs/schema.md

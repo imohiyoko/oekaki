@@ -28,7 +28,7 @@ func Decode(r io.Reader) (*Graph, error) {
 	// resolved against the graph, and 0.5, which differs from the current
 	// shape only by not having paths.
 	switch version := g.Version; version {
-	case legacyV04, legacyV05:
+	case legacyV04, legacyV05, legacyV06:
 		// Validate the original bytes before migration. Re-encoding a typed
 		// Graph first would omit explicit empty legacy fields and could turn
 		// an invalid old document into an apparently valid current one.

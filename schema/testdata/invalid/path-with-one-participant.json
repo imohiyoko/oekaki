@@ -1,5 +1,5 @@
 {
-  "version": "0.6",
+  "version": "0.7",
   "axes": [],
   "nodes": [{ "id": "gateway", "type": "service", "name": "gateway" }],
   "edges": [],

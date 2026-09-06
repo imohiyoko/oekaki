@@ -22,7 +22,7 @@ $ oekaki graph plan.json --traces spans.json -o graph.json
 $ oekaki paths graph.json --since 30d
 ```
 
-```
+```text
 partial     gateway → reports → archive
             walked as far as reports; nothing has been seen going on to archive  (last 2026-05-01T10:00:00Z, 1 requests)
 unexpected  gateway → ledger
@@ -71,6 +71,40 @@ rooted at whichever service sorted first.
 The same route in a thousand traces is one path carrying a count of a thousand.
 Traffic moves the number, not the size of the document — and a service called
 twice in one trace was called twice.
+
+### One request, and the reason there were four
+
+A trace is one request. A **session** is what ties several together: the same
+person, the same job, the same run of a batch. A span may carry a
+`session_id`, and when it does a route says how many distinct sessions walked
+it as well as how many times it was walked:
+
+```text
+path_requests  gateway → checkout → ledger  3
+path_sessions  gateway → checkout → ledger  2
+```
+
+The difference is the whole point. One person clicking three times and three
+people finding the same route are not the same fact, and the count of walks
+cannot tell them apart —— which matters most for the route nothing much uses:
+a hundred walks from one session is one caller with a retry loop, and three
+walks from three sessions is a route somebody depends on.
+
+**The value is counted, and nothing but the count comes out.** Whether a
+session id identifies a person is the caller's business and the caller's risk,
+so the guarantee has to be stated exactly: the value is read, and the distinct
+values of a route are held in memory while the fold counts them — that is what
+counting distinct things requires. What never happens is writing one down.
+Nothing derived from a session id reaches the graph, the IR, or any file this
+program produces except the number of them. In memory for the length of one
+fold, and a count on the way out.
+
+Traces that carry no session say nothing about sessions, rather than claiming
+there was one.
+
+Both readings are ordinary observations, so a rule can be about either —
+`{"is": "below", "metric": "path_sessions", "value": 2}` is "used by one
+caller only", which is a different question from "hardly used".
 
 ### Give the spans their ids
 

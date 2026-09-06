@@ -32,6 +32,7 @@ const (
 	AssertEdge         = "edge"
 	AssertEdgeSuppress = "edge.suppress"
 	AssertNode         = "node"
+	AssertNote         = "note"
 )
 
 // Document is one overlay file.
@@ -88,6 +89,12 @@ type Assertion struct {
 	Type string        `json:"type,omitempty"`
 	Name string        `json:"name,omitempty"`
 
+	// Text is what a note says. It is not Note: that one is why the claimant
+	// says what they say, and this one is the thing they wrote. Folding the
+	// two together would make "I checked with the team" and the note itself
+	// the same field.
+	Text string `json:"text,omitempty"`
+
 	Origin     core.Origin `json:"origin,omitempty"`
 	Author     string      `json:"author,omitempty"`
 	Confidence *float64    `json:"confidence,omitempty"`
@@ -128,6 +135,7 @@ var meaningful = map[string][]string{
 	AssertEdge:         {"from", "to", "kind"},
 	AssertEdgeSuppress: {"from", "to", "kind"},
 	AssertNode:         {"subject", "type", "name"},
+	AssertNote:         {"subject", "text"},
 }
 
 // alwaysMeaningful are the envelope fields every assertion may carry.
