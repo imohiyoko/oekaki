@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/imohiyoko/oekaki/main/schema/rules.schema.json",
+  "title": "oekaki rules",
+  "description": "When to say something is wrong. A rule names what it is about, what it looks at, and what makes it fire — as a document rather than as an expression, so it can be read, reviewed in a pull request and diffed. Anything a rule here cannot say belongs in a collector, which already holds the credentials and the vendor's own query language, and writes its conclusion back as an observation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "version", "rules"],
+  "properties": {
+    "kind": { "const": "oekaki.rules" },
+    "version": { "type": "string" },
+    "note": { "type": "string" },
+    "rules": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/rule" }
+    }
+  },
+  "$defs": {
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "when"],
+      "properties": {
+        "name": {
+          "description": "What to call this rule where it fires. A sentence a person reading an alert can act on beats an identifier.",
+          "type": "string",
+          "minLength": 1
+        },
+        "severity": {
+          "description": "How much this matters here. The names are the caller's, not this program's: an unused route in a service being retired is the goal and one in a payment system is an incident, and only the person who wrote the rule knows which estate they are in.",
+          "type": "string",
+          "minLength": 1
+        },
+        "about": { "$ref": "#/$defs/about" },
+        "when": { "$ref": "#/$defs/when" }
+      }
+    },
+    "about": {
+      "description": "Which subjects the rule is about. Absent means every subject the condition can apply to.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "subject": {
+          "description": "One node id, or one path key. The narrowest thing a rule can be about.",
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "description": "A resource type, for a rule about every node of a kind.",
+          "type": "string",
+          "minLength": 1
+        },
+        "through": {
+          "description": "A node id every route this rule is about passes through.",
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "description": "Whether this rule is about boxes or about routes. Absent means both, which is right for a bound — a reading is about whatever it names — and usually wrong for quiet, because a rule asking what stopped reporting a route's metric would otherwise report every box that was never going to report it.",
+          "enum": ["node", "path"]
+        }
+      }
+    },
+    "when": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["is"],
+      "properties": {
+        "is": {
+          "description": "above / below: the newest reading of a metric crossed a bound — the spike, and the silence a collector reports as a zero. quiet: nothing has been seen since a moment, which is the silence a bound reads as healthy because no number arrived at all. unexpected / unused / partial: what the declared and the observed routes say about each other, which needs no metric and no baseline.",
+          "enum": ["above", "below", "quiet", "unexpected", "unused", "partial"]
+        },
+        "metric": {
+          "description": "Which reading. Required by above, below and quiet; meaningless to the others.",
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {
+          "description": "The bound, for above and below.",
+          "type": "number"
+        },
+        "since": {
+          "description": "An RFC3339 moment. Required by quiet, and optional elsewhere as \"only look at readings this recent\". A span like 30d is resolved by whoever runs the rules, because how long is too long is a question about today and a projection may not read a clock.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}
