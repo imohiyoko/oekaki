@@ -65,15 +65,12 @@ hurts, that is the trade to make deliberately rather than by accident.
 
 ## Diagrams
 
-**Sequence pages should draw lifelines, and let steps be folded away.** Today a
-sequence is a numbered call chain laid out downward, which is readable but is
-not the diagram people mean. Folding the middle of a sequence — "show me the
-start and the end, hide the six hops in between" — is the feature that makes a
-long one usable at all.
-
-**A sequence should prefer a recorded path over the walk it derives**, and say
-which of the two it is drawing. The path entity exists now; the atlas has not
-been taught about it.
+**Sequence pages could show what happened around a message.** Lifelines and
+step-hiding are in, and the order says whether it was observed or derived. The
+next thing a reader asks of a sequence is timing — how long each hop took, and
+which one was slow — and the observations are already attached to the
+participants. What is missing is a way to say that a reading belongs to a
+*step* rather than to a participant.
 
 **The UML family beyond what is derivable today.** Class, object, activity, use
 case, package and deployment diagrams cannot come from Terraform or Kubernetes

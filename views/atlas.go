@@ -55,9 +55,21 @@ const (
 	// edges a sequence is.
 	KindCommunication Kind = "communication"
 
-	// KindSequence is one call chain in order. The order is derived, and
-	// says so; see sequenceFrom.
+	// KindSequence is one call chain in order. Where the order came from is on
+	// the diagram; see Diagram.Order.
 	KindSequence Kind = "sequence"
+)
+
+// Where a sequence's order came from.
+const (
+	// OrderObserved means something walked this route and the document
+	// records it as a path.
+	OrderObserved = "observed"
+
+	// OrderDerived means this package read it off the declared references: A
+	// calls B and B calls C, so a request probably goes A, B, C. Nobody saw
+	// it happen.
+	OrderDerived = "derived"
 )
 
 // Opening is a way down: clicking Element in the diagram that carries this
@@ -90,6 +102,16 @@ type Diagram struct {
 
 	// Origin is the element in the parent whose inside this diagram is.
 	Origin string `json:"origin,omitempty"`
+
+	// Order is where a sequence's order came from. Empty on every other kind
+	// of page, because only a sequence has one.
+	//
+	// It is a field rather than a sentence in the subtitle because a reader
+	// has to be able to tell the two apart at a glance, and a viewer has to
+	// be able to draw them differently. "A request went this way" and "the
+	// references say a request could go this way" are different claims, and
+	// this project exists to keep those apart.
+	Order string `json:"order,omitempty"`
 
 	Graph *core.Graph `json:"graph"`
 	Opens []Opening   `json:"opens,omitempty"`
@@ -489,10 +511,89 @@ func (b *builder) detail(id string) error {
 }
 
 func (b *builder) sequenceOpening(id string) (Opening, bool) {
-	if len(b.callChain(id)) == 0 {
+	if steps, _ := b.chainFrom(id); len(steps) == 0 {
 		return Opening{}, false
 	}
 	return Opening{Element: id, Diagram: sequenceID(id), Kind: KindSequence, Label: "呼び出し順"}, true
+}
+
+// chainFrom is the order a sequence page draws, and whether anything observed
+// it.
+//
+// A recorded route beats a walk this package worked out. The walk is a reading
+// of edges — A calls B, B calls C, so a request probably goes A, B, C — and a
+// path is a claim that a request *went* A, B, C. Where both exist the second
+// is the better answer, and the page says which one it is drawing rather than
+// presenting them as the same thing.
+//
+// The longest route starting here wins, because a route that goes further
+// tells the reader more and the shorter ones are usually its beginning. Ties
+// go to whichever sorts first, so the same graph draws the same sequence.
+func (b *builder) chainFrom(id string) ([]core.Edge, bool) {
+	if walked := b.recorded(id); len(walked) > 0 {
+		return walked, true
+	}
+	return b.callChain(id), false
+}
+
+// recorded turns the best route starting at id into steps.
+func (b *builder) recorded(id string) []core.Edge {
+	var best *core.Path
+	for i := range b.in.Paths {
+		p := &b.in.Paths[i]
+		// Only what something walked. A declared route is the same kind of
+		// reading the walk already is, and preferring it would say "observed"
+		// about an order nobody saw.
+		if p.Kind != core.EdgeObserved || len(p.Nodes) < 2 || p.Nodes[0] != id {
+			continue
+		}
+		if best == nil || len(p.Nodes) > len(best.Nodes) ||
+			(len(p.Nodes) == len(best.Nodes) && p.Key() < best.Key()) {
+			best = p
+		}
+	}
+	if best == nil {
+		return nil
+	}
+
+	steps := make([]core.Edge, 0, len(best.Nodes)-1)
+	for i := 1; i < len(best.Nodes); i++ {
+		from, to := best.Nodes[i-1], best.Nodes[i]
+		if _, ok := b.in.Node(from); !ok {
+			return nil
+		}
+		if _, ok := b.in.Node(to); !ok {
+			return nil
+		}
+		steps = append(steps, b.messageFor(from, to, best))
+	}
+	return steps
+}
+
+// messageFor is the edge a step is drawn from: the one somebody claimed when
+// there is one, and otherwise the route's own claim.
+//
+// The second case is not an invented relationship. A route that says a request
+// went from here to there is already a claim that it went, and drawing it
+// without an edge underneath would be dropping evidence the document has.
+func (b *builder) messageFor(from, to string, p *core.Path) core.Edge {
+	var fallback *core.Edge
+	for i := range b.in.Edges {
+		e := &b.in.Edges[i]
+		if e.From != from || e.To != to || e.Suppressed {
+			continue
+		}
+		if e.Kind == core.EdgeObserved {
+			return *e
+		}
+		if fallback == nil {
+			fallback = e
+		}
+	}
+	if fallback != nil {
+		return *fallback
+	}
+	return core.Edge{From: from, To: to, Kind: p.Kind, Relation: "calls", Claim: p.Claim}
 }
 
 // sequence builds the call chain that starts at one element.
@@ -504,7 +605,7 @@ func (b *builder) sequenceOpening(id string) (Opening, bool) {
 // nobody has traced one. An observed ordering, when traces provide one, is a
 // different claim and belongs on the edges rather than in this walk.
 func (b *builder) sequence(id, parent string) error {
-	steps := b.callChain(id)
+	steps, observed := b.chainFrom(id)
 	if len(steps) == 0 {
 		return nil
 	}
@@ -554,10 +655,14 @@ func (b *builder) sequence(id, parent string) error {
 		return fmt.Errorf("sequence %q: %w", id, err)
 	}
 
+	order, said := OrderDerived, "導出された順序"
+	if observed {
+		order, said = OrderObserved, "観測された順序"
+	}
 	d := Diagram{
-		ID: sid, Kind: KindSequence, Graph: g,
+		ID: sid, Kind: KindSequence, Graph: g, Order: order,
 		Title:    orDefault(subject.Name, subject.ID) + " から",
-		Subtitle: fmt.Sprintf("%d steps · 導出された順序", len(steps)),
+		Subtitle: fmt.Sprintf("%d steps · %s", len(steps), said),
 		Parent:   parent, Origin: id,
 	}
 	for _, n := range g.Nodes {
@@ -584,6 +689,8 @@ func (b *builder) callChain(root string) []core.Edge {
 			return
 		}
 		var out []core.Edge
+		best := map[string]core.Edge{}
+		var order []string
 		for _, e := range b.in.Edges {
 			if e.From != id || e.Suppressed || !isCall(e) {
 				continue
@@ -597,11 +704,27 @@ func (b *builder) callChain(root string) []core.Edge {
 			if _, ok := b.in.Node(e.To); !ok {
 				continue
 			}
-			key := e.From + "\x00" + e.To + "\x00" + string(e.Kind) + "\x00" + e.Relation
+			// One call, however many kinds of evidence found it. A
+			// reference the configuration declares and a trace of the same
+			// call are two claims about one thing, and a sequence that
+			// numbered them separately would say the request went to the
+			// ledger twice. Which of them is drawn is settled below, and it
+			// is the one that saw it happen.
+			key := e.From + "\x00" + e.To + "\x00" + e.Relation
 			if walked[key] {
 				continue
 			}
-			out = append(out, e)
+			if at, seen := best[key]; !seen || better(e, at) {
+				if !seen {
+					order = append(order, key)
+				}
+				best[key] = e
+			}
+		}
+		out = out[:0]
+		sort.Strings(order)
+		for _, key := range order {
+			out = append(out, best[key])
 		}
 		sort.SliceStable(out, func(i, j int) bool {
 			if out[i].To != out[j].To {
@@ -610,7 +733,7 @@ func (b *builder) callChain(root string) []core.Edge {
 			return out[i].Relation < out[j].Relation
 		})
 		for _, e := range out {
-			key := e.From + "\x00" + e.To + "\x00" + string(e.Kind) + "\x00" + e.Relation
+			key := e.From + "\x00" + e.To + "\x00" + e.Relation
 			if walked[key] {
 				continue
 			}
@@ -621,6 +744,15 @@ func (b *builder) callChain(root string) []core.Edge {
 	}
 	walk(root, 0)
 	return steps
+}
+
+// better reports whether one claim about a call is the one to draw. Something
+// that saw the call happen beats something that says it could.
+func better(a, b core.Edge) bool {
+	if (a.Kind == core.EdgeObserved) != (b.Kind == core.EdgeObserved) {
+		return a.Kind == core.EdgeObserved
+	}
+	return false
 }
 
 // around splits what an element is joined to into what it holds and what it

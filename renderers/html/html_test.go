@@ -446,8 +446,10 @@ func TestAPlacedBoxKeepsTheDrawingsOwnKindOfLine(t *testing.T) {
 		t.Error("moving a box leaves its lines straight")
 	}
 	// A repaint has to draw the same curve, or folding a container after a
-	// move puts the straight lines back.
-	if !strings.Contains(app, "    applyAnchors();\n\n    // A repaint builds new cells") {
+	// move puts the straight lines back. A sequence is the exception: it has
+	// already said where every message meets every lifeline, and this pass
+	// takes the anchors off any line it does not route itself.
+	if !strings.Contains(app, "    if (!isSequence()) applyAnchors();\n\n    // A repaint builds new cells") {
 		t.Error("a repaint drops the curve on a line touching a placed box")
 	}
 }
