@@ -115,12 +115,6 @@ function declared inside that scope is a method on the type.
 A type declared inside another type is not followed. It is rare enough that
 reading it wrong is worse than not reading it.
 
-A body that opens and closes on one line, or a declaration with no body at all
-— a Rust unit struct, a C forward declaration — is over where it started. The
-next function in the file is the file's, not the type's. A declaration long
-enough to wrap, on the other hand, is still being written: its brace and often
-its bases are on a later line, and the type stays open until one arrives.
-
 A member is a function the type declares, and the only thing that stops one
 from being a member is another function around it. A `def` inside an `if
 TYPE_CHECKING:` or a Ruby `class << self` is still the class's; a `def` inside a
@@ -130,7 +124,8 @@ A declaration that wraps is still being written. Its brace, its bases, and the
 rest of a list it stopped in the middle of are on the lines that follow, and the
 type stays open until one of them finishes it. A declaration that finishes
 without a body — Kotlin's `class Marker`, a Rust unit struct, a C forward
-declaration — is over where it started, and what comes next belongs to the file.
+declaration — is over where it started, as is a body that opens and closes on
+one line, and what comes next belongs to the file, not to the type.
 
 A call written inside a type means that type's method when it has one of that
 name. Outside a type, it means the function of that name before anybody's
