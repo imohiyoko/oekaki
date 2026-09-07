@@ -127,12 +127,18 @@ which one was slow — and the observations are already attached to the
 participants. What is missing is a way to say that a reading belongs to a
 *step* rather than to a participant.
 
-**The UML family beyond what is derivable today.** Class, object, activity, use
-case, package and deployment diagrams cannot come from Terraform or Kubernetes
-input — they need code. `parsers/source` already builds a dependency graph, and
-that is the foundation: a class diagram is a projection of it, an object
-diagram is one of its instances, a package diagram is its containment axis. The
-navigation to reach them exists; only the derivations are missing.
+**The UML family beyond what is derivable today.** Class and package are
+done: `parsers/source` learned types, a type opens as a class diagram, and the
+directory levels an atlas already builds *are* the package diagram. See
+[code.md](code.md).
+
+What is left needs something nobody is reading yet. An **object** diagram is a
+picture of instances at run time, and no parser watches a program run — that
+one is not "a derivation nobody has written", it is a claim nothing in the
+input supports, and drawing it would be invention. **Activity** wants control
+flow, which the regular expressions here do not read and a real parser would
+have to supply. **Use case** and **deployment** want a source outside the code
+entirely: who the actors are, and what runs where.
 
 The reading that ties them together, and the reason the atlas was built the way
 it was: a use case opens into the communication diagram behind it, a
@@ -153,17 +159,18 @@ them from references when nothing else has, and says so. Better sources, in
 rough order of value: an overlay somebody authored, an OpenAPI or gRPC
 definition, a routing table, an ingress or gateway configuration.
 
-**Spike and silence need the rule document.** The threshold machinery already
-turns a bound into a state; what is missing is somewhere to write the bound
-down per route, and a baseline to compare a spike against. Silence is the one a
-maximum reads wrong — the interesting value is zero — which is why `quiet` is a
-finding rather than a threshold today.
+**Spike and silence.** Done — [rules.md](rules.md). A bound is written down
+per subject or per route, silence is a condition of its own because the
+interesting value is zero, and a rule that could not be applied says so instead
+of passing quietly. What is still missing is a **baseline**: "twice what it
+usually is" needs a usual, and nothing here computes one.
 
-**Correlating a request or a session end to end.** `collectors/traces` folds
-spans by trace id already. A session is the same idea over a longer span and a
-different id, and the interesting version of the question is "this person's
-requests, in order, across services". It needs an id the collector can carry
-without carrying who the person is.
+**Correlating a request or a session end to end.** The counting half is done:
+a route says how many distinct sessions walked it, and nothing but the count
+comes out — see the guarantee in [paths.md](paths.md). What is not done is the
+interesting version of the question, "this person's requests, in order, across
+services", which is a listing rather than a number and would have to be
+answered without the graph ever holding the id.
 
 **Datadog and Prometheus collectors should write `path_requests`.** Nothing new
 is needed in the graph — the subject becomes a path key and the document is the

@@ -73,13 +73,38 @@ patient, unglamorous research rather than code.
 `enrichers/` is plural from the first commit so that a New Relic or Prometheus
 enricher is an obvious next step rather than a fork.
 
-## v0.5 — exploration (prototype work in progress)
+## v0.5 — one picture is not enough (prototype work in progress)
+
+The complaint underneath everything in this release: a drawing carries more
+than a drawing can carry. The answers, in the order they were built:
+
+- **Folding.** A picture too full to read is folded and says what it folded —
+  budget-driven rules, a stand-in that carries only what its members agree on,
+  and unfolding in place. [folding.md](folding.md)
+- **The atlas.** A bound set of diagrams with the ways between them written
+  down, so a reader descends by clicking rather than by filtering. Levels,
+  detail, communication, sequence, and — for a code graph — class.
+  [atlas.md](atlas.md)
+- **Paths as entities.** A route is a thing the IR carries, with four findings
+  said about it: unused, quiet, partial, unexpected. [paths.md](paths.md)
+- **Rules.** What to be woken for, written as a document rather than as an
+  expression language. [rules.md](rules.md)
+- **Notes.** What people know that no file says, in Markdown, signed.
+  [notes.md](notes.md)
+- **Types in the code graph**, and the class diagram derived from them.
+  [code.md](code.md)
+- **A link that names an element**, so a diagram can be pointed at in a
+  conversation.
+
+Still ahead in this line of work:
 
 - `oekaki diff` between two graphs
 - More assertion kinds: per-API call frequency, access paths by principal,
   volume against a declared baseline. All of them are additional `assert`
   values resolved by the same ladder, which is the payoff of unifying the
   overlay format rather than shipping one file format per question
+- Declared routes written down rather than derived: an overlay `assert`, an
+  OpenAPI or gRPC definition, a routing table
 
 `diff` is the one that benefits most from determinism being a v0.1 requirement:
 comparing two graphs is only meaningful if identical infrastructure produces

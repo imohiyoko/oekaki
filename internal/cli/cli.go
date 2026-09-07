@@ -151,9 +151,10 @@ Usage:
   oekaki schema                     print the IR JSON Schema
   oekaki version                    print the version
 
-<input> is `+"`terraform show -json`"+` output — a plan or a state — or a graph
-this tool produced earlier. Use - to read standard input. No AWS credentials
-are needed and nothing is sent anywhere.
+<input> is `+"`terraform show -json`"+` output — a plan or a state — a stream
+of Kubernetes manifests, a directory of source, or a graph this tool produced
+earlier. Use - to read standard input. No AWS credentials are needed and
+nothing is sent anywhere.
 
 Examples:
   terraform show -json tfplan > plan.json
