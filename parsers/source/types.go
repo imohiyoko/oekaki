@@ -67,8 +67,16 @@ var (
 	implsAt   = regexp.MustCompile(`\bimplements\b`)
 	implsRe   = regexp.MustCompile(`\bimplements\s+([^{;]+)`)
 	colonRe   = regexp.MustCompile(`\b(?:class|interface|struct|enum|trait|protocol|record)\s+[A-Za-z_][A-Za-z0-9_]*\s*(?:\([^)]*\))?\s*:\s*([^{]+)`)
-	baseName  = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_.]*)`)
-	generics  = regexp.MustCompile(`<[^<>]*>`)
+	// A qualified name is kept whole. `Outer::Inner` cut at the colon named
+	// `Outer`, which is often a type in the same file, so the declaration was
+	// drawn extending something it never mentioned. Dotted names are already
+	// kept whole and fall away unresolved; a `::` one now does the same.
+	baseName = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_.:]*)`)
+	generics = regexp.MustCompile(`<[^<>]*>`)
+	// anonType is a type written where a value goes — Java's `new Runnable()
+	// {`, Kotlin's `object : Runnable {`. What it declares is its own, and no
+	// method encloses it to say so.
+	anonType = regexp.MustCompile(`\bnew\b[^;{]*\{|\bobject\s*:[^{]*\{`)
 
 	// leadingColon is the colon form on a line that does not name the type:
 	// the continuation of a declaration whose parameter list was wrapped.
@@ -204,6 +212,13 @@ func scanTypes(g *core.Graph, scan *typeScan, lines, codeLines []string, fileID,
 	// the only distinction that matters here: a `def` inside an `if` is still
 	// the class's, and a `def` inside a `def` is that method's business.
 	method := -1
+	// nested is the brace depth at which something owning its own functions
+	// opened — another method, or an anonymous type — or -1. It is the braced
+	// languages' half of what method does for the indented ones. Depth alone
+	// said it before, and every brace counted: a Kotlin `companion object`,
+	// which is how a class writes a static factory, took its whole contents
+	// out of the class that names them.
+	nested := -1
 
 	note := func(bases []declaredBase) {
 		for _, b := range bases {
@@ -214,7 +229,7 @@ func scanTypes(g *core.Graph, scan *typeScan, lines, codeLines []string, fileID,
 	}
 	closeType := func() {
 		current, currentName, pending, clause = "", "", false, ""
-		depth, parens, method = 0, 0, -1
+		depth, parens, method, nested = 0, 0, -1, -1
 	}
 
 	// member records a function as the type's own.
@@ -322,12 +337,12 @@ func scanTypes(g *core.Graph, scan *typeScan, lines, codeLines []string, fileID,
 		if fn, isFn := functionName(text, lang); isFn {
 			// Directly in the type, and not inside one of its methods.
 			//
-			// A brace language says so with braces: depth 1 is the body, and
-			// anything deeper is inside something. Elsewhere the measure is
-			// whether a function is open around this one — because a `def`
-			// inside an `if sys.version_info` or a Ruby `class << self` is
-			// still the class's, and only a `def` inside a `def` is not.
-			own := depth == 1
+			// What stops it is something around it that owns what it
+			// declares — another function, or a type written inline. A brace
+			// that only groups does not: a `fun` inside a `companion object`,
+			// like a `def` inside an `if sys.version_info` or a Ruby `class <<
+			// self`, is still the class's.
+			own := nested < 0
 			if !braced {
 				own = method < 0
 			}
@@ -337,10 +352,19 @@ func scanTypes(g *core.Graph, scan *typeScan, lines, codeLines []string, fileID,
 			if !braced && method < 0 {
 				method = at
 			}
+			if braced && nested < 0 {
+				nested = depth
+			}
 		}
 
 		if braced {
+			if nested < 0 && anonType.MatchString(text) {
+				nested = depth
+			}
 			depth += braceDelta(text)
+			if nested >= 0 && depth <= nested {
+				nested = -1
+			}
 			if depth <= 0 && strings.Contains(text, "}") {
 				closeType()
 			}
