@@ -138,22 +138,28 @@ renderers do not change.
 oekaki render <input> [flags]     draw a diagram
 oekaki graph  <input> [flags]     emit the intermediate representation
 oekaki scan   <dir>   [flags]     read committed Terraform source
+oekaki probe  <graph> [flags]     probe explicitly named network targets
 oekaki focus  <graph> [flags]     keep one group whole, fold the rest to a box each
 oekaki collapse <graph> [flags]   fold every group to one box, lines carry their weight
+oekaki paths  <graph> [flags]     list routes nothing walks, stopped walking, or nobody declared
+oekaki alerts <graph> --rules R   run rules somebody wrote down against a graph
 oekaki export <graph> [flags]     write the graph out as a table
 oekaki serve  [dir]   [flags]     hand out pages, their layouts, and what was decided
 oekaki validate <graph.json>      check a graph against the IR schema
 oekaki schema                     print the IR JSON Schema
+oekaki version                    print the version
 ```
 
 `<input>` is `terraform show -json` output, a stream of Kubernetes manifests,
 a source directory, or a graph oekaki produced earlier. `-` reads standard
 input.
 
-A source directory is parsed conservatively into files, functions, packages,
-and `contains`/`imports`/`calls` relationships across common Go, Python,
-JavaScript/TypeScript, Java, Rust, Ruby, PHP, and C-family files. It emits the
-same IR as Terraform, so all renderers and overlays remain reusable.
+A source directory is parsed conservatively into files, packages, functions
+and types, with `contains` / `imports` / `calls` between them and `declares` /
+`extends` / `implements` / `embeds` / `has_field` around the types — across
+common Go, Python, JavaScript/TypeScript, Java, Kotlin, Rust, Ruby, PHP and
+C-family files. It emits the same IR as Terraform, so all renderers and
+overlays remain reusable. See [docs/code.md].
 Unknown text extensions can also be represented as file nodes with
 `--include-unknown-source`; language-specific parsers can register against the
 same source parser API when richer AST information is available.
@@ -353,6 +359,56 @@ things become one saying how many there were; a halo of attachments becomes a
 number. A fold is not a deletion — the box says what it stands for — and rules
 run only until the drawing is inside its budget, so nothing is folded that did
 not need to be. See [docs/folding.md].
+
+### Descending instead of filtering
+
+Folding makes one picture readable. `--atlas` answers the other half: a bound
+set of diagrams with the ways between them written down, so a reader arrives at
+what they came for by clicking rather than by knowing what to filter for.
+
+```console
+$ oekaki render plan.json -f html --atlas -o estate.html
+```
+
+The page opens on the estate. A box with a `⟩` has an inside — a namespace
+opens into its pods, an element opens into what it holds and what it talks to,
+a call chain opens into a sequence with lifelines, and a type opens into a class
+diagram. Backspace and the breadcrumbs go back up, and the open diagram is in
+the URL, so a link hands somebody the page you were on.
+
+Which box has an inside is recorded when the atlas is derived rather than
+guessed at by the viewer: a door into an empty room is worse than no door, and a
+reader who opens two of them stops trying the third. See [docs/atlas.md].
+
+### Routes, and being told when one goes wrong
+
+A route is a thing the graph carries: this request arrived here, went through
+there, ended there. `oekaki paths` says what the declared and the observed
+routes have to say about each other — a route nothing has ever walked, one that
+was walked and stopped, one walked only part of the way, and one that was walked
+and nothing declared.
+
+```console
+$ oekaki paths graph.json --since 30d
+2 routes: 1 unexpected, 1 unused
+unexpected  gateway → ledger
+            something walked this route and no declared route contains it in this order
+unused      gateway → reports → archive
+            iac_ref route, and nothing has been seen walking it
+```
+
+`oekaki alerts` runs the ones worth being woken for, written down as a document
+rather than as an expression language — a document can be read by somebody who
+did not write it, reviewed in a pull request, and diffed between two versions of
+an estate.
+
+```console
+$ oekaki alerts graph.json --rules rules.json --since 30d --exit-code
+```
+
+Nothing here reads a clock: the moment a rule means by "since" is resolved by
+whoever runs it and handed in, so the same document and the same graph produce
+the same alerts. See [docs/paths.md] and [docs/rules.md].
 
 ### An interactive view
 
@@ -701,6 +757,9 @@ The binaries embed Graphviz, which is EPL-2.0. Every release archive carries
 [docs/kubernetes.md]: docs/kubernetes.md
 [docs/code.md]: docs/code.md
 [docs/folding.md]: docs/folding.md
+[docs/atlas.md]: docs/atlas.md
+[docs/paths.md]: docs/paths.md
+[docs/rules.md]: docs/rules.md
 [docs/notes.md]: docs/notes.md
 [docs/roadmap.md]: docs/roadmap.md
 [docs/notebook.md]: docs/notebook.md

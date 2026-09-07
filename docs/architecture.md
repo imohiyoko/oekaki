@@ -18,6 +18,8 @@ where contributions come in.
 | `core/` | IR types, normalization, validation, grouping |
 | `providers/` | What is known about each provider: containment, attributes, categories |
 | `parsers/terraform/` | `terraform show -json` → IR |
+| `parsers/tfsource/` | committed `.tf` source → IR, without init or credentials |
+| `parsers/kubernetes/` | a stream of manifests → IR ([docs/kubernetes.md](kubernetes.md)) |
 | `parsers/source/` | multi-language source tree → code IR: files, packages, functions and types; extensible parser registry ([docs/code.md](code.md)) |
 | `collectors/` | vendor-neutral adapters for logs, metrics, traces, and explicit reachability probes |
 | `enrichers/` | What an enricher is, and what it may write |
@@ -30,6 +32,13 @@ where contributions come in.
 | `renderers/html/` | IR → one self-contained interactive page |
 | `views/` | focused projections such as request paths and reachability, the atlas, and the path listing |
 | `renderers/style/` | Colours and shapes shared by every renderer |
+| `layout/` | Positions and sizes somebody arranged, kept beside the graph |
+| `catalog/` | The vocabulary a served collection is filtered by |
+| `manage/` | What a served directory has saved: generations, layouts, decisions |
+| `authz/` | Permissions, roles and holders, for the modes that know who is asking |
+| `config/` | What a served instance was told, read once at start |
+| `icons/` | The glyph set a renderer draws from |
+| `internal/serve/` | The server behind `oekaki serve` |
 | `internal/cli/` | Command line |
 | `cmd/oekaki/` | `main` |
 | `examples/three-tier/` | A working plan and its generated output |
