@@ -153,8 +153,9 @@ Usage:
 
 <input> is `+"`terraform show -json`"+` output — a plan or a state — a stream
 of Kubernetes manifests, a directory of source, or a graph this tool produced
-earlier. Use - to read standard input. No AWS credentials are needed and
-nothing is sent anywhere.
+earlier. Use - to read standard input. No AWS credentials are needed, and
+nothing reaches the network except the targets `+"`probe`"+` is explicitly told
+to try.
 
 Examples:
   terraform show -json tfplan > plan.json
