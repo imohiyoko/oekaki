@@ -406,9 +406,12 @@ an estate.
 $ oekaki alerts graph.json --rules rules.json --since 30d --exit-code
 ```
 
-Nothing here reads a clock: the moment a rule means by "since" is resolved by
-whoever runs it and handed in, so the same document and the same graph produce
-the same alerts. See [docs/paths.md] and [docs/rules.md].
+Nothing in the rules themselves reads a clock: the moment a rule means by
+"since" is resolved by whoever runs it and handed in, so the same document, the
+same graph and the same moment produce the same alerts — which is what makes an
+alert something you can commit and argue with. A relative `--since 30d` is
+resolved against the clock at the moment you run it, so two runs a day apart are
+two different questions. See [docs/paths.md] and [docs/rules.md].
 
 ### An interactive view
 
