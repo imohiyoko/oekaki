@@ -258,7 +258,12 @@ func parseFile(g *core.Graph, path, fileID, root string, scan *typeScan) error {
 	depth, defIndent := 0, 0
 	for line, text := range codeLines {
 		declared := false
+		// The name in a declaration is not a call, though it is written the
+		// way one is. Resolving it drew the function calling whatever else
+		// carried its name, which used to be itself and go unsaid.
+		declaring := ""
 		if raw, ok := functionName(text, lang); ok {
+			declaring = raw
 			current = funcs[qualify(types.method, line, raw)]
 			depth = 0
 			if braceDelimited {
@@ -268,8 +273,19 @@ func parseFile(g *core.Graph, path, fileID, root string, scan *typeScan) error {
 			declared = true
 		}
 		if current != "" {
-			for _, match := range callExpr.FindAllStringSubmatch(text, -1) {
-				if to, exists := resolveCall(funcs, byName, types.declaredIn(line), match[1]); exists && to != current {
+			for _, match := range callExpr.FindAllStringSubmatchIndex(text, -1) {
+				if len(match) < 4 || match[2] < 0 || match[3] < 0 {
+					continue
+				}
+				name, receiver := text[match[2]:match[3]], ""
+				if name == declaring {
+					declaring = ""
+					continue
+				}
+				if on := callTarget.FindStringSubmatch(text[:match[0]]); len(on) > 1 {
+					receiver = on[1]
+				}
+				if to, exists := resolveCall(funcs, byName, types.declaredIn(line), receiver, name, lang); exists && to != current {
 					g.Edges = append(g.Edges, core.Edge{From: current, To: to, Kind: core.EdgeIACRef, Relation: "calls", Attrs: map[string]any{"language": language(path), "reference_kind": "application", "resolution": "static_same_file"}})
 				}
 			}
@@ -451,9 +467,26 @@ func qualify(owner map[int]string, line int, name string) string {
 // Outside a type, or when the type has no such method, the bare name: a call
 // says the name it was written with, and the first declaration of it wins,
 // which is what happened before there were methods to tell apart.
-func resolveCall(funcs, byName map[string]string, inside, name string) (string, bool) {
+//
+// Not every language lets a method be called by its bare name. A `render()`
+// written in a Python or JavaScript method is the module's function — the
+// method is `self.render()` or `this.render()` — and preferring the method
+// there drew a class calling itself where the code called out of it.
+func resolveCall(funcs, byName map[string]string, inside, receiver, name, lang string) (string, bool) {
 	if inside != "" {
-		if id, ok := funcs[inside+"."+name]; ok {
+		own := inside + "." + name
+		first, second := own, name
+		if receiverRequired[languageFamily(lang)] && !selfReceiver[receiver] {
+			// Where a method cannot be reached by its bare name, the name
+			// means the function of that name. The method is still the better
+			// second guess than another class's method of the same name,
+			// which is all the bare-name map could offer.
+			first, second = name, own
+		}
+		if id, ok := funcs[first]; ok {
+			return id, true
+		}
+		if id, ok := funcs[second]; ok {
 			return id, true
 		}
 	}
@@ -686,6 +719,16 @@ func languageFamily(language string) string {
 		return language
 	}
 }
+
+// callTarget is what a call was written on: `self.render()`, `this.render()`,
+// `$this->render()`.
+var callTarget = regexp.MustCompile(`(\$?[A-Za-z_][A-Za-z0-9_]*)\s*(?:\.|->|::)\s*$`)
+
+// receiverRequired are the languages where a bare name is never a method.
+var receiverRequired = map[string]bool{"py": true, "javascript": true, "php": true}
+
+// selfReceiver is a call written on the object whose method it is written in.
+var selfReceiver = map[string]bool{"self": true, "this": true, "$this": true, "cls": true}
 
 var selectorCall = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)(?:\s*\.\s*[A-Za-z_][A-Za-z0-9_]*)*\s*\.\s*$`)
 

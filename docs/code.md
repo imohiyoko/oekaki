@@ -58,12 +58,13 @@ everywhere else — and then against the whole tree, but only when exactly one
 type carries that name. Two `Order`s in two packages is the ordinary shape of a
 repository, and choosing one of them would draw an arrow nobody meant.
 
-**A qualified name is not resolved at all.** `*http.Client` and `models.User`
-name another package, and this parser has no notion of which package is which.
-Dropping the qualifier and matching the bare name would join a field to
-whatever local type happened to be called `Client` — an arrow to something the
-declaration never mentioned, in a document whose whole purpose is telling apart
-what was claimed from what was seen.
+**A qualified name is not resolved at all.** `*http.Client`, `models.User` and
+`Outer::Inner` name another package or another scope, and this parser has no
+notion of which is which. Dropping the qualifier and matching what is left
+would join a field to whatever local type happened to be called `Client`, or a
+class to the `Outer` its base was only reached through — an arrow to something
+the declaration never mentioned, in a document whose whole purpose is telling
+apart what was claimed from what was seen.
 
 **A declaration has to look like one.** `struct sockaddr_in addr;` declares a
 variable, not a type: a name followed by another name is never a declaration,
@@ -115,10 +116,12 @@ function declared inside that scope is a method on the type.
 A type declared inside another type is not followed. It is rare enough that
 reading it wrong is worse than not reading it.
 
-A member is a function the type declares, and the only thing that stops one
-from being a member is another function around it. A `def` inside an `if
-TYPE_CHECKING:` or a Ruby `class << self` is still the class's; a `def` inside a
-`def` is that method's business.
+A member is a function the type declares, and what stops one from being a
+member is something around it that owns what it declares: another function, or
+a type written inline where a value goes. A `def` inside an `if
+TYPE_CHECKING:`, a Ruby `class << self`, a Kotlin `companion object` is still
+the class's — those braces and colons only group. A `def` inside a `def`, or a
+method on a Java anonymous class, belongs to what encloses it.
 
 A declaration that wraps is still being written. Its brace, its bases, and the
 rest of a list it stopped in the middle of are on the lines that follow, and the
@@ -128,8 +131,11 @@ declaration — is over where it started, as is a body that opens and closes on
 one line, and what comes next belongs to the file, not to the type.
 
 A call written inside a type means that type's method when it has one of that
-name. Outside a type, it means the function of that name before anybody's
-method. Two classes in one file with a `paint` each call their own.
+name, in the languages where a method can be called that way. Python,
+JavaScript and PHP are not among them: a bare `render()` there is the module's
+function, and the method is `self.render()` or `this.render()`. Outside a type,
+a call means the function of that name before anybody's method. Two classes in
+one file with a `paint` each call their own.
 
 What is written between a brace and its closing brace on the same line goes
 unread, because every function pattern here is anchored to the start of a line.

@@ -819,3 +819,124 @@ class Bar(
 		t.Error("the member was lost with the wrapped declaration")
 	}
 }
+
+// A name qualified with `::` is one name. Cutting it at the colon left the
+// namespace or the enclosing type — `Outer` of `Outer::Inner` — which is often
+// declared in the same file, so the declaration was drawn extending something
+// it never named. A dotted name has always been kept whole and fallen away
+// unresolved; this is the same name written the other way.
+func TestAScopeQualifiedBaseIsNotItsFirstSegment(t *testing.T) {
+	g := parsed(t, map[string]string{
+		"app/w.cpp": `class Outer {
+    void hidden();
+};
+
+class Widget : public Outer::Inner {
+    void run();
+};
+`,
+	})
+	if related(g, "Widget", RelationExtends, "Outer") {
+		t.Error("the enclosing namespace was drawn as the base")
+	}
+}
+
+// A `companion object` is how Kotlin writes a static factory, and what it
+// holds is reached through the class that names it. Requiring a member to sit
+// at depth 1 emptied it: every brace counted, so a brace that only groups took
+// the members out of the class as surely as a method would have.
+//
+// An anonymous type is the one that does own what it declares, and it can be
+// written where no method encloses it — a Java field initializer.
+func TestABraceThatOnlyGroupsDoesNotTakeTheMembersAway(t *testing.T) {
+	g := parsed(t, map[string]string{
+		"app/repo.kt": `class Repo {
+    companion object {
+        fun create(): Repo { return Repo() }
+    }
+
+    fun run() {}
+}
+`,
+		"app/App.java": `public class App {
+  private final Runnable task =
+    new Runnable() {
+      public void execute() {}
+    };
+  public void go() {}
+}
+`,
+	})
+	for _, want := range []string{"Repo.create", "Repo.run"} {
+		if !related(g, "Repo", RelationDeclares, want) {
+			t.Errorf("%s was not the class's", want)
+		}
+	}
+	if !related(g, "App", RelationDeclares, "App.go") {
+		t.Error("App.go was not the class's")
+	}
+	if related(g, "App", RelationDeclares, "App.execute") {
+		t.Error("what the anonymous class declared was given to the class around it")
+	}
+}
+
+// Not every language lets a method be called by its bare name. A `render()`
+// written in a Python or JavaScript method is the module's function; the
+// method is `self.render()` or `this.render()`. Preferring the method drew the
+// class calling itself where the code called out of it.
+//
+// Where a receiver is written, or where the language needs none, the method is
+// still what the call means.
+func TestABareCallIsNotAMethodWhereAReceiverIsRequired(t *testing.T) {
+	g := parsed(t, map[string]string{
+		"app/a.py": `def render():
+    pass
+
+class Box:
+    def render(self):
+        pass
+
+    def draw(self):
+        render()
+
+    def paint(self):
+        self.render()
+`,
+		"app/A.java": `class Sheet {
+  void render() {}
+  void draw() { render(); }
+}
+`,
+	})
+
+	calls := map[string]bool{}
+	for _, e := range g.Edges {
+		if e.Relation != "calls" {
+			continue
+		}
+		var from, to string
+		for _, n := range g.Nodes {
+			if n.ID == e.From {
+				from = n.Name
+			}
+			if n.ID == e.To {
+				to = n.Name
+			}
+		}
+		calls[from+" -> "+to] = true
+	}
+	for _, want := range []string{
+		"Box.draw -> render",         // bare: the module's function
+		"Box.paint -> Box.render",    // written on self: the method
+		"Sheet.draw -> Sheet.render", // Java needs no receiver
+	} {
+		if !calls[want] {
+			t.Errorf("%q was not recovered: %v", want, calls)
+		}
+	}
+	for _, unwanted := range []string{"Box.draw -> Box.render", "Box.render -> render"} {
+		if calls[unwanted] {
+			t.Errorf("%q was invented", unwanted)
+		}
+	}
+}
