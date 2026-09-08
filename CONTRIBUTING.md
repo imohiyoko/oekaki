@@ -114,11 +114,10 @@ Maintainers only. Two routes, and neither publishes without a human.
 **From the Actions tab** (the normal one). Run the **Release** workflow against
 `main`, pick `patch` / `minor` / `major`, and optionally a prerelease
 identifier like `rc1`. It works out the next version from the newest `v*` tag,
-creates a `release/vX.Y.Z` branch pinning the exact commit, tags it, and then
-publishes.
+tags the exact commit it ran against, and then publishes.
 
 **From a terminal** (the direct route). `git tag -a vX.Y.Z -m "…" && git push
-origin vX.Y.Z`. No release branch is created.
+origin vX.Y.Z`.
 
 Either way:
 
@@ -130,9 +129,11 @@ The split is the point. The dry run means the approver is only ever asked about
 a build that has already succeeded, rather than being asked to vouch for a tag
 that then falls over.
 
-Release tags and `release/*` branches are protected: they cannot be moved or
-deleted once pushed. A mistake is fixed with a new version, not by rewriting
-the old one. Version numbers are single-use.
+Release tags are protected: they cannot be moved or deleted once pushed. A
+mistake is fixed with a new version, not by rewriting the old one. Version
+numbers are single-use. The tag is what pins the commit, so nothing else needs
+to be created to hold it; if a released line later needs somewhere to build on,
+branch off the tag then.
 
 If you add or remove a dependency, update `THIRD_PARTY_NOTICES.md` in the same
 PR. The binaries embed Graphviz under EPL-2.0, so shipping an archive whose
