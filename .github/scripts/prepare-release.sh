@@ -80,11 +80,9 @@ if [ -n "$next" ]; then
     fail "retry tag ${next} は別の commit (${tag_commit}) を指しています"
   fi
 
-  branch="release/${next}"
-  remote_branch="$(git ls-remote --heads origin "refs/heads/${branch}" | awk 'NR == 1 { print $1 }')"
   remote_tag="$(git ls-remote --tags origin "refs/tags/${next}^{}" | awk 'NR == 1 { print $1 }')"
-  if [ "$remote_branch" != "$GITHUB_SHA" ] || [ "$remote_tag" != "$GITHUB_SHA" ]; then
-    fail "retry refs for ${next} are missing or do not point to ${GITHUB_SHA}"
+  if [ "$remote_tag" != "$GITHUB_SHA" ]; then
+    fail "retry tag ${next} is missing on origin or does not point to ${GITHUB_SHA}"
   fi
 
   mode="reused"
@@ -116,34 +114,24 @@ else
   if [ -n "$PRE" ]; then
     next="${next}-${PRE}"
   fi
-  branch="release/${next}"
 
   if git show-ref --verify --quiet "refs/tags/${next}" ||
      git ls-remote --exit-code --tags origin "refs/tags/${next}" >/dev/null 2>&1; then
     fail "tag ${next} は既に存在します"
   fi
-  if git show-ref --verify --quiet "refs/heads/${branch}" ||
-     git ls-remote --exit-code --heads origin "refs/heads/${branch}" >/dev/null 2>&1; then
-    fail "branch ${branch} は既に存在します"
-  fi
 
   git config user.name "github-actions[bot]"
   git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-  git branch "$branch" "$GITHUB_SHA"
   git tag -a "$next" "$GITHUB_SHA" -m "release ${next} ${marker}"
 
-  # Keep the immutable tag and its matching release branch all-or-nothing.
-  git push --atomic origin \
-    "refs/heads/${branch}:refs/heads/${branch}" \
-    "refs/tags/${next}:refs/tags/${next}"
+  git push origin "refs/tags/${next}:refs/tags/${next}"
   mode="created"
 fi
 
 {
   echo "tag=${next}"
-  echo "branch=${branch}"
   echo "mode=${mode}"
 } >> "$GITHUB_OUTPUT"
 
-echo "release ${next}: ${mode} (branch: ${branch})"
-echo "## release ${next} (${mode}, branch ${branch})" >> "$GITHUB_STEP_SUMMARY"
+echo "release ${next}: ${mode}"
+echo "## release ${next} (${mode})" >> "$GITHUB_STEP_SUMMARY"
