@@ -107,6 +107,8 @@ func Run(ctx context.Context, env Env, args []string) int {
 		err = runPaths(env, args[1:])
 	case "alerts":
 		err = runAlerts(env, args[1:])
+	case "diff":
+		err = runDiff(env, args[1:])
 	case "export":
 		err = runExport(env, args[1:])
 	case "validate":
@@ -145,6 +147,7 @@ Usage:
   oekaki collapse <graph> [flags]   fold every group to one box, lines carry their weight
   oekaki paths  <graph> [flags]     list routes nothing walks, stopped walking, or nobody declared
   oekaki alerts <graph> --rules R   run rules somebody wrote down against a graph
+  oekaki diff   <before> <after>    say what is different between two graphs
   oekaki export <graph> [flags]     write the graph out as a table
   oekaki serve  [dir]               hand out rendered pages, their layouts and what was decided
   oekaki validate <graph.json>      check a graph against the IR schema

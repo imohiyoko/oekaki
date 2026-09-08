@@ -143,6 +143,7 @@ oekaki focus  <graph> [flags]     keep one group whole, fold the rest to a box e
 oekaki collapse <graph> [flags]   fold every group to one box, lines carry their weight
 oekaki paths  <graph> [flags]     list routes nothing walks, stopped walking, or nobody declared
 oekaki alerts <graph> --rules R   run rules somebody wrote down against a graph
+oekaki diff   <before> <after>    say what is different between two graphs
 oekaki export <graph> [flags]     write the graph out as a table
 oekaki serve  [dir]   [flags]     hand out pages, their layouts, and what was decided
 oekaki validate <graph.json>      check a graph against the IR schema
@@ -412,6 +413,36 @@ same graph and the same moment produce the same alerts — which is what makes a
 alert something you can commit and argue with. A relative `--since 30d` is
 resolved against the clock at the moment you run it, so two runs a day apart are
 two different questions. See [docs/paths.md] and [docs/rules.md].
+
+### What did this change do to the picture
+
+A diagram lives in a repository and is regenerated on every change, and the
+question a reviewer has is not "what does the estate look like" but "what did
+this pull request do to it". Two pictures side by side is a spot-the-difference
+puzzle; the difference that matters is usually one box.
+
+```console
+$ oekaki diff before.json after.json
+5 changes: 1 added, 3 removed, 1 changed
+removed  edge   http → public (iac_ref)
+changed  node   jump-host  aws_instance.bastion
+         attr:instance_type: "t3.micro" → "t3.large"
+         name: bastion → jump-host
+removed  node   http  aws_lb_listener.http
+added    node   assets  aws_s3_bucket.assets
+```
+
+`--exit-code` turns it into a check that fails a pull request which changes the
+estate, and says how.
+
+This is the payoff of a rule that has been in place since v0.1: identical input
+produces byte-identical output. Without it every regeneration would differ from
+the last one and a comparison would be noise.
+
+A resource whose id changed is a removal and an addition, not a rename — the
+ids are what say two things are the same, and they disagree. Pairing them by
+similar names would hide a deletion *and* a creation behind a field change,
+which is the one shape a reviewer must not miss. See [docs/diff.md].
 
 ### An interactive view
 
@@ -760,6 +791,7 @@ The binaries embed Graphviz, which is EPL-2.0. Every release archive carries
 [docs/kubernetes.md]: docs/kubernetes.md
 [docs/code.md]: docs/code.md
 [docs/folding.md]: docs/folding.md
+[docs/diff.md]: docs/diff.md
 [docs/atlas.md]: docs/atlas.md
 [docs/paths.md]: docs/paths.md
 [docs/rules.md]: docs/rules.md
