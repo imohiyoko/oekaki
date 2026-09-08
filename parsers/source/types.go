@@ -690,8 +690,11 @@ func resolveTypes(g *core.Graph, scan *typeScan) {
 		// matching the bare name joined `*http.Client` to whatever local type
 		// happened to be called Client — an arrow to something the declaration
 		// never mentioned, in a document whose whole purpose is telling apart
-		// what was claimed from what was seen.
-		if strings.Contains(name, ".") {
+		// what was claimed from what was seen. `Outer::Inner` is the same name
+		// written the other way: the regular parsers never make a node called
+		// that, but a registered one may, and the rule is about the name and
+		// not about who happened to write it down.
+		if strings.ContainsAny(name, ".:") {
 			return ""
 		}
 		if ids := byDir[dir+"\x00"+name]; len(ids) == 1 {

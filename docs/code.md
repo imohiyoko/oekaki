@@ -133,9 +133,13 @@ one line, and what comes next belongs to the file, not to the type.
 A call written inside a type means that type's method when it has one of that
 name, in the languages where a method can be called that way. Python,
 JavaScript and PHP are not among them: a bare `render()` there is the module's
-function, and the method is `self.render()` or `this.render()`. Outside a type,
-a call means the function of that name before anybody's method. Two classes in
-one file with a `paint` each call their own.
+function, and the method is `self.render()`, `this.render()` or
+`$this->render()`. A call written on anything else — `other.render()` — is a
+method of whatever that name holds, which is not something this reading can
+know, and it is not the module's function either, because the bare name would
+have been written for that. It names nothing. Outside a type, a call means the
+function of that name before anybody's method. Two classes in one file with a
+`paint` each call their own.
 
 What is written between a brace and its closing brace on the same line goes
 unread, because every function pattern here is anchored to the start of a line.

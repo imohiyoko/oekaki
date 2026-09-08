@@ -470,13 +470,23 @@ func qualify(owner map[int]string, line int, name string) string {
 //
 // Not every language lets a method be called by its bare name. A `render()`
 // written in a Python or JavaScript method is the module's function — the
-// method is `self.render()` or `this.render()` — and preferring the method
-// there drew a class calling itself where the code called out of it.
+// method is `self.render()`, `this.render()` or PHP's `$this->render()` — and
+// preferring the method there drew a class calling itself where the code
+// called out of it.
+//
+// The same rule says what a call written on anything else cannot be. In those
+// languages `other.render()` is a method of whatever `other` holds, which this
+// parser has no way of knowing, and it is not the module's `render` — the bare
+// name would have been written for that. So it names nothing, rather than the
+// function that happens to share its name.
 func resolveCall(funcs, byName map[string]string, inside, receiver, name, lang string) (string, bool) {
+	if receiverRequired[languageFamily(lang)] && receiver != "" && !selfReceiver[receiver] {
+		return "", false
+	}
 	if inside != "" {
 		own := inside + "." + name
 		first, second := own, name
-		if receiverRequired[languageFamily(lang)] && !selfReceiver[receiver] {
+		if receiverRequired[languageFamily(lang)] && receiver == "" {
 			// Where a method cannot be reached by its bare name, the name
 			// means the function of that name. The method is still the better
 			// second guess than another class's method of the same name,
