@@ -47,9 +47,8 @@ run_prepare() {
 
 run_prepare >/dev/null
 assert_output "$output" 'tag=v1.3.0-rc.1'
-assert_output "$output" 'branch=release/v1.3.0-rc.1'
 assert_output "$output" 'mode=created'
-[ "$(git -C "$test_root/work" ls-remote --heads origin refs/heads/release/v1.3.0-rc.1 | awk '{print $1}')" = "$sha" ] || fail 'release branch commit mismatch'
+[ -z "$(git -C "$test_root/work" ls-remote --heads origin 'refs/heads/release/*')" ] || fail 'release branch must not be created'
 [ "$(git -C "$test_root/work" ls-remote --tags origin 'refs/tags/v1.3.0-rc.1^{}' | awk '{print $1}')" = "$sha" ] || fail 'release tag commit mismatch'
 
 # A rerun of the same workflow run reuses its immutable refs.
