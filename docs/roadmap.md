@@ -95,20 +95,18 @@ than a drawing can carry. The answers, in the order they were built:
   [code.md](code.md)
 - **A link that names an element**, so a diagram can be pointed at in a
   conversation.
+- **`oekaki diff`**, which is what determinism was for: a comparison is only
+  meaningful if identical infrastructure produces identical output.
+  [diff.md](diff.md)
 
 Still ahead in this line of work:
 
-- `oekaki diff` between two graphs
 - More assertion kinds: per-API call frequency, access paths by principal,
   volume against a declared baseline. All of them are additional `assert`
   values resolved by the same ladder, which is the payoff of unifying the
   overlay format rather than shipping one file format per question
 - Declared routes written down rather than derived: an overlay `assert`, an
   OpenAPI or gRPC definition, a routing table
-
-`diff` is the one that benefits most from determinism being a v0.1 requirement:
-comparing two graphs is only meaningful if identical infrastructure produces
-identical output.
 
 `oekaki serve` grew a state directory, a roles model and a management page in
 v0.5. The authorization it can express is deliberately small — three permission
