@@ -841,6 +841,51 @@ class Widget : public Outer::Inner {
 	}
 }
 
+// Keeping the qualified name whole is only half of it: the name still has to
+// fail to resolve. The regular parsers never name a type `Outer::Inner`, so it
+// fell away for want of anything to match — but a registered parser can name
+// one, and then a rule that only rejects dotted names would draw the extends
+// that keeping the name whole was meant to prevent. A qualified name says
+// where the type lives, and where things live is what this reading does not
+// know, however the qualifier is spelled.
+func TestAScopeQualifiedBaseIsNotResolvedToATypeOfThatName(t *testing.T) {
+	Register(".qual", func(g *core.Graph, _ string, fileID, _ string) error {
+		g.Nodes = append(g.Nodes, core.Node{
+			ID: fileID + "#Outer::Inner", Type: NodeType, Name: "Outer::Inner",
+			Source: &core.Source{File: "app/other.qual"},
+		})
+		return nil
+	})
+	d := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(d, "app"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		"other.qual": "opaque syntax",
+		"w.cpp": `class Widget : public Outer::Inner {
+    void run();
+};
+`,
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(d, "app", name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A registered parser is only reached for an extension nothing else
+	// claims, which is what this option lets through.
+	g, err := ParseDirWithOptions(d, Options{IncludeUnknown: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := g.Node("file:app/other.qual#Outer::Inner"); !ok {
+		t.Fatalf("the registered parser never ran, so nothing was tested: %s", names(g))
+	}
+	if related(g, "Widget", RelationExtends, "Outer::Inner") {
+		t.Error("a qualified base was resolved to a type that happened to carry that name")
+	}
+}
+
 // A `companion object` is how Kotlin writes a static factory, and what it
 // holds is reached through the class that names it. Requiring a member to sit
 // at depth 1 emptied it: every brace counted, so a brace that only groups took
@@ -887,6 +932,10 @@ func TestABraceThatOnlyGroupsDoesNotTakeTheMembersAway(t *testing.T) {
 //
 // Where a receiver is written, or where the language needs none, the method is
 // still what the call means.
+//
+// A receiver that is not self is neither: `other.render()` is a method of
+// whatever `other` holds, and it cannot be the module's `render`, because the
+// bare name would have been written for that.
 func TestABareCallIsNotAMethodWhereAReceiverIsRequired(t *testing.T) {
 	g := parsed(t, map[string]string{
 		"app/a.py": `def render():
@@ -901,6 +950,9 @@ class Box:
 
     def paint(self):
         self.render()
+
+    def show(self):
+        other.render()
 `,
 		"app/A.java": `class Sheet {
   void render() {}
@@ -934,7 +986,10 @@ class Box:
 			t.Errorf("%q was not recovered: %v", want, calls)
 		}
 	}
-	for _, unwanted := range []string{"Box.draw -> Box.render", "Box.render -> render"} {
+	for _, unwanted := range []string{
+		"Box.draw -> Box.render", "Box.render -> render",
+		"Box.show -> render", "Box.show -> Box.render",
+	} {
 		if calls[unwanted] {
 			t.Errorf("%q was invented", unwanted)
 		}
