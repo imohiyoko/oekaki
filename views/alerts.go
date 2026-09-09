@@ -3,6 +3,7 @@ package views
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -84,7 +85,52 @@ type When struct {
 	Is     string   `json:"is"`
 	Metric string   `json:"metric,omitempty"`
 	Value  *float64 `json:"value,omitempty"`
+	Than   *Than    `json:"than,omitempty"`
 	Since  string   `json:"since,omitempty"`
+}
+
+// Than is a bound taken from another reading rather than written down.
+//
+// # Why a baseline is a reading
+//
+// "Twice what it usually is" needs a usual, and nothing here computes one. A
+// usual is a moving average, or a median of the same hour last week, or a
+// quantile over a season — every one of them a choice about the estate, made
+// over history this program does not keep and does not want to.
+//
+// So the baseline arrives the way every other outside fact arrives: a
+// collector holds the credentials and the vendor's query language, works out
+// whatever it likes, and writes the answer back as an ordinary observation.
+// The rule then says which reading is the baseline, and a bound becomes a
+// comparison between two numbers that were both measured.
+//
+// # Why there is a multiplier and nothing else
+//
+// Times is policy, and policy belongs in the document somebody reviews:
+// "twice what it usually is" is a decision an operator argues about and
+// changes, and baking it into a collector means redeploying to move a
+// threshold.
+//
+// Anything past one factor is arithmetic. A rule cannot say "the average plus
+// three standard deviations", because a sum of terms is an expression and an
+// expression needs an evaluator — which this package refuses on the same
+// grounds it refuses one everywhere else. Three sigma is a number a collector
+// can work out and write down as one reading; that is the boundary, and it is
+// the same boundary as everywhere.
+type Than struct {
+	// Metric is the other reading, on the same subject.
+	Metric string `json:"metric"`
+
+	// Times multiplies it. Absent means once.
+	Times *float64 `json:"times,omitempty"`
+}
+
+// factor is what to multiply the baseline by.
+func (t *Than) factor() float64 {
+	if t == nil || t.Times == nil {
+		return 1
+	}
+	return *t.Times
 }
 
 // Alert is one rule finding one subject.
@@ -151,8 +197,22 @@ func (r Rule) check() error {
 		if r.When.Metric == "" {
 			return fmt.Errorf("%q needs a metric to compare", r.When.Is)
 		}
-		if r.When.Value == nil {
-			return fmt.Errorf("%q needs a value to compare against", r.When.Is)
+		if r.When.Value == nil && r.When.Than == nil {
+			return fmt.Errorf("%q needs something to compare against: a value, or another reading in than", r.When.Is)
+		}
+		if r.When.Value != nil && r.When.Than != nil {
+			return fmt.Errorf("%q has both a value and a than: a bound is one number or the other reading, and a rule with two of them does not say which it meant", r.When.Is)
+		}
+		if r.When.Than != nil {
+			if r.When.Than.Metric == "" {
+				return fmt.Errorf("than needs the metric that carries the baseline")
+			}
+			if r.When.Than.Metric == r.When.Metric {
+				return fmt.Errorf("than names %q, which is what is being compared: a reading is not a baseline for itself, and the comparison can never be true", r.When.Metric)
+			}
+			if t := r.When.Than.Times; t != nil && (*t <= 0 || math.IsInf(*t, 0) || math.IsNaN(*t)) {
+				return fmt.Errorf("than times %v is not a factor: write a value for a fixed bound", *t)
+			}
 		}
 	case Quiet:
 		if r.When.Metric == "" {
@@ -162,7 +222,7 @@ func (r Rule) check() error {
 			return fmt.Errorf("quiet needs a moment to be quiet since: write one in the rule, or give the run a --since; how long is too long is not this program's judgement")
 		}
 	case Unexpected, Unused, Partial:
-		if r.When.Metric != "" || r.When.Value != nil {
+		if r.When.Metric != "" || r.When.Value != nil || r.When.Than != nil {
 			return fmt.Errorf("%q is a comparison of routes and reads no metric", r.When.Is)
 		}
 	default:
@@ -224,14 +284,17 @@ func (r Rule) against(g *core.Graph) ([]Alert, []string, error) {
 	}
 }
 
-// readings applies a rule that is about a measurement.
-func (r Rule) readings(g *core.Graph) ([]Alert, []string) {
-	// The newest reading per subject, which is what a bound is about: a
-	// service that was over its limit last week and is not now is not
-	// something to wake somebody for.
+// newestOf is the newest reading of one metric per subject, which is what a
+// bound is about: a service that was over its limit last week and is not now is
+// not something to wake somebody for.
+//
+// The baseline is read the same way and through the same window as the reading
+// it bounds. A baseline from before the window is a usual from another era, and
+// comparing today against it is a comparison nobody asked for.
+func (r Rule) newestOf(g *core.Graph, metric string) map[string]core.Observation {
 	newest := map[string]core.Observation{}
 	for _, o := range g.Observations {
-		if o.Metric != r.When.Metric || !r.covers(g, o.Subject) {
+		if o.Metric != metric || !r.covers(g, o.Subject) {
 			continue
 		}
 		// A window is about readings that say when they were taken. One that
@@ -247,6 +310,12 @@ func (r Rule) readings(g *core.Graph) ([]Alert, []string) {
 			newest[o.Subject] = o
 		}
 	}
+	return newest
+}
+
+// readings applies a rule that is about a measurement.
+func (r Rule) readings(g *core.Graph) ([]Alert, []string) {
+	newest := r.newestOf(g, r.When.Metric)
 
 	var out []Alert
 	if r.When.Is == Quiet {
@@ -294,28 +363,75 @@ func (r Rule) readings(g *core.Graph) ([]Alert, []string) {
 		return out, nil
 	}
 
+	// The baseline, when the bound is another reading rather than a number.
+	var baseline map[string]core.Observation
+	if r.When.Than != nil {
+		baseline = r.newestOf(g, r.When.Than.Metric)
+	}
+
+	word := "above"
+	if r.When.Is == Below {
+		word = "below"
+	}
+	var unmeasured []string
 	for subject, o := range newest {
 		if o.Value == nil {
 			continue
 		}
-		over := *o.Value > *r.When.Value
+		limit, against, ok := r.boundFor(subject, baseline)
+		if !ok {
+			// The rule is not answering the question for this subject: there
+			// is a reading and no baseline to judge it by. Firing would be a
+			// comparison against nothing; passing quietly would say the
+			// reading was fine.
+			unmeasured = append(unmeasured, subject)
+			continue
+		}
+		over := *o.Value > limit
 		if r.When.Is == Below {
-			over = *o.Value < *r.When.Value
+			over = *o.Value < limit
 		}
 		if !over {
 			continue
 		}
-		word := "above"
-		if r.When.Is == Below {
-			word = "below"
-		}
 		out = append(out, Alert{
 			Rule: r.Name, Severity: r.Severity, Subject: subject, Label: labelOf(g, subject),
 			Is: r.When.Is, Metric: r.When.Metric, Value: o.Value, LastSeen: o.ObservedAt,
-			Reason: fmt.Sprintf("%s is %g, %s %g", r.When.Metric, *o.Value, word, *r.When.Value),
+			Reason: fmt.Sprintf("%s is %g, %s %s", r.When.Metric, *o.Value, word, against),
 		})
 	}
+	if len(unmeasured) > 0 {
+		sort.Strings(unmeasured)
+		return out, []string{fmt.Sprintf(
+			"%s: nothing measured %s for %s, so there is nothing to judge %s by; not reported",
+			r.Name, r.When.Than.Metric, subjectList(unmeasured), r.When.Metric)}
+	}
 	return out, nil
+}
+
+// boundFor is the number this subject's reading is compared against, and how to
+// say what it was.
+//
+// A rule that names a value has the same bound for every subject. A rule that
+// names another reading has a bound per subject, and a subject with no such
+// reading has none at all — which is not a bound of zero, and not a pass.
+func (r Rule) boundFor(subject string, baseline map[string]core.Observation) (limit float64, against string, ok bool) {
+	if r.When.Than == nil {
+		return *r.When.Value, fmt.Sprintf("%g", *r.When.Value), true
+	}
+	at, seen := baseline[subject]
+	if !seen || at.Value == nil {
+		return 0, "", false
+	}
+	times := r.When.Than.factor()
+	limit = *at.Value * times
+	// The sentence says what the bound was made of, because "above 3000" and
+	// "above twice the usual, which was 1500" are different things to be told
+	// at three in the morning.
+	if times == 1 {
+		return limit, fmt.Sprintf("%s (%g)", r.When.Than.Metric, *at.Value), true
+	}
+	return limit, fmt.Sprintf("%g× %s (%g)", times, r.When.Than.Metric, *at.Value), true
 }
 
 // routes applies a rule that is about what the declared and the observed

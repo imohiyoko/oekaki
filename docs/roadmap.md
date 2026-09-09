@@ -101,6 +101,9 @@ than a drawing can carry. The answers, in the order they were built:
 
 Still ahead in this line of work:
 
+- A collector that writes a baseline. A rule can already be about one — see
+  [rules.md](rules.md#the-baseline-is-a-reading) — and Datadog and Prometheus
+  can both produce a moving average in a query; nothing here has asked them to
 - More assertion kinds: per-API call frequency, access paths by principal,
   volume against a declared baseline. All of them are additional `assert`
   values resolved by the same ladder, which is the payoff of unifying the

@@ -77,8 +77,26 @@
           "minLength": 1
         },
         "value": {
-          "description": "The bound, for above and below.",
+          "description": "The bound, for above and below, written down. A rule names this or than, never both.",
           "type": "number"
+        },
+        "than": {
+          "description": "The bound taken from another reading rather than written down: the baseline. Nothing here computes a usual — a moving average, a median of the same hour last week, a quantile over a season are all choices about the estate, made over history this program does not keep. A collector works one out and writes it back as an ordinary observation, and this names it.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["metric"],
+          "properties": {
+            "metric": {
+              "description": "The reading that carries the baseline, on the same subject and read through the same window.",
+              "type": "string",
+              "minLength": 1
+            },
+            "times": {
+              "description": "What to multiply it by. Absent means once. It is here because \"twice what it usually is\" is policy, and policy belongs in the document somebody reviews rather than inside a collector that has to be redeployed to move a threshold. There is no second term: a sum like \"the average plus three sigma\" is an expression, and three sigma is a number a collector can write down as one reading.",
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
         },
         "since": {
           "description": "An RFC3339 moment. Required by quiet, and optional elsewhere as \"only look at readings this recent\". A span like 30d is resolved by whoever runs the rules, because how long is too long is a question about today and a projection may not read a clock.",

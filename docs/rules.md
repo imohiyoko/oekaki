@@ -86,6 +86,91 @@ it, wherever it is asked for.
 A bound is about the **newest** reading. A service that was over its limit last
 week and is not now is not something to wake somebody for.
 
+## The baseline is a reading
+
+A fixed bound answers "is this too much" only where somebody knows the number.
+The question people actually have is "is this *more than usual*", and a usual
+is not a number anybody can write down once.
+
+So a bound can be another reading:
+
+```json
+{
+  "name": "spike",
+  "severity": "page",
+  "when": {
+    "is": "above",
+    "metric": "request_rate",
+    "than": { "metric": "request_rate_avg", "times": 2 }
+  }
+}
+```
+
+```console
+$ oekaki alerts graph.json --rules rules.json
+page  spike
+    checkout
+    request_rate is 4000, above 2× request_rate_avg (900)  (last 2026-09-09T10:00:00Z)
+```
+
+The sentence says what the bound was made of, because "above 3000" and "above
+twice the usual, which was 900" are different things to be told at three in the
+morning.
+
+### Nothing here computes a usual
+
+A usual is a moving average, or a median of the same hour last week, or a
+quantile over a season, or last month's value on the same weekday. Every one of
+them is a choice about the estate, made over history this program does not keep
+and does not want to.
+
+The baseline therefore arrives the way every other outside fact arrives: **a
+collector holds the credentials and the vendor's query language, works out
+whatever it likes, and writes the answer back as an ordinary observation.**
+
+```json
+{ "subject": "checkout", "metric": "request_rate_avg", "value": 900,
+  "observed_at": "2026-09-09T10:00:00Z" }
+```
+
+That is the same boundary as everywhere here, and it is what makes "n sigma"
+somebody else's problem in the right way: whichever σ, over whichever window,
+from whichever system.
+
+### Why there is a multiplier and nothing else
+
+`times` is **policy**, and policy belongs in the document somebody reviews.
+"Twice what it usually is" is a decision an operator argues about and changes,
+and baking it into a collector means redeploying to move a threshold. So the
+collector says what *is* — the usual — and the rule says what is *too much*.
+
+Anything past one factor is arithmetic. A rule cannot say "the average plus
+three standard deviations", because a sum of terms is an expression, an
+expression needs an evaluator, and that is what this format refuses on the
+first page. Three sigma is a number a collector can work out and write down as
+one reading:
+
+```json
+{ "subject": "checkout", "metric": "request_rate_upper", "value": 3000 }
+```
+
+and then the rule names it with no factor at all.
+
+### A reading with no baseline is not judged
+
+Firing would be a comparison against nothing. Passing quietly would say the
+reading was fine. So the rule is not answering the question for that subject,
+and the run says so — the same way it does for a reading with no time on it:
+
+```console
+spike: nothing measured request_rate_avg for reports, so there is nothing to
+judge request_rate by; not reported
+```
+
+The baseline is read through the same window as the reading it bounds. A usual
+from before the window is a usual from another era, and comparing today against
+it is a comparison nobody asked for.
+
 ## What a rule is about
 
 | `about` | |
