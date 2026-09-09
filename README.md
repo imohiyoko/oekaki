@@ -425,6 +425,7 @@ puzzle; the difference that matters is usually one box.
 $ oekaki diff before.json after.json
 5 changes: 1 added, 3 removed, 1 changed
 removed  edge   http → public (iac_ref)
+removed  edge   http → api (iac_ref)
 changed  node   jump-host  aws_instance.bastion
          attr:instance_type: "t3.micro" → "t3.large"
          name: bastion → jump-host

@@ -67,11 +67,13 @@ func Diff(before, after *core.Graph) ([]Change, error) {
 	// Empty rather than absent, because a caller reading the JSON should not
 	// have to tell "nothing changed" from "this field is missing".
 	out := []Change{}
-	out = append(out, compareSets(OfNode, nodeFields(before), nodeFields(after), labels(before, after))...)
-	out = append(out, compareSets(OfEdge, edgeFields(before), edgeFields(after), edgeLabels(before, after))...)
-	out = append(out, compareSets(OfGroup, groupFields(before), groupFields(after), groupLabels(before, after))...)
-	out = append(out, compareSets(OfPath, pathFields(before), pathFields(after), pathLabels(before, after))...)
-	out = append(out, compareSets(OfNote, noteFields(before), noteFields(after), noteLabels(before, after))...)
+	out = append(out, compareSets(OfNode, nodeFields(before), nodeFields(after), labels(before, after), nil)...)
+	out = append(out, compareSets(OfEdge, edgeFields(before), edgeFields(after), edgeLabels(before, after), nil)...)
+	out = append(out, compareSets(OfGroup, groupFields(before), groupFields(after), groupLabels(before, after), nil)...)
+	out = append(out, compareSets(OfPath, pathFields(before), pathFields(after), pathLabels(before, after),
+		pathSubjects(before, after))...)
+	out = append(out, compareSets(OfNote, noteFields(before), noteFields(after), noteLabels(before, after),
+		noteSubjects(before, after))...)
 
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].What != out[j].What {
@@ -121,7 +123,15 @@ func ValidOf(name string) bool {
 type Change struct {
 	// Kind is added, removed or changed. What is the sort of thing it is
 	// about. Subject is the id or key that thing is known by, which is what a
-	// reader has to go on to find it in either document.
+	// reader has to go on to find it in either document — a node or group id,
+	// an edge key, a route key, or, for a note, the id of what the note is
+	// about.
+	//
+	// It is deliberately not how the comparison told two things apart. A note
+	// is identified by everything it is, text and all, and putting that in
+	// Subject handed a caller a string matching nothing in either document —
+	// with the note's own newlines in it, which is one record per line for
+	// anything printing a table.
 	Kind    string `json:"kind"`
 	What    string `json:"what"`
 	Subject string `json:"subject"`
@@ -147,12 +157,16 @@ type FieldChange struct {
 // the same question — is it in both, and if so does it still say the same —
 // and a second implementation of that per kind is a second place for the
 // answers to drift apart.
-func compareSets(what string, before, after map[string]map[string]string, labels map[string]string) []Change {
+func compareSets(what string, before, after map[string]map[string]string, labels, subjects map[string]string) []Change {
 	var out []Change
 	for _, id := range union(before, after) {
 		was, there := before[id]
 		now, here := after[id]
-		change := Change{What: what, Subject: id, Label: labels[id]}
+		subject := id
+		if named, ok := subjects[id]; ok {
+			subject = named
+		}
+		change := Change{What: what, Subject: subject, Label: labels[id]}
 		switch {
 		case !there:
 			change.Kind = ChangeAdded
@@ -281,9 +295,15 @@ func pathFields(g *core.Graph) map[string]map[string]string {
 func noteFields(g *core.Graph) map[string]map[string]string {
 	out := map[string]map[string]string{}
 	for _, n := range g.Notes {
-		out[n.Subject+"\x00"+claimText(n.Claim)+"\x00"+n.Text] = map[string]string{}
+		out[noteKey(n)] = map[string]string{}
 	}
 	return out
+}
+
+// noteKey tells two notes apart. It never leaves this package: what a change
+// carries is the id of what the note is about.
+func noteKey(n core.Note) string {
+	return n.Subject + "\x00" + claimText(n.Claim) + "\x00" + n.Text
 }
 
 // The labels: what to call each subject on a line somebody reads. They come
@@ -342,7 +362,40 @@ func pathLabels(before, after *core.Graph) map[string]string {
 	out := map[string]string{}
 	for _, g := range []*core.Graph{before, after} {
 		for _, p := range g.Paths {
-			out[string(p.Kind)+" "+p.Key()] = PathLabel(g, p)
+			// The kind belongs on the label for the same reason it does on an
+			// edge: the same walk declared and observed is two routes, and a
+			// label showing only the participants would print them
+			// identically.
+			out[string(p.Kind)+" "+p.Key()] = PathLabel(g, p) + " (" + string(p.Kind) + ")"
+		}
+	}
+	return out
+}
+
+// pathSubjects and noteSubjects are what to call each thing in a document,
+// where that is not the same as how the comparison told it apart.
+//
+// A route is identified by its kind as well as its participants, because the
+// same walk declared and observed is two routes; its key names the
+// participants alone, and that is the reversible thing a caller can look up.
+//
+// A note is identified by everything it is, and what it is *about* is a node
+// or group id — the same kind of subject every other change carries.
+func pathSubjects(before, after *core.Graph) map[string]string {
+	out := map[string]string{}
+	for _, g := range []*core.Graph{before, after} {
+		for _, p := range g.Paths {
+			out[string(p.Kind)+" "+p.Key()] = p.Key()
+		}
+	}
+	return out
+}
+
+func noteSubjects(before, after *core.Graph) map[string]string {
+	out := map[string]string{}
+	for _, g := range []*core.Graph{before, after} {
+		for _, n := range g.Notes {
+			out[noteKey(n)] = n.Subject
 		}
 	}
 	return out
@@ -357,7 +410,7 @@ func noteLabels(before, after *core.Graph) map[string]string {
 			if named, ok := name[n.Subject]; ok {
 				about = named
 			}
-			out[n.Subject+"\x00"+claimText(n.Claim)+"\x00"+n.Text] = about + ": " + firstLine(n.Text)
+			out[noteKey(n)] = about + ": " + firstLine(n.Text)
 		}
 	}
 	return out

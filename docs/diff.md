@@ -70,6 +70,20 @@ edits: `Normalize` folds only notes that match exactly, so a note with one word
 changed is a note somebody wrote, beside the one they wrote before. It is
 reported added and removed rather than changed, and that is the truth of it.
 
+## What a change is about is not how it was told apart
+
+`subject` is a node or group id, an edge key, a route key — something a reader
+or a caller can look up in either document. It is deliberately not the string
+the comparison used to tell two things apart.
+
+The difference matters for exactly two kinds. A **route** is told apart by its
+kind as well as its participants, because the same walk declared and observed
+is two routes; its `subject` is the key that names the participants, and its
+kind is on the label. A **note** is told apart by everything it is, text and
+all; its `subject` is the id of what the note is *about*, and its text is not
+in it — a subject carrying a note's own newlines is one record per paragraph
+for anything printing a table, and it matches nothing in either document.
+
 ## What is not compared
 
 **Measurements.** Observations, metrics and log records change on every

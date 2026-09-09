@@ -87,7 +87,10 @@ func runDiff(env Env, args []string) error {
 		counted[c.Kind]++
 	}
 	if len(changes) == 0 {
-		fmt.Fprintln(env.Stderr, "nothing changed")
+		// Among what was asked for. A run narrowed to one kind of thing that
+		// says "nothing changed" is telling a pipeline the estate stood still,
+		// when what it looked at did.
+		fmt.Fprintf(env.Stderr, "nothing changed%s\n", among(*only))
 	} else {
 		var parts []string
 		for _, kind := range views.ChangeKinds() {
@@ -95,7 +98,8 @@ func runDiff(env Env, args []string) error {
 				parts = append(parts, fmt.Sprintf("%d %s", counted[kind], kind))
 			}
 		}
-		fmt.Fprintf(env.Stderr, "%d change%s: %s\n", len(changes), plural(len(changes)), strings.Join(parts, ", "))
+		fmt.Fprintf(env.Stderr, "%d change%s%s: %s\n",
+			len(changes), plural(len(changes)), among(*only), strings.Join(parts, ", "))
 	}
 	if err := write(env, *output, out); err != nil {
 		return err
@@ -113,6 +117,15 @@ func runDiff(env Env, args []string) error {
 // itself. It exists to move the exit code.
 var errChanged = fmt.Errorf("the graph changed")
 
+// among names what a count was taken over, when it was not taken over
+// everything.
+func among(only string) string {
+	if only == "" {
+		return ""
+	}
+	return " among " + only + "s"
+}
+
 // orNothing is what to print where a field was absent. An empty column would
 // read as a value somebody set to the empty string.
 func orNothing(value string) string {
@@ -126,15 +139,18 @@ func orNothing(value string) string {
 // the label does not.
 //
 // A node's id is what somebody greps for, and the label is what they read; both
-// belong on the line. An edge's key is the label re-encoded — the same two ends
-// and the same relation, in base64 — so printing both says one thing twice, and
-// the encoded half is the unreadable one.
+// belong on the line. A key is the label re-encoded — the same ends and the
+// same relation, or the same participants in the same order, in base64 — so
+// printing both says one thing twice, and the encoded half is the unreadable
+// one.
 func orID(label, id string) string {
 	if label == "" || label == id {
 		return id
 	}
-	if strings.HasPrefix(id, "edge:") {
-		return label
+	for _, encoded := range []string{"edge:", "path:"} {
+		if strings.HasPrefix(id, encoded) {
+			return label
+		}
 	}
 	return label + "  " + id
 }
