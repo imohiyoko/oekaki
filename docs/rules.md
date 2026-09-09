@@ -156,20 +156,59 @@ one reading:
 
 and then the rule names it with no factor at all.
 
-### A reading with no baseline is not judged
+### A multiplier needs a usual above zero
+
+A multiplier is a claim about magnitude, and magnitude is measured from zero.
+Twice a usual of −100 is −200, which every healthy reading of a metric that can
+go negative — a margin, a remaining budget, a difference — is *above*. The rule
+would fire on the usual itself, and on everything better than it, forever.
+
+So a factor against a usual of zero or less is refused rather than computed. A
+factor of **one** multiplies nothing and is left alone: there the collector
+wrote the threshold and the rule only names it, and a floor of −100 is an
+ordinary thing to want.
+
+### What could not be judged says which fault it was
 
 Firing would be a comparison against nothing. Passing quietly would say the
 reading was fine. So the rule is not answering the question for that subject,
-and the run says so — the same way it does for a reading with no time on it:
+and the run says so — the same way it does for a reading with no time on it.
+
+The causes are kept apart, because they have different fixes:
 
 ```console
-spike: nothing measured request_rate_avg for reports, so there is nothing to
-judge request_rate by; not reported
+spike: reports: measured margin with no number on the reading, so there is
+nothing to compare; not reported
+spike: ledger: nothing measured margin_avg, so there is nothing to judge margin
+by; not reported
+spike: checkout: measured margin_avg at zero or below, and a multiplier cannot
+mean anything against it …; not reported
 ```
+
+A collector nobody ran, a collector writing measurements with nothing measured,
+and a usual a multiplier cannot mean anything against are three different
+things to go and do, and one message covering all three sends its readers
+looking for the wrong one.
 
 The baseline is read through the same window as the reading it bounds. A usual
 from before the window is a usual from another era, and comparing today against
 it is a comparison nobody asked for.
+
+### What the alert carries
+
+The reason is a sentence written for a person. What the bound *was*, and what
+it was made of, are fields — because digging a number back out of a sentence is
+a different question with a nearly-right answer:
+
+```json
+{ "rule": "spike", "subject": "checkout", "is": "above",
+  "metric": "request_rate", "value": 4000,
+  "bound": 1800, "baseline": 900, "baseline_metric": "request_rate_avg",
+  "reason": "request_rate is 4000, above 2× request_rate_avg (900)" }
+```
+
+`bound` is on every reading alert, whether the bound was written down or
+derived. `baseline` and `baseline_metric` appear only when it was derived.
 
 ## What a rule is about
 
