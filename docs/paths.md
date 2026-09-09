@@ -122,12 +122,56 @@ callers — and a trace that cannot be ordered is **reported** rather than
 guessed at, as an unmatched assertion naming its trace id. A trace nothing
 could read and a route nothing walked are different facts.
 
-**Declared** routes are best written down — in an overlay, from an API
-definition, from a routing table. Until something does, `oekaki paths` derives
-them by following declared references from wherever a request can arrive, and
-says so on stderr rather than presenting them as somebody's claim. A route is
-only as declared as its weakest hop: one that depends on a rule the network
-merely permits is `reachable`, not `iac_ref`.
+**Declared** routes are written down, in an overlay:
+
+```json
+{
+  "assert": "path",
+  "through": [
+    { "name": "public", "type": "aws_lb" },
+    { "name": "api",    "type": "aws_ecs_service" },
+    { "name": "main",   "type": "aws_db_instance" }
+  ],
+  "label": "checkout",
+  "note": "the only route a request is meant to take"
+}
+```
+
+Each participant is a **selector**, resolved by the same ladder as every other
+subject in an overlay, because a person writing a route down knows it as "the
+checkout service" rather than as a Terraform address. The walk is applied whole
+or not at all: a participant the unmatched policy drops ends the assertion,
+because a walk with a hop missing is a different walk, and one that arrived that
+way would be compared against the observed set as though somebody had declared
+it.
+
+The route carries the claim of whoever wrote it, so a listing can say who said
+so — and `oekaki diff` reports it when it changes, which is the point of writing
+it down rather than deriving it.
+
+**An overlay cannot say a route was walked.** `kind` defaults to `iac_ref` and
+`observed` is refused: what a person writes down is a claim about what *may*
+happen, and what *did* happen comes from something that watched. Letting an
+overlay claim otherwise would put a hand-written route on the observed side of
+the very comparison the entity exists for.
+
+### When nothing has written them down
+
+`oekaki paths` derives them by following declared references from wherever a
+request can arrive, and says so on stderr rather than presenting them as
+somebody's claim. A route is only as declared as its weakest hop: one that
+depends on a rule the network merely permits is `reachable`, not `iac_ref`.
+
+A route somebody wrote down is always preferred, and the derivation is skipped
+entirely when the document carries one. Derivation is a fallback with two
+failure modes worth knowing: where there are no references to follow it finds
+nothing, and every observed route then reads as unannounced; where there are
+many, it finds combinations a request can take and nobody does, which arrive as
+`unused`. Both bury the routes that actually matter, which is the reason to
+write them down.
+
+An API definition or a routing table would produce the same thing — a declared
+`core.Path` — and neither is read yet.
 
 ## How a count becomes an alert
 
