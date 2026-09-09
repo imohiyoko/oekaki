@@ -162,8 +162,19 @@ definition, a routing table, an ingress or gateway configuration.
 **Spike and silence.** Done — [rules.md](rules.md). A bound is written down
 per subject or per route, silence is a condition of its own because the
 interesting value is zero, and a rule that could not be applied says so instead
-of passing quietly. What is still missing is a **baseline**: "twice what it
-usually is" needs a usual, and nothing here computes one.
+of passing quietly.
+
+The baseline is done too, and the answer was not to compute one. Nothing here
+knows which usual an estate means — a moving average, a median of the same hour
+last week, a quantile over a season — and every one of those is a choice made
+over history this program does not keep. So a collector works it out and writes
+it back as an ordinary observation, and a rule names that reading as its bound.
+The one thing the rule keeps is the multiplier, because "twice what it usually
+is" is policy and policy belongs in the document somebody reviews.
+
+What that leaves open is a **collector that actually writes one**. Datadog and
+Prometheus can both produce a moving average in a query; nothing here has asked
+them to yet.
 
 **Correlating a request or a session end to end.** The counting half is done:
 a route says how many distinct sessions walked it, and nothing but the count

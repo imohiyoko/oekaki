@@ -146,3 +146,134 @@ func TestSilenceIsStillFoundBesideAnUndatedReading(t *testing.T) {
 		t.Errorf("the alert does not say what was measured: %q", at.Metric)
 	}
 }
+
+// "Twice what it usually is" needs a usual, and nothing here computes one. The
+// baseline arrives the way every other outside fact does — a collector works it
+// out and writes it back as an ordinary observation — and the rule says which
+// reading that is.
+func TestABoundCanBeAnotherReading(t *testing.T) {
+	g := watched()
+	measured(g, "checkout", "request_rate", 4000, "2026-09-09T10:00:00Z")
+	measured(g, "checkout", "request_rate_avg", 900, "2026-09-09T10:00:00Z")
+	measured(g, "ledger", "request_rate", 1200, "2026-09-09T10:00:00Z")
+	measured(g, "ledger", "request_rate_avg", 1100, "2026-09-09T10:00:00Z")
+	g.Normalize()
+
+	doc := rulesFrom(t, `{"kind":"oekaki.rules","version":"0.1","rules":[
+		{"name":"spike","when":{"is":"above","metric":"request_rate",
+		 "than":{"metric":"request_rate_avg","times":2}}}]}`)
+
+	fired := firing(t, g, doc)
+	at, ok := fired["spike|checkout"]
+	if !ok {
+		t.Fatalf("four thousand against a usual of nine hundred did not fire: %#v", fired)
+	}
+	// The sentence says what the bound was made of: "above 3000" and "above
+	// twice the usual, which was 900" are different things to be told at three
+	// in the morning.
+	for _, want := range []string{"request_rate is 4000", "2× request_rate_avg", "900"} {
+		if !strings.Contains(at.Reason, want) {
+			t.Errorf("the reason does not carry %q: %q", want, at.Reason)
+		}
+	}
+	// And a subject inside its own usual is not a spike, whatever the number.
+	if _, fired := fired["spike|ledger"]; fired {
+		t.Error("twelve hundred against a usual of eleven hundred fired")
+	}
+}
+
+// A factor of one is the plain case: the collector wrote the threshold itself,
+// and the rule only says which reading it is.
+func TestABaselineNeedsNoFactor(t *testing.T) {
+	g := watched()
+	measured(g, "checkout", "request_rate", 4000, "2026-09-09T10:00:00Z")
+	measured(g, "checkout", "request_rate_upper", 3000, "2026-09-09T10:00:00Z")
+	g.Normalize()
+
+	doc := rulesFrom(t, `{"kind":"oekaki.rules","version":"0.1","rules":[
+		{"name":"spike","when":{"is":"above","metric":"request_rate",
+		 "than":{"metric":"request_rate_upper"}}}]}`)
+
+	at, ok := firing(t, g, doc)["spike|checkout"]
+	if !ok {
+		t.Fatal("a reading over the threshold somebody measured did not fire")
+	}
+	if strings.Contains(at.Reason, "×") {
+		t.Errorf("a factor of one is written out: %q", at.Reason)
+	}
+	if !strings.Contains(at.Reason, "request_rate_upper (3000)") {
+		t.Errorf("the reason does not say what the bound was: %q", at.Reason)
+	}
+}
+
+// A reading with no baseline is a reading nothing can judge. Firing would be a
+// comparison against nothing; passing quietly would say it was fine.
+func TestAReadingWithNoBaselineIsNotJudged(t *testing.T) {
+	g := watched()
+	measured(g, "checkout", "request_rate", 4000, "2026-09-09T10:00:00Z")
+	g.Normalize()
+
+	doc := rulesFrom(t, `{"kind":"oekaki.rules","version":"0.1","rules":[
+		{"name":"spike","when":{"is":"above","metric":"request_rate",
+		 "than":{"metric":"request_rate_avg","times":2}}}]}`)
+
+	alerts, unanswered, err := Alerts(g, doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(alerts) != 0 {
+		t.Fatalf("a reading was judged against a baseline nobody measured: %#v", alerts)
+	}
+	if len(unanswered) != 1 || !strings.Contains(unanswered[0], "checkout") {
+		t.Fatalf("the rule judged nothing and said nothing: %#v", unanswered)
+	}
+	if !strings.Contains(unanswered[0], "request_rate_avg") {
+		t.Errorf("the notice does not say what was missing: %q", unanswered[0])
+	}
+}
+
+// The baseline is read through the same window as the reading it bounds. A
+// usual from another era is not the usual.
+func TestTheBaselineIsReadThroughTheSameWindow(t *testing.T) {
+	g := watched()
+	measured(g, "checkout", "request_rate", 4000, "2026-09-09T10:00:00Z")
+	measured(g, "checkout", "request_rate_avg", 900, "2020-01-01T00:00:00Z")
+	g.Normalize()
+
+	doc := rulesFrom(t, `{"kind":"oekaki.rules","version":"0.1","rules":[
+		{"name":"spike","when":{"is":"above","metric":"request_rate",
+		 "than":{"metric":"request_rate_avg","times":2},
+		 "since":"2026-09-01T00:00:00Z"}}]}`)
+
+	alerts, unanswered, err := Alerts(g, doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(alerts) != 0 {
+		t.Fatalf("a reading was judged against a usual from six years ago: %#v", alerts)
+	}
+	if len(unanswered) != 1 {
+		t.Fatalf("the rule judged nothing and said nothing: %#v", unanswered)
+	}
+}
+
+// A rule that names two bounds does not say which it meant, and one that names
+// itself as its own baseline can never be true.
+func TestARuleThatCannotMeanABoundIsRefused(t *testing.T) {
+	for name, body := range map[string]string{
+		"both": `{"name":"x","when":{"is":"above","metric":"m","value":1,
+			"than":{"metric":"m_avg"}}}`,
+		"itself": `{"name":"x","when":{"is":"above","metric":"m",
+			"than":{"metric":"m"}}}`,
+		"no factor": `{"name":"x","when":{"is":"above","metric":"m",
+			"than":{"metric":"m_avg","times":0}}}`,
+		"neither": `{"name":"x","when":{"is":"above","metric":"m"}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := ParseRules([]byte(`{"kind":"oekaki.rules","version":"0.1","rules":[`+body+`]}`), "")
+			if err == nil {
+				t.Fatal("accepted")
+			}
+		})
+	}
+}
