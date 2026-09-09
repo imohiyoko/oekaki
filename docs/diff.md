@@ -88,8 +88,13 @@ Comparing documents whose `metadata.scope` differs reports every element of
 both as added and removed, which is not information. The command refuses
 instead, and says which two estates it was handed.
 
-Documents with no scope are compared: a single-estate user pays nothing for a
-guard against a mistake they cannot make.
+**A scope on one side and none on the other is that same mismatch**, not a
+lesser one. `--scope` rewrites every id to `scope:id`, so a scoped document and
+an unscoped one share no id at all — comparing them is comparing two estates
+that happen to be the same estate, and every element of both is reported twice.
+
+Two documents that both name no scope are compared: a single-estate user pays
+nothing for a guard against a mistake they cannot make.
 
 ## What is not here yet
 

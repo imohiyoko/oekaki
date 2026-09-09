@@ -50,13 +50,18 @@ import (
 //
 // Comparing documents with different scopes reports every element of both as
 // added and removed, which is not information. Diff refuses instead.
+//
+// A scope on one side and none on the other is that same mismatch and not a
+// lesser one: ApplyScope rewrites every id to `scope:id`, so a scoped document
+// and an unscoped one share no id at all.
 func Diff(before, after *core.Graph) ([]Change, error) {
 	if before == nil || after == nil {
 		return nil, fmt.Errorf("a diff needs two graphs")
 	}
-	if a, b := scopeOf(before), scopeOf(after); a != b && a != "" && b != "" {
+	if a, b := scopeOf(before), scopeOf(after); a != b {
 		return nil, fmt.Errorf(
-			"these documents are about different estates (%s and %s): every element of both would be reported added and removed, which says nothing", a, b)
+			"these documents are about different estates (%s and %s): every element of both would be reported added and removed, which says nothing",
+			namedScope(a), namedScope(b))
 	}
 
 	// Empty rather than absent, because a caller reading the JSON should not
@@ -398,6 +403,16 @@ func claimText(c *core.Claim) string {
 		return string(c.Origin)
 	}
 	return string(c.Origin) + "/" + c.Author
+}
+
+// namedScope is what to call a scope in a sentence. A document that names none
+// has to be called something, or the sentence reads as though a name were
+// missing from it rather than from the document.
+func namedScope(scope string) string {
+	if scope == "" {
+		return "no scope"
+	}
+	return scope
 }
 
 func scopeOf(g *core.Graph) string {
