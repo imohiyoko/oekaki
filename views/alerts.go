@@ -153,9 +153,21 @@ type Alert struct {
 	// Metric is what was measured, when the rule was about a measurement. A
 	// value with no name beside it is a number somebody has to go and look up,
 	// and the rule knew it all along.
-	Metric   string   `json:"metric,omitempty"`
-	Value    *float64 `json:"value,omitempty"`
-	LastSeen string   `json:"last_seen,omitempty"`
+	Metric string   `json:"metric,omitempty"`
+	Value  *float64 `json:"value,omitempty"`
+
+	// Bound is the number Value was compared against, and Baseline is the
+	// reading the bound was derived from when it was not written down.
+	//
+	// They are fields for the reason stated a few lines above: the reason is a
+	// sentence, and digging a number back out of a sentence is a different
+	// question with a nearly-right answer. A bound that lived only in prose
+	// left anything reading the JSON with no way to say how far over it was.
+	Bound          *float64 `json:"bound,omitempty"`
+	Baseline       *float64 `json:"baseline,omitempty"`
+	BaselineMetric string   `json:"baseline_metric,omitempty"`
+
+	LastSeen string `json:"last_seen,omitempty"`
 }
 
 // ParseRules reads a rules document and checks it against the published schema
@@ -217,6 +229,9 @@ func (r Rule) check() error {
 	case Quiet:
 		if r.When.Metric == "" {
 			return fmt.Errorf("quiet needs a metric that has gone quiet")
+		}
+		if r.When.Value != nil || r.When.Than != nil {
+			return fmt.Errorf("quiet is about whether anything arrived, not about what it said: a bound on it is a thing the rule does not do, and one written down would be read by nobody")
 		}
 		if r.When.Since == "" {
 			return fmt.Errorf("quiet needs a moment to be quiet since: write one in the rule, or give the run a --since; how long is too long is not this program's judgement")
@@ -373,18 +388,23 @@ func (r Rule) readings(g *core.Graph) ([]Alert, []string) {
 	if r.When.Is == Below {
 		word = "below"
 	}
-	var unmeasured []string
+	// Why each subject could not be judged, kept apart by cause. They have
+	// different fixes — a collector nobody ran, a collector writing readings
+	// with no number in them, a usual a multiplier cannot mean anything
+	// against — and one message covering all three sends its readers looking
+	// for the wrong thing.
+	unjudged := map[string][]string{}
 	for subject, o := range newest {
 		if o.Value == nil {
+			unjudged[noValue] = append(unjudged[noValue], subject)
 			continue
 		}
-		limit, against, ok := r.boundFor(subject, baseline)
-		if !ok {
-			// The rule is not answering the question for this subject: there
-			// is a reading and no baseline to judge it by. Firing would be a
-			// comparison against nothing; passing quietly would say the
-			// reading was fine.
-			unmeasured = append(unmeasured, subject)
+		limit, against, why := r.boundFor(subject, baseline)
+		if why != "" {
+			// The rule is not answering the question for this subject.
+			// Firing would be a comparison against nothing; passing quietly
+			// would say the reading was fine.
+			unjudged[why] = append(unjudged[why], subject)
 			continue
 		}
 		over := *o.Value > limit
@@ -394,44 +414,100 @@ func (r Rule) readings(g *core.Graph) ([]Alert, []string) {
 		if !over {
 			continue
 		}
-		out = append(out, Alert{
+		alert := Alert{
 			Rule: r.Name, Severity: r.Severity, Subject: subject, Label: labelOf(g, subject),
 			Is: r.When.Is, Metric: r.When.Metric, Value: o.Value, LastSeen: o.ObservedAt,
+			Bound:  &limit,
 			Reason: fmt.Sprintf("%s is %g, %s %s", r.When.Metric, *o.Value, word, against),
-		})
+		}
+		if r.When.Than != nil {
+			at := baseline[subject]
+			alert.Baseline, alert.BaselineMetric = at.Value, r.When.Than.Metric
+		}
+		out = append(out, alert)
 	}
-	if len(unmeasured) > 0 {
-		sort.Strings(unmeasured)
-		return out, []string{fmt.Sprintf(
-			"%s: nothing measured %s for %s, so there is nothing to judge %s by; not reported",
-			r.Name, r.When.Than.Metric, subjectList(unmeasured), r.When.Metric)}
+	return out, r.notices(unjudged)
+}
+
+// Why a subject with a reading could not be judged after all.
+const (
+	noValue          = "no-value"
+	noBaseline       = "no-baseline"
+	noBaselineValue  = "no-baseline-value"
+	unusableBaseline = "unusable-baseline"
+)
+
+// notices turns what could not be judged into sentences, one per cause.
+func (r Rule) notices(unjudged map[string][]string) []string {
+	if len(unjudged) == 0 {
+		return nil
 	}
-	return out, nil
+	sentences := map[string]string{
+		noValue:          "measured %s with no number on the reading, so there is nothing to compare; not reported",
+		noBaseline:       "nothing measured %s, so there is nothing to judge " + r.When.Metric + " by; not reported",
+		noBaselineValue:  "measured %s with no number on it, so there is no baseline to judge " + r.When.Metric + " by; not reported",
+		unusableBaseline: "measured %s at zero or below, and a multiplier cannot mean anything against it — twice a usual of minus one hundred is minus two hundred, which every healthy reading is above; not reported",
+	}
+	named := map[string]string{
+		noValue: r.When.Metric,
+	}
+	if r.When.Than != nil {
+		for _, cause := range []string{noBaseline, noBaselineValue, unusableBaseline} {
+			named[cause] = r.When.Than.Metric
+		}
+	}
+
+	var out []string
+	for _, cause := range []string{noValue, noBaseline, noBaselineValue, unusableBaseline} {
+		subjects := unjudged[cause]
+		if len(subjects) == 0 {
+			continue
+		}
+		sort.Strings(subjects)
+		out = append(out, fmt.Sprintf("%s: %s: "+sentences[cause],
+			r.Name, subjectList(subjects), named[cause]))
+	}
+	return out
 }
 
 // boundFor is the number this subject's reading is compared against, and how to
-// say what it was.
+// say what it was. The third return is why there is none, or "" when there is.
 //
 // A rule that names a value has the same bound for every subject. A rule that
 // names another reading has a bound per subject, and a subject with no such
 // reading has none at all — which is not a bound of zero, and not a pass.
-func (r Rule) boundFor(subject string, baseline map[string]core.Observation) (limit float64, against string, ok bool) {
+func (r Rule) boundFor(subject string, baseline map[string]core.Observation) (limit float64, against, why string) {
 	if r.When.Than == nil {
-		return *r.When.Value, fmt.Sprintf("%g", *r.When.Value), true
+		return *r.When.Value, fmt.Sprintf("%g", *r.When.Value), ""
 	}
 	at, seen := baseline[subject]
-	if !seen || at.Value == nil {
-		return 0, "", false
+	if !seen {
+		return 0, "", noBaseline
+	}
+	if at.Value == nil {
+		return 0, "", noBaselineValue
 	}
 	times := r.When.Than.factor()
+	// A multiplier is a claim about magnitude, and magnitude is measured from
+	// zero. Twice a usual of minus one hundred is minus two hundred, which
+	// every healthy reading of a metric that can go negative — a margin, a
+	// remaining budget, a difference — is above; the rule would then fire on
+	// the usual itself and on everything better than it, forever.
+	//
+	// A factor of one multiplies nothing, so it is left alone: there the
+	// collector wrote the threshold and the rule only names it, and a
+	// threshold of minus five is an ordinary thing to want.
+	if times != 1 && *at.Value <= 0 {
+		return 0, "", unusableBaseline
+	}
 	limit = *at.Value * times
 	// The sentence says what the bound was made of, because "above 3000" and
 	// "above twice the usual, which was 1500" are different things to be told
 	// at three in the morning.
 	if times == 1 {
-		return limit, fmt.Sprintf("%s (%g)", r.When.Than.Metric, *at.Value), true
+		return limit, fmt.Sprintf("%s (%g)", r.When.Than.Metric, *at.Value), ""
 	}
-	return limit, fmt.Sprintf("%g× %s (%g)", times, r.When.Than.Metric, *at.Value), true
+	return limit, fmt.Sprintf("%g× %s (%g)", times, r.When.Than.Metric, *at.Value), ""
 }
 
 // routes applies a rule that is about what the declared and the observed

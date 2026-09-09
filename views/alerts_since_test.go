@@ -3,6 +3,8 @@ package views
 import (
 	"strings"
 	"testing"
+
+	"github.com/imohiyoko/oekaki/core"
 )
 
 // The moment arrives with the document. A rule that asks what has gone quiet
@@ -271,6 +273,145 @@ func TestARuleThatCannotMeanABoundIsRefused(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := ParseRules([]byte(`{"kind":"oekaki.rules","version":"0.1","rules":[`+body+`]}`), "")
+			if err == nil {
+				t.Fatal("accepted")
+			}
+		})
+	}
+}
+
+// A multiplier is a claim about magnitude, and magnitude is measured from zero.
+// Twice a usual of minus one hundred is minus two hundred, which every healthy
+// reading of a metric that can go negative is above — so the rule would fire on
+// the usual itself and on everything better than it, forever.
+func TestAMultiplierNeedsAUsualAboveZero(t *testing.T) {
+	g := watched()
+	measured(g, "checkout", "margin", -50, "2026-09-09T10:00:00Z")
+	measured(g, "checkout", "margin_avg", -100, "2026-09-09T10:00:00Z")
+	g.Normalize()
+
+	doc := rulesFrom(t, `{"kind":"oekaki.rules","version":"0.1","rules":[
+		{"name":"spike","when":{"is":"above","metric":"margin",
+		 "than":{"metric":"margin_avg","times":2}}}]}`)
+
+	alerts, unanswered, err := Alerts(g, doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(alerts) != 0 {
+		t.Fatalf("a healthy reading fired against twice a negative usual: %#v", alerts)
+	}
+	if len(unanswered) != 1 || !strings.Contains(unanswered[0], "zero or below") {
+		t.Fatalf("the rule judged nothing and did not say why: %#v", unanswered)
+	}
+}
+
+// A factor of one multiplies nothing, so a negative bound is left alone: there
+// the collector wrote the threshold and the rule only names it, and a floor of
+// minus one hundred is an ordinary thing to want.
+func TestANegativeThresholdWithNoFactorIsStillABound(t *testing.T) {
+	g := watched()
+	measured(g, "checkout", "margin", -50, "2026-09-09T10:00:00Z")
+	measured(g, "checkout", "margin_floor", -100, "2026-09-09T10:00:00Z")
+	g.Normalize()
+
+	doc := rulesFrom(t, `{"kind":"oekaki.rules","version":"0.1","rules":[
+		{"name":"above the floor","when":{"is":"above","metric":"margin",
+		 "than":{"metric":"margin_floor"}}}]}`)
+
+	if _, fired := firing(t, g, doc)["above the floor|checkout"]; !fired {
+		t.Fatal("a threshold somebody measured was refused for being negative")
+	}
+}
+
+// A reading with no number in it, and a baseline with no number in it, are two
+// different faults with two different fixes — a collector nobody ran, and a
+// collector writing measurements with nothing measured. One message covering
+// both sends its readers looking for the wrong thing.
+func TestWhatCouldNotBeJudgedSaysWhichFaultItWas(t *testing.T) {
+	g := watched()
+	measured(g, "checkout", "request_rate", 4000, "2026-09-09T10:00:00Z")
+	g.Observations = append(g.Observations, core.Observation{
+		Subject: "ledger", Metric: "request_rate", ObservedAt: "2026-09-09T10:00:00Z",
+	})
+	measured(g, "ledger", "request_rate_avg", 100, "2026-09-09T10:00:00Z")
+	g.Normalize()
+
+	doc := rulesFrom(t, `{"kind":"oekaki.rules","version":"0.1","rules":[
+		{"name":"spike","when":{"is":"above","metric":"request_rate",
+		 "than":{"metric":"request_rate_avg","times":2}}}]}`)
+
+	_, unanswered, err := Alerts(g, doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unanswered) != 2 {
+		t.Fatalf("two faults were reported as %d: %#v", len(unanswered), unanswered)
+	}
+	said := strings.Join(unanswered, "\n")
+	// checkout has a reading and no baseline; ledger has a baseline and a
+	// reading with nothing in it.
+	for _, want := range []string{"nothing measured request_rate_avg", "no number on the reading"} {
+		if !strings.Contains(said, want) {
+			t.Errorf("nothing says %q: %q", want, said)
+		}
+	}
+}
+
+// The reason is a sentence, and digging a number back out of a sentence is a
+// different question with a nearly-right answer. What the bound was, and what
+// it was made of, are fields.
+func TestAnAlertCarriesItsBoundAndItsBaseline(t *testing.T) {
+	g := watched()
+	measured(g, "checkout", "request_rate", 4000, "2026-09-09T10:00:00Z")
+	measured(g, "checkout", "request_rate_avg", 900, "2026-09-09T10:00:00Z")
+	g.Normalize()
+
+	doc := rulesFrom(t, `{"kind":"oekaki.rules","version":"0.1","rules":[
+		{"name":"spike","when":{"is":"above","metric":"request_rate",
+		 "than":{"metric":"request_rate_avg","times":2}}}]}`)
+
+	at, ok := firing(t, g, doc)["spike|checkout"]
+	if !ok {
+		t.Fatal("nothing fired")
+	}
+	if at.Bound == nil || *at.Bound != 1800 {
+		t.Errorf("the bound is %v, want twice nine hundred", at.Bound)
+	}
+	if at.Baseline == nil || *at.Baseline != 900 {
+		t.Errorf("the baseline is %v", at.Baseline)
+	}
+	if at.BaselineMetric != "request_rate_avg" {
+		t.Errorf("the alert does not say which reading the bound came from: %q", at.BaselineMetric)
+	}
+
+	// A bound written down is still a bound, and a caller should not have to
+	// read the rule to know what it was.
+	plain := rulesFrom(t, `{"kind":"oekaki.rules","version":"0.1","rules":[
+		{"name":"busy","when":{"is":"above","metric":"request_rate","value":1000}}]}`)
+	at, ok = firing(t, g, plain)["busy|checkout"]
+	if !ok {
+		t.Fatal("nothing fired")
+	}
+	if at.Bound == nil || *at.Bound != 1000 {
+		t.Errorf("a written bound is not on the alert: %v", at.Bound)
+	}
+	if at.Baseline != nil {
+		t.Errorf("a written bound came from a baseline: %v", at.Baseline)
+	}
+}
+
+// Quiet is about whether anything arrived, not about what it said. A bound on
+// it is a thing the rule does not do, and one written down would be read by
+// nobody — which is the reason the route conditions refuse one too.
+func TestQuietTakesNoBound(t *testing.T) {
+	for name, body := range map[string]string{
+		"than":  `{"name":"x","when":{"is":"quiet","metric":"m","than":{"metric":"m_avg"}}}`,
+		"value": `{"name":"x","when":{"is":"quiet","metric":"m","value":1}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := ParseRules([]byte(`{"kind":"oekaki.rules","version":"0.1","rules":[`+body+`]}`),
+				"2026-08-01T00:00:00Z")
 			if err == nil {
 				t.Fatal("accepted")
 			}
