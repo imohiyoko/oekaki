@@ -222,6 +222,19 @@ func precheckSelectors(raw []byte) error {
 			}
 			problems = append(problems, checkSelector(sel, fmt.Sprintf("assertions[%d].%s", i, field))...)
 		}
+
+		// The hops of a route are selectors too, and a key misspelled in one
+		// deserves the same sentence as a key misspelled in a subject rather
+		// than the schema's "additionalProperties not allowed".
+		if body, ok := a["through"]; ok {
+			var walk []Selector
+			if err := json.Unmarshal(body, &walk); err == nil {
+				for j, sel := range walk {
+					problems = append(problems, checkSelector(sel,
+						fmt.Sprintf("assertions[%d].through[%d]", i, j))...)
+				}
+			}
+		}
 	}
 	if len(problems) == 0 {
 		return nil
