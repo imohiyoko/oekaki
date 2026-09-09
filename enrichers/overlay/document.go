@@ -33,6 +33,7 @@ const (
 	AssertEdgeSuppress = "edge.suppress"
 	AssertNode         = "node"
 	AssertNote         = "note"
+	AssertPath         = "path"
 )
 
 // Document is one overlay file.
@@ -79,6 +80,24 @@ type Assertion struct {
 	Subject Selector `json:"subject,omitempty"`
 	From    Selector `json:"from,omitempty"`
 	To      Selector `json:"to,omitempty"`
+
+	// Through is the walk a route assertion declares, in order.
+	//
+	// Each participant is a selector, resolved by the same ladder as every
+	// other subject here, because a person writing a route down knows it as
+	// "the checkout service" rather than as a Terraform address.
+	//
+	// The walk is applied whole or not at all. A participant the unmatched
+	// policy drops ends the assertion, so a shortened walk never reaches the
+	// comparison — a walk with a hop missing is a different walk, and one that
+	// arrived that way would be compared against the observed set as though
+	// somebody had declared it.
+	Through []Selector `json:"through,omitempty"`
+
+	// Label is what to call a route in a listing. It is not Name: that one
+	// renames a box, and a route has no name to correct — only one somebody
+	// finds more useful than its ends.
+	Label string `json:"label,omitempty"`
 
 	Sink    string   `json:"sink,omitempty"`
 	Stream  string   `json:"stream,omitempty"`
@@ -136,6 +155,7 @@ var meaningful = map[string][]string{
 	AssertEdgeSuppress: {"from", "to", "kind"},
 	AssertNode:         {"subject", "type", "name"},
 	AssertNote:         {"subject", "text"},
+	AssertPath:         {"through", "label", "kind"},
 }
 
 // alwaysMeaningful are the envelope fields every assertion may carry.
@@ -247,6 +267,26 @@ func (d *Document) Validate() error {
 
 		for name, sel := range map[string]Selector{"subject": a.Subject, "from": a.From, "to": a.To} {
 			problems = append(problems, checkSelector(sel, where+"."+name)...)
+		}
+		for j, sel := range a.Through {
+			problems = append(problems, checkSelector(sel, fmt.Sprintf("%s.through[%d]", where, j))...)
+		}
+
+		if a.Assert == AssertPath {
+			if len(a.Through) < 2 {
+				problems = append(problems, fmt.Sprintf(
+					"%s: a route needs at least two participants; one box is not a walk", where))
+			}
+			// What did happen comes from something that watched it. A person
+			// writing a route down is saying what may happen — the family the
+			// configuration's own references belong to — and letting an
+			// overlay claim otherwise would put a hand-written route on the
+			// observed side of the very comparison this entity exists for.
+			if a.Kind == core.EdgeObserved {
+				problems = append(problems, fmt.Sprintf(
+					"%s: a route written down is a route somebody means, not one anything watched; %q comes from a collector, not from an overlay",
+					where, core.EdgeObserved))
+			}
 		}
 	}
 

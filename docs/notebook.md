@@ -154,10 +154,20 @@ what is missing is a parser that records columns at all.
 
 ## Paths and monitoring
 
-**Declared routes should be written down, not derived.** `oekaki paths` derives
-them from references when nothing else has, and says so. Better sources, in
-rough order of value: an overlay somebody authored, an OpenAPI or gRPC
-definition, a routing table, an ingress or gateway configuration.
+**Declared routes should be written down, not derived.** The overlay half is
+done: `assert: "path"` takes a walk of selectors and records it with the claim
+of whoever wrote it, and the derivation is skipped when a document carries one.
+
+Derivation stays as the fallback, and its two failure modes are the argument
+for writing routes down: where there are no references to follow it finds
+nothing, so every observed route reads as unannounced; where there are many, it
+finds combinations a request *can* take and nobody does, which arrive as
+`unused`. Both bury the routes that matter.
+
+What is left is the sources that are not a person: an OpenAPI or gRPC
+definition, a routing table, an ingress or gateway configuration. Each would
+produce the same thing the overlay does — a declared `core.Path` — which is why
+the overlay came first.
 
 **Spike and silence.** Done — [rules.md](rules.md). A bound is written down
 per subject or per route, silence is a condition of its own because the

@@ -96,7 +96,7 @@
         "assert": {
           "description": "logs.declared: configuration promises this subject ships logs to a sink. logs.observed: logs from this subject were actually seen. logs.none: somebody looked and found no destination — a claim, not an absence, which is what makes a blind spot distinguishable from an unchecked resource. edge: a connection exists that no parser found. edge.suppress: a connection a parser found is not real. note: somebody wrote something about this subject, in Markdown. It is kept beside the graph with their name on it rather than folded into the resource, because the sentence is theirs and not the estate's. node: something exists, or is called something, that is in no input file. A type says what it is, a name says what to call it, and either alone is a claim worth making: renaming a resource the parser did find is the same act as adopting one it did not.",
           "type": "string",
-          "enum": ["logs.declared", "logs.observed", "logs.none", "edge", "edge.suppress", "node", "note"]
+          "enum": ["logs.declared", "logs.observed", "logs.none", "edge", "edge.suppress", "node", "note", "path"]
         },
         "subject": { "$ref": "#/$defs/selector" },
         "from": { "$ref": "#/$defs/selector" },
@@ -112,6 +112,13 @@
         "type": { "description": "Resource type, for a node assertion. Required unless a name is given.", "type": "string" },
         "name": { "description": "Display name, for a node assertion. Required unless a type is given.", "type": "string" },
         "text": { "description": "What was written, for a note assertion. Markdown, as typed.", "type": "string", "minLength": 1 },
+        "through": {
+          "description": "The walk a route assertion declares, in order. Each participant is a selector, resolved by the same ladder as every other subject here, because a person writing a route down knows it as \"the checkout service\" rather than as a Terraform address. The walk is applied whole or not at all: a participant the unmatched policy drops ends the assertion, because a walk with a hop missing is a different walk.",
+          "type": "array",
+          "minItems": 2,
+          "items": { "$ref": "#/$defs/selector" }
+        },
+        "label": { "description": "What to call a route in a listing, when somebody has a name for it better than its ends.", "type": "string", "minLength": 1 },
         "via": { "description": "How the claimant knew, in their own words.", "type": "string" },
         "origin": {
           "description": "Overrides the document's origin for this assertion.",
@@ -134,6 +141,10 @@
         {
           "if": { "properties": { "assert": { "const": "note" } } },
           "then": { "required": ["text"] }
+        },
+        {
+          "if": { "properties": { "assert": { "const": "path" } } },
+          "then": { "required": ["through"] }
         },
         {
           "if": { "properties": { "assert": { "const": "logs.declared" } } },

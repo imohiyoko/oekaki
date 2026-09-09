@@ -109,8 +109,10 @@ Still ahead in this line of work:
   volume against a declared baseline. All of them are additional `assert`
   values resolved by the same ladder, which is the payoff of unifying the
   overlay format rather than shipping one file format per question
-- Declared routes written down rather than derived: an overlay `assert`, an
-  OpenAPI or gRPC definition, a routing table
+- Declared routes from a definition rather than from a person: an OpenAPI or
+  gRPC document, a routing table, an ingress. An overlay `assert` is in — see
+  [paths.md](paths.md#where-the-two-sides-come-from) — and each of these would
+  produce the same thing it does, a declared `core.Path`
 
 `oekaki serve` grew a state directory, a roles model and a management page in
 v0.5. The authorization it can express is deliberately small — three permission

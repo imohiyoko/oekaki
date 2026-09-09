@@ -279,6 +279,36 @@ func (e *enricher) applyDocument(g *core.Graph, ix *Index, doc *Document, tallie
 			applyLogAssertion(g, tallies, id, sink, a, claim, ix, edgeClaims)
 			report.Applied++
 
+		case AssertPath:
+			// A route is applied whole or not at all. The participants are
+			// resolved first, and one the policy drops is the end of it: a
+			// walk with a hop missing is a different walk.
+			walk := make([]string, 0, len(a.Through))
+			for _, sel := range a.Through {
+				id, ok := e.subject(g, ix, doc, a, sel, claim, report)
+				if !ok {
+					walk = nil
+					break
+				}
+				walk = append(walk, id)
+			}
+			if len(walk) < 2 {
+				continue
+			}
+			kind := a.Kind
+			if kind == "" {
+				// What a person writes down is a claim about what may happen,
+				// which is the family the configuration's own references
+				// belong to. What did happen comes from something that
+				// watched, and applyPathAssertion refuses to be told
+				// otherwise.
+				kind = core.EdgeIACRef
+			}
+			g.Paths = append(g.Paths, core.Path{
+				Nodes: walk, Kind: kind, Label: a.Label, Claim: &claim,
+			})
+			report.Applied++
+
 		case AssertEdge, AssertEdgeSuppress:
 			from, ok := e.subject(g, ix, doc, a, a.From, claim, report)
 			if !ok {
