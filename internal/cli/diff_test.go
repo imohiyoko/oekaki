@@ -117,3 +117,51 @@ func TestDiffNeedsTwoGraphs(t *testing.T) {
 		t.Error("one graph was accepted as a comparison")
 	}
 }
+
+// A table is one record per line. A subject with the note's own text in it —
+// newlines and all — is one record per paragraph, and the second half reads as
+// a record of its own.
+func TestEveryRecordIsOneLine(t *testing.T) {
+	before := core.New()
+	before.Nodes = []core.Node{{ID: "svc:api", Type: "service", Name: "api"}}
+	before.Normalize()
+
+	after := core.New()
+	after.Nodes = before.Nodes
+	after.Paths = []core.Path{{Nodes: []string{"svc:api", "svc:api"}, Kind: core.EdgeObserved}}
+	after.Notes = []core.Note{{
+		Subject: "svc:api", Text: "retries three times\nand then gives up",
+		Claim: &core.Claim{Origin: core.OriginHuman, Author: "operator"},
+	}}
+	after.Normalize()
+
+	r := mustRun(t, "", "diff", graphFile(t, before), graphFile(t, after))
+
+	for _, line := range strings.Split(strings.TrimSpace(r.stdout), "\n") {
+		if strings.Contains(line, "\x00") {
+			t.Errorf("a line carries a key nobody can read: %q", line)
+		}
+		if strings.Contains(line, "gives up") {
+			t.Errorf("a note's second line became a record of its own: %q", line)
+		}
+	}
+	// And a route is named by what it is, not by its key re-encoded.
+	if strings.Contains(r.stdout, "path:") {
+		t.Errorf("the base64 key is on the line beside the label it encodes: %q", r.stdout)
+	}
+}
+
+// A run narrowed to one kind of thing that says "nothing changed" tells a
+// pipeline the estate stood still, when what it looked at did.
+func TestAFilteredRunSaysWhatItLookedAt(t *testing.T) {
+	before, after := pair(t)
+	r := mustRun(t, "", "diff", before, after, "--only", "edge")
+	if !strings.Contains(r.stderr, "nothing changed among edges") {
+		t.Errorf("the run claims the estate stood still: %q", r.stderr)
+	}
+
+	r = mustRun(t, "", "diff", before, after, "--only", "node")
+	if !strings.Contains(r.stderr, "among nodes") {
+		t.Errorf("the count does not say what it was taken over: %q", r.stderr)
+	}
+}

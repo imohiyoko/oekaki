@@ -302,3 +302,71 @@ func TestADiffIsTheSameEveryTime(t *testing.T) {
 		}
 	}
 }
+
+// What a change is about is not always how the comparison told it apart.
+//
+// A note is identified by everything it is, text and all. Carrying that as the
+// subject handed a caller a string matching nothing in either document — with
+// the note's own newlines in it, which is one record per line for anything
+// printing a table. What a note is *about* is a node id, like every other
+// subject here.
+func TestANotesSubjectIsWhatItIsAbout(t *testing.T) {
+	before := twoTier()
+	after := twoTier()
+	after.Notes = []core.Note{{
+		Subject: "svc:api", Text: "retries three times\nand then gives up",
+		Claim: &core.Claim{Origin: core.OriginHuman, Author: "operator"},
+	}}
+	after.Normalize()
+
+	out, err := Diff(before, after)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, c := range out {
+		if c.What != OfNote {
+			continue
+		}
+		found = true
+		if c.Subject != "svc:api" {
+			t.Errorf("the note's subject is %q, which is not an id in either document", c.Subject)
+		}
+		if strings.ContainsAny(c.Subject+c.Label, "\x00\n\r") {
+			t.Errorf("a subject or label runs onto a second line: %q / %q", c.Subject, c.Label)
+		}
+	}
+	if !found {
+		t.Fatal("the note was not reported")
+	}
+}
+
+// A route's key names its participants; its kind is part of what tells two
+// routes apart, so it belongs on the label rather than being lost.
+func TestARoutesSubjectIsItsKeyAndItsLabelSaysTheKind(t *testing.T) {
+	before := twoTier()
+	after := twoTier()
+	after.Paths = []core.Path{{Nodes: []string{"svc:api", "db:orders"}, Kind: core.EdgeObserved}}
+	after.Normalize()
+
+	out, err := Diff(before, after)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, c := range out {
+		if c.What != OfPath {
+			continue
+		}
+		found = true
+		if _, ok := core.ParsePathKey(c.Subject); !ok {
+			t.Errorf("the route's subject %q is not a key a caller can resolve", c.Subject)
+		}
+		if !strings.Contains(c.Label, string(core.EdgeObserved)) {
+			t.Errorf("the label does not say which kind of route it is: %q", c.Label)
+		}
+	}
+	if !found {
+		t.Fatal("the route was not reported")
+	}
+}
