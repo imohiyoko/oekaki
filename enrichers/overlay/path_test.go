@@ -64,44 +64,151 @@ func TestAWrittenRouteIsADeclaredOne(t *testing.T) {
 // What did happen comes from something that watched it. Letting an overlay say
 // otherwise would put a hand-written route on the observed side of the very
 // comparison the entity exists for.
+//
+// Both layers refuse it, and each says something the other cannot: the schema
+// names the JSON path, so an editor can point at the line, and Validate says
+// why in a sentence.
 func TestAnOverlayCannotSayARouteWasWalked(t *testing.T) {
 	body := doc(`
 	  {"assert":"path","kind":"observed",
 	   "through":[{"node":"aws_lb.api"},{"node":"aws_db_instance.orders"}]}`)
 
+	err := Parse2(t, body)
+	if !strings.Contains(err.Error(), "/assertions/0/kind") {
+		t.Errorf("the schema error does not point at the line: %v", err)
+	}
+
+	err = onlyValidate(t, Assertion{
+		Assert: AssertPath, Kind: core.EdgeObserved,
+		Through: []Selector{{"node": "a"}, {"node": "b"}},
+	})
+	if !strings.Contains(err.Error(), "collector") {
+		t.Errorf("the reason does not say where an observation comes from: %v", err)
+	}
+}
+
+// One box is not a walk. Refused by both layers, for the same reason as above.
+func TestARouteNeedsTwoParticipants(t *testing.T) {
+	err := Parse2(t, doc(`{"assert":"path","through":[{"node":"aws_lb.api"}]}`))
+	if !strings.Contains(err.Error(), "/assertions/0/through") {
+		t.Errorf("the schema error does not point at the walk: %v", err)
+	}
+
+	err = onlyValidate(t, Assertion{Assert: AssertPath, Through: []Selector{{"node": "a"}}})
+	if !strings.Contains(err.Error(), "one box is not a walk") {
+		t.Errorf("the reason does not say what a route needs: %v", err)
+	}
+}
+
+// Parse2 is Parse, for the tests that are about being refused.
+func Parse2(t *testing.T, body string) error {
+	t.Helper()
 	_, err := Parse([]byte(body), "test.json")
 	if err == nil {
-		t.Fatal("an overlay claimed something was observed")
+		t.Fatal("accepted")
 	}
-	if !strings.Contains(err.Error(), "collector") {
-		t.Errorf("the error does not say where an observation comes from: %v", err)
+	return err
+}
+
+// onlyValidate reaches the checks the schema gets to first. They are not dead
+// code: Document and Validate are exported, and a caller that builds one by
+// hand — the viewer's export, a generator — never passes through the schema.
+func onlyValidate(t *testing.T, a Assertion) error {
+	t.Helper()
+	d := &Document{Kind: "oekaki.overlay", Version: "0.1", Assertions: []Assertion{a}}
+	err := d.Validate()
+	if err == nil {
+		t.Fatal("accepted")
+	}
+	return err
+}
+
+// The walk is applied whole or not at all, and a hop is never adopted —
+// whatever the unmatched policy says.
+//
+// A route is about boxes that are already there. Adopting a mistyped hop would
+// put a box nobody parsed in the middle of the walk, and the route would then
+// be permanently unused while the real one stayed unannounced: the two failures
+// this assertion exists to remove, manufactured from a typo, in silence.
+func TestAHopIsNeverAdopted(t *testing.T) {
+	for name, opts := range map[string]Options{
+		"adopt":  {Unmatched: PolicyAdopt},
+		"report": {Unmatched: PolicyReport},
+	} {
+		t.Run(name, func(t *testing.T) {
+			g, r := apply(t, doc(`
+			  {"assert":"path",
+			   "through":[{"node":"aws_lb.api"},
+			              {"name":"nothing-like-this"},
+			              {"node":"aws_db_instance.orders"}]}`), opts)
+
+			if len(g.Paths) != 0 {
+				t.Fatalf("a walk through a box nobody parsed was applied: %#v", g.Paths)
+			}
+			for _, n := range g.Nodes {
+				if strings.HasPrefix(n.ID, "asserted:") {
+					t.Errorf("a hop was adopted as %q", n.ID)
+				}
+			}
+			if r.r.Clean() {
+				t.Error("the report says nothing went wrong")
+			}
+		})
 	}
 }
 
-// One box is not a walk.
-func TestARouteNeedsTwoParticipants(t *testing.T) {
-	body := doc(`{"assert":"path","through":[{"node":"aws_lb.api"}]}`)
-	if _, err := Parse([]byte(body), "test.json"); err == nil {
-		t.Fatal("a route with one participant was accepted")
+// A container does not call anything, which is why core refuses a path through
+// one. Letting it through failed the whole command on a graph validation error
+// that named neither the overlay nor the assertion — the graph was blamed for
+// what the overlay said.
+func TestAHopThatIsAContainerIsRefused(t *testing.T) {
+	// Both ways of naming it: by id, and by the label a person would write.
+	for name, hop := range map[string]string{
+		"by id":    `{"group":"vpc:main"}`,
+		"by label": `{"name":"private-a"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			body := doc(`{"assert":"path","through":[{"node":"aws_lb.api"},` +
+				hop + `,{"node":"aws_db_instance.orders"}]}`)
+			d, err := Parse([]byte(body), "test.json")
+			if err != nil {
+				t.Fatal(err)
+			}
+			into := graph()
+			into.Groups = append(into.Groups, core.Group{
+				ID: "vpc:main", Axis: core.AxisNetwork, Type: "vpc", Label: "private-a",
+			})
+			into.Normalize()
+
+			r, err := New([]*Document{d}, Options{}).Enrich(into)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(into.Paths) != 0 {
+				t.Fatalf("a walk through a container was applied: %#v", into.Paths)
+			}
+			// The whole point: the command used to fail here, on a graph
+			// validation error that named neither the overlay nor the
+			// assertion.
+			if err := into.Validate(); err != nil {
+				t.Fatalf("the graph was left in a state it cannot be in: %v", err)
+			}
+			if r.Clean() {
+				t.Error("the report says nothing went wrong")
+			}
+		})
 	}
 }
 
-// The walk is applied whole or not at all: a participant the policy drops ends
-// the assertion, because a walk with a hop missing is a different walk and one
-// that arrived that way would be compared as though somebody had declared it.
-func TestAWalkWithAHopMissingIsNotApplied(t *testing.T) {
-	g, r := apply(t, doc(`
-	  {"assert":"path",
-	   "through":[{"node":"aws_lb.api"},
-	              {"name":"nothing-like-this"},
-	              {"node":"aws_db_instance.orders"}]}`),
-		Options{Unmatched: PolicyReport})
-
-	if len(g.Paths) != 0 {
-		t.Fatalf("a shortened walk was applied: %#v", g.Paths)
-	}
-	if r.r.Clean() {
-		t.Error("the report says nothing went wrong")
+// A key misspelled in a hop deserves the same sentence as one misspelled in a
+// subject, rather than the schema's "additionalProperties not allowed".
+func TestAMisspelledKeyInAHopSaysTheVocabulary(t *testing.T) {
+	err := Parse2(t, doc(`
+	  {"assert":"path","through":[{"svc":"api"},{"node":"aws_db_instance.orders"}]}`))
+	for _, want := range []string{"unknown selector key", `"svc"`, "through[0]"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the error does not carry %q: %v", want, err)
+		}
 	}
 }
 

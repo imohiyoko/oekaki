@@ -139,11 +139,18 @@ could read and a route nothing walked are different facts.
 
 Each participant is a **selector**, resolved by the same ladder as every other
 subject in an overlay, because a person writing a route down knows it as "the
-checkout service" rather than as a Terraform address. The walk is applied whole
-or not at all: a participant the unmatched policy drops ends the assertion,
-because a walk with a hop missing is a different walk, and one that arrived that
-way would be compared against the observed set as though somebody had declared
-it.
+checkout service" rather than as a Terraform address.
+
+The walk is applied whole or not at all, and a hop is never adopted — whatever
+`--overlay-unmatched` says. A route is *about* boxes that are already there, and
+adopting a mistyped hop would put a box nobody parsed in the middle of the walk:
+the route would then be permanently `unused` while the real one stayed
+`unexpected`, which is both of the failures this assertion exists to remove,
+manufactured from a typo, in silence.
+
+A hop that names a **container** is refused for a plainer reason: a container
+does not call anything, which is why the IR refuses a path through one. Which
+hop, and why, is in `--overlay-report`.
 
 The route carries the claim of whoever wrote it, so a listing can say who said
 so — and `oekaki diff` reports it when it changes, which is the point of writing

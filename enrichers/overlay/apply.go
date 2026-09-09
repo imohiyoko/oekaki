@@ -280,12 +280,12 @@ func (e *enricher) applyDocument(g *core.Graph, ix *Index, doc *Document, tallie
 			report.Applied++
 
 		case AssertPath:
-			// A route is applied whole or not at all. The participants are
-			// resolved first, and one the policy drops is the end of it: a
-			// walk with a hop missing is a different walk.
+			// A route is applied whole or not at all. Every participant has to
+			// resolve to a box that is already there, and one that does not is
+			// the end of it: a walk with a hop missing is a different walk.
 			walk := make([]string, 0, len(a.Through))
 			for _, sel := range a.Through {
-				id, ok := e.subject(g, ix, doc, a, sel, claim, report)
+				id, ok := e.participant(g, ix, a, sel, report)
 				if !ok {
 					walk = nil
 					break
@@ -300,8 +300,7 @@ func (e *enricher) applyDocument(g *core.Graph, ix *Index, doc *Document, tallie
 				// What a person writes down is a claim about what may happen,
 				// which is the family the configuration's own references
 				// belong to. What did happen comes from something that
-				// watched, and applyPathAssertion refuses to be told
-				// otherwise.
+				// watched, and Document.Validate refuses to be told otherwise.
 				kind = core.EdgeIACRef
 			}
 			g.Paths = append(g.Paths, core.Path{
@@ -323,6 +322,53 @@ func (e *enricher) applyDocument(g *core.Graph, ix *Index, doc *Document, tallie
 		}
 	}
 	return nil
+}
+
+// participant resolves one hop of a route.
+//
+// It is not subject, and the difference is the point of the assertion.
+//
+// A route is *about* things that are already there — it says a request goes
+// through them in this order — so a hop that matches nothing is never adopted,
+// whatever the unmatched policy says. Adopting one would put a box nobody
+// parsed in the middle of the walk, and the route would then be permanently
+// unused while the real one stayed unannounced: the two failures this
+// assertion exists to remove, manufactured from a typo, in silence.
+//
+// A hop that resolves to a container is refused for a plainer reason: a
+// container does not call anything, which is why core refuses a path through
+// one. Letting it through failed the whole command on a graph validation error
+// that named neither the overlay nor the assertion.
+func (e *enricher) participant(g *core.Graph, ix *Index, a Assertion, sel Selector, report *enrichers.Report) (string, bool) {
+	res := ix.Resolve(sel)
+	switch {
+	case len(res.Candidates) > 1:
+		report.Ambiguous = append(report.Ambiguous, enrichers.Ambiguous{
+			Selector:   sel.asMap(),
+			Assert:     a.Assert,
+			Candidates: res.Candidates,
+		})
+		return "", false
+
+	case res.ID == "":
+		reason := "no resource in this graph answers to it, and a hop of a route is never adopted: a route is about boxes that are already there"
+		if res.Stopped {
+			reason = "an exact id was given and this graph has no such id"
+		}
+		report.Unmatched = append(report.Unmatched, enrichers.Unmatched{
+			Selector: sel.asMap(), Assert: a.Assert, Reason: reason, Action: "dropped",
+		})
+		return "", false
+	}
+
+	if _, ok := g.Node(res.ID); !ok {
+		report.Unmatched = append(report.Unmatched, enrichers.Unmatched{
+			Selector: sel.asMap(), Assert: a.Assert, Action: "dropped",
+			Reason: fmt.Sprintf("%q is a container, and a container does not call anything; name the thing inside it that does", res.ID),
+		})
+		return "", false
+	}
+	return res.ID, true
 }
 
 // subject resolves a selector and applies the unmatched and ambiguous policies.
