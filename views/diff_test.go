@@ -202,6 +202,34 @@ func TestTwoEstatesAreNotADiff(t *testing.T) {
 	}
 }
 
+// A scope on one side and none on the other is that same mismatch, not a
+// lesser one. ApplyScope rewrites every id to `scope:id`, so the two documents
+// share no id at all and every element of both would be reported twice.
+func TestAScopeOnOneSideIsStillTwoEstates(t *testing.T) {
+	scoped := twoTier()
+	scoped.Metadata = &core.Metadata{Scope: "platform-prod"}
+	scoped.ApplyScope("platform-prod")
+	scoped.Normalize()
+
+	_, err := Diff(twoTier(), scoped)
+	if err == nil {
+		t.Fatal("a scoped document was compared against an unscoped one")
+	}
+	// The sentence has to name both sides, and a document that names no scope
+	// has to be called something or the sentence reads as though a name were
+	// missing from it.
+	for _, want := range []string{"platform-prod", "no scope"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the error does not name %q: %v", want, err)
+		}
+	}
+
+	// The other order is the same mistake.
+	if _, err := Diff(scoped, twoTier()); err == nil {
+		t.Fatal("the mismatch is only caught one way round")
+	}
+}
+
 // Containers, routes and notes are compared too: they are drawn, and somebody
 // acts on them.
 func TestGroupsRoutesAndNotesAreCompared(t *testing.T) {
