@@ -586,6 +586,16 @@ func (r Rule) covers(g *core.Graph, subject string) bool {
 // labelOf is what to call a subject in a list somebody reads.
 func labelOf(g *core.Graph, subject string) string {
 	if nodes, isPath := core.ParsePathKey(subject); isPath {
+		// The route the document holds, not one rebuilt from its key. A
+		// rebuilt one has the participants and none of what the document says
+		// about them — the way in, above all — so the same route was named two
+		// ways in one run: with its API on the line a rule fired on, and
+		// without it on the line beside it.
+		for _, p := range g.Paths {
+			if p.Key() == subject {
+				return PathLabel(g, p)
+			}
+		}
 		return PathLabel(g, core.Path{Nodes: nodes})
 	}
 	if n, ok := g.Node(subject); ok && n.Name != "" {

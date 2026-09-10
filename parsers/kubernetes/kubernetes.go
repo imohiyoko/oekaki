@@ -441,20 +441,21 @@ func (b *builder) routes(ing *object) {
 	// moment /checkout/v2 was added beside it, which is the half somebody is
 	// asking about when they ask what is unused.
 	//
-	// Two lists, because they are two things. ways is every way in this edge
-	// exists for, including the ones that are not a host and a path. paths is
-	// only the entries something can match an API against — a default backend
-	// is a way in and is not an API path, so writing it where a consumer
-	// expects one would be a promise this cannot keep.
+	// Two collections, because they are two things.
 	//
-	// Both are lists rather than one joined string, and that is not a style
-	// choice. A joined string cannot be merged: widen has no way to tell a
-	// value that holds several things from one that merely contains a comma —
-	// a label selector is `app=web,tier=front`, one value — so splitting to
-	// merge would break that, and not splitting would double this.
+	// words is every way in this edge exists for, said the way every other
+	// edge here says how it came to exist: the `via` note a person reads in a
+	// panel. It includes the ways in that matched on nothing — a default
+	// backend, a rule with neither host nor path.
+	//
+	// named is only the rules that matched on something, and it is a list
+	// rather than words because it is what a consumer reads. A rule that
+	// matched on nothing has no name to give: writing "default backend" where
+	// a consumer expects the way in to be named would be a promise this cannot
+	// keep.
 	words := map[string][]string{}
-	paths := map[string][]string{}
-	collect := func(backend any, where string, matchable bool) {
+	named := map[string][]string{}
+	collect := func(backend any, where string, matched bool) {
 		name := str(backend, "service", "name")
 		if name == "" {
 			name = str(backend, "serviceName")
@@ -465,8 +466,8 @@ func (b *builder) routes(ing *object) {
 		if !slices.Contains(words[name], where) {
 			words[name] = append(words[name], where)
 		}
-		if matchable && !slices.Contains(paths[name], where) {
-			paths[name] = append(paths[name], where)
+		if matched && !slices.Contains(named[name], where) {
+			named[name] = append(named[name], where)
 		}
 	}
 	collect(dig(ing.body, "spec", "defaultBackend"), "default backend", false)
@@ -476,21 +477,21 @@ func (b *builder) routes(ing *object) {
 			// A rule that names neither host nor path still is not the
 			// default backend: it catches everything, which is a different
 			// statement from catching what nothing else did.
-			where := str(rule, "host") + str(p, "path")
-			if where == "" {
+			host, path := str(rule, "host"), str(p, "path")
+			if host == "" && path == "" {
 				collect(dig(p, "backend"), "any host and path", false)
 				continue
 			}
-			collect(dig(p, "backend"), where, true)
+			collect(dig(p, "backend"), host+path, true)
 		}
 	}
 	for _, name := range sortedKeys(words) {
 		to := b.reference("Service", ing.namespace, name)
 		said := append([]string(nil), words[name]...)
 		sort.Strings(said)
-		attrs := map[string]any{"ways": said}
-		if matchable := paths[name]; len(matchable) > 0 {
-			rules := append([]string(nil), matchable...)
+		attrs := map[string]any{"via": strings.Join(said, ", ")}
+		if matched := named[name]; len(matched) > 0 {
+			rules := append([]string(nil), matched...)
 			sort.Strings(rules)
 			attrs["rules"] = rules
 		}
@@ -769,6 +770,14 @@ func widen(into, extra map[string]any) map[string]any {
 }
 
 // union is every value either reading saw, once each and in a stable order.
+//
+// It holds within one parse. Two documents that both describe the same edge are
+// merged again by core.Graph.Normalize, which keeps the smaller value rather
+// than joining them — so a routing edge arriving twice from two graphs would
+// keep one side's rules. Nothing does that today: b.edge merges within a parse,
+// and combining repositories qualifies every id, so the two edges are not the
+// same edge. It is written down because the day something does, this is where
+// the missing half went.
 func union(have, add []string) []string {
 	seen := map[string]bool{}
 	out := make([]string, 0, len(have)+len(add))
