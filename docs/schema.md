@@ -58,6 +58,12 @@ The Terraform parser emits three:
   because one module's resources routinely span several subnets and several
   modules share one.
 
+An axis is a vocabulary rather than a fixed list, and a reader that declares
+one says what it is grouping by. Reading an OpenAPI document adds **`api`**,
+one group per document: a surface is not network containment, since an
+operation is not in a namespace — the service that offers it is. See
+[api.md](api.md).
+
 ## Nodes
 
 A resource drawn as a box.

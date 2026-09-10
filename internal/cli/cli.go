@@ -278,6 +278,7 @@ type renderFlags struct {
 	reachability    stringList
 	logInventories  stringList
 	traceFiles      stringList
+	apiFiles        stringList
 	repositories    stringList
 	overlay         overlayFlags
 	layout          string
@@ -339,6 +340,7 @@ func runRender(ctx context.Context, env Env, args []string) error {
 	fs.Var(&f.reachability, "reachability", "apply normalized reachability JSON; repeatable")
 	fs.Var(&f.logInventories, "log-inventory", "apply classified log inventory JSON; repeatable")
 	fs.Var(&f.traceFiles, "traces", "apply request trace JSON; repeatable")
+	fs.Var(&f.apiFiles, "api", "read an OpenAPI document as a surface; prefix it with the id of the element it belongs to, as `--api service/shop/checkout=openapi.yaml`; repeatable")
 	fs.Var(&f.repositories, "repo", "add a repository, source directory, Terraform output, or graph; repeatable")
 	fs.Var(&f.repositories, "input", "alias for --repo; repeatable")
 	f.overlay.register(fs, true)
@@ -400,6 +402,9 @@ func runRender(ctx context.Context, env Env, args []string) error {
 		return err
 	}
 
+	if err := applyAPIs(env, g, f.apiFiles); err != nil {
+		return err
+	}
 	if err := applyOverlays(env, g, f.overlay); err != nil {
 		return err
 	}
@@ -669,6 +674,7 @@ func runGraph(ctx context.Context, env Env, args []string) error {
 	var aiArgs stringList
 	var logInventoryFiles stringList
 	var traceFiles stringList
+	var apiFiles stringList
 	var reachabilityFiles stringList
 	reachableFlag := false
 	fs.Var(&observationsFiles, "observations", "apply observation JSON; repeatable")
@@ -679,6 +685,7 @@ func runGraph(ctx context.Context, env Env, args []string) error {
 	fs.BoolVar(&reachableFlag, "reachable", false, "derive reachable edges from supported network rules")
 	fs.Var(&logInventoryFiles, "log-inventory", "apply classified log inventory JSON; repeatable")
 	fs.Var(&traceFiles, "traces", "apply request trace JSON; repeatable")
+	fs.Var(&apiFiles, "api", "read an OpenAPI document as a surface; prefix it with the id of the element it belongs to, as `--api service/shop/checkout=openapi.yaml`; repeatable")
 	fs.Var(&reachabilityFiles, "reachability", "apply normalized reachability JSON; repeatable")
 	fs.Var(&repositories, "repo", "add a repository, source directory, Terraform output, or graph; repeatable")
 	fs.Var(&repositories, "input", "alias for --repo; repeatable")
@@ -711,6 +718,9 @@ func runGraph(ctx context.Context, env Env, args []string) error {
 		return err
 	}
 
+	if err := applyAPIs(env, g, apiFiles); err != nil {
+		return err
+	}
 	if err := applyOverlays(env, g, ov); err != nil {
 		return err
 	}
@@ -1124,6 +1134,13 @@ func loadManifests(env Env, path string, raw []byte, scope string) (*core.Graph,
 	}
 	res, err := k8sparser.Parse(raw, k8sparser.Options{File: file, Scope: scope})
 	if err != nil {
+		if looksLikeAPI(raw) {
+			// A surface is not an estate: it describes one service and says
+			// nothing about what is around it, so it is read alongside an
+			// input rather than as one.
+			return nil, fmt.Errorf("%s is an OpenAPI document, which is read beside an estate rather than as one: "+
+				"pass it with --api, prefixed by the id of the element that serves it", describe(path))
+		}
 		return nil, fmt.Errorf("%s is not `terraform show -json` output, an oekaki graph, or Kubernetes manifests: %w",
 			describe(path), err)
 	}
