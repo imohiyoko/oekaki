@@ -157,12 +157,23 @@ walked is a route permanently `unused`, and nobody would ever find out why.
 - **A hop that repeats the one before it.** `a → a` is a typo; `a → b → a` is a
   real loop, which is why the IR allows repeats and why this is checked here
   rather than there.
-- **The same walk declared twice in one run.** `Normalize` folds routes that
-  agree and keeps the better-ranked claim, so the second label would go with
-  the one it dropped — silently, and differently depending on which origin each
-  assertion carried, which would show up as a label flipping in `oekaki diff`
-  for no reason anybody wrote down. The same walk under a different `kind` is a
-  different route, and both are kept.
+- **The same walk declared twice in one run**, across all the `--overlay` files
+  that run applies. **The first declaration wins**, and the later ones are
+  reported and dropped without their claims being weighed.
+
+  That is deliberate. Left to `Normalize`, the two would fold and the
+  better-ranked claim would keep the route — so the surviving *label* would
+  depend on which origin each assertion happened to carry, and `oekaki diff`
+  would show it flipping for no reason anybody wrote down. Within one run the
+  author can simply fix it, so they are told.
+
+  The same walk under a different `kind` is a different route, and both are
+  kept: the entity exists for the gap between what may happen and what did.
+
+Across separate runs — re-applying an overlay to a graph that already carries
+the route — nothing is dropped and `Normalize`'s ordinary rule applies: the
+routes fold, and the better-ranked claim keeps it. That is the same rule every
+other claim in the document follows.
 
 Every refusal names the assertion, says why, and appears on stderr as well as
 in `--overlay-report`.
