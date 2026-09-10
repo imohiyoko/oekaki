@@ -441,13 +441,17 @@ func (b *builder) routes(ing *object) {
 	// moment /checkout/v2 was added beside it, which is the half somebody is
 	// asking about when they ask what is unused.
 	//
-	// Two lists, because they are two things. words is how this edge came to
-	// exist said in words, which is what every other edge here carries and
-	// what a person reads in a panel; it includes the ways in that are not a
-	// host and a path. paths is the same fact as data, and only the entries
-	// something can match an API against — a default backend is a way in, and
-	// it is not an API path, so writing it where a consumer expects one would
-	// be a promise this cannot keep.
+	// Two lists, because they are two things. ways is every way in this edge
+	// exists for, including the ones that are not a host and a path. paths is
+	// only the entries something can match an API against — a default backend
+	// is a way in and is not an API path, so writing it where a consumer
+	// expects one would be a promise this cannot keep.
+	//
+	// Both are lists rather than one joined string, and that is not a style
+	// choice. A joined string cannot be merged: widen has no way to tell a
+	// value that holds several things from one that merely contains a comma —
+	// a label selector is `app=web,tier=front`, one value — so splitting to
+	// merge would break that, and not splitting would double this.
 	words := map[string][]string{}
 	paths := map[string][]string{}
 	collect := func(backend any, where string, matchable bool) {
@@ -484,7 +488,7 @@ func (b *builder) routes(ing *object) {
 		to := b.reference("Service", ing.namespace, name)
 		said := append([]string(nil), words[name]...)
 		sort.Strings(said)
-		attrs := map[string]any{"via": strings.Join(said, ", ")}
+		attrs := map[string]any{"ways": said}
 		if matchable := paths[name]; len(matchable) > 0 {
 			rules := append([]string(nil), matchable...)
 			sort.Strings(rules)
@@ -737,22 +741,16 @@ func widen(into, extra map[string]any) map[string]any {
 			// a substring test would drop a port because another one spells
 			// it.
 			//
-			// And the value arriving may itself be several, because a routing
-			// edge writes its rules joined. Testing the whole of "a, b"
-			// against a set holding a and b separately found neither, and
-			// appended it entire: "a, b, a, b" — the words then saying twice
-			// what the list beside them says once, which is the disagreement
-			// between the two halves this function exists to prevent.
-			known := partsOf(have)
-			out := have
-			for _, one := range splitParts(add) {
-				if known[one] {
-					continue
-				}
-				known[one] = true
-				out += ", " + one
+			// And the arriving value is whole too, however many commas are in
+			// it. A label selector is `app=web,tier=front` — one value that
+			// happens to contain a comma — and splitting it to merge part by
+			// part dropped `tier=front` and left a string that was neither
+			// selector. Anything here that really holds several things is a
+			// list, and lists merge below.
+			if partsOf(have)[add] {
+				continue
 			}
-			into[key] = out
+			into[key] = have + ", " + add
 
 		case []string:
 			// A list widens the same way the words beside it do. Leaving it at
@@ -786,23 +784,11 @@ func union(have, add []string) []string {
 	return out
 }
 
-// splitParts is a joined attribute read back as the values it was built from,
-// in the order they were written.
-func splitParts(joined string) []string {
-	var out []string
-	for _, part := range strings.Split(joined, ",") {
-		if part = strings.TrimSpace(part); part != "" {
-			out = append(out, part)
-		}
-	}
-	return out
-}
-
 // partsOf splits a joined attribute back into the values it was built from.
 func partsOf(joined string) map[string]bool {
 	out := map[string]bool{}
-	for _, part := range splitParts(joined) {
-		if part != "" {
+	for _, part := range strings.Split(joined, ",") {
+		if part = strings.TrimSpace(part); part != "" {
 			out[part] = true
 		}
 	}

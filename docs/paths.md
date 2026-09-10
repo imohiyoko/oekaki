@@ -218,7 +218,14 @@ string could not be matched against either of the two paths in it.
 Two rules that reach the same backend are both kept. Two paths to one service
 is the ordinary way an API is versioned, and they are one edge — the same
 Ingress to the same Service — but two facts about it, carried as
-`attrs.rules` on the edge beside the `via` note a person reads.
+`attrs.rules` on the edge, beside `attrs.ways` — every way in the edge exists
+for, including the ones that are not a host and a path.
+
+Both are lists rather than one joined string, and that is not a style choice: a
+joined string cannot be merged. Nothing can tell a value that holds several
+things from one that merely contains a comma — a label selector is
+`app=web,tier=front`, one value — so splitting to merge would break that, and
+not splitting would double this.
 
 It is the **first** hop's rule and nothing else's: a route is one way into the
 estate followed by one service calling another, and a rule further down is a
@@ -228,9 +235,9 @@ And only from an edge that **routes**, and only from its `rules`. `via` is a
 general "how did this come to exist" note that half the Kubernetes parser writes
 — a TLS secret, an `envFrom` key, a NetworkPolicy — and reading it wherever it
 appeared turned `web reads app-config` into an API somebody could be asked why
-nobody uses. The words also hold ways in that are not an API path, like a
+nobody uses. `ways` holds ways in that are not an API path either, like a
 default backend; an entry nothing can be matched against is not a smaller
-answer, it is a wrong one, so those stay in the words alone.
+answer, it is a wrong one, so those stay out of `rules`.
 
 ### What an entry does not say
 

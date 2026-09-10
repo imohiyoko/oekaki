@@ -511,9 +511,9 @@ func routingRules(e core.Edge) []string {
 	}
 	// From `rules` and nowhere else.
 	//
-	// `via` says how the edge came to exist in words, and the words include
-	// ways in that are not an API path — a default backend, a rule matching
-	// any host. Falling back to them put "default backend" where a consumer
+	// A routing edge also carries `ways`, which is every way in it exists for,
+	// and some of those are not an API path — a default backend, a rule
+	// matching any host. Reading them put "default backend" where a consumer
 	// was promised something it could match an API against, which is worse
 	// than saying nothing: an entry that cannot be matched is not a smaller
 	// answer, it is a wrong one.
