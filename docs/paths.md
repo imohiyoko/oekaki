@@ -241,10 +241,14 @@ answer, it is a wrong one, so those stay out of `rules`.
 
 ### What an entry does not say
 
-**A route is used or unused as a walk, not as an API path.** Traffic is folded
-into the services a request went through — that is what a trace records — so a
-route through `checkout` is walked if *anything* reached `checkout`, whichever
-rule let it in.
+**A route is used or unused as a walk, not as an API path.** A route is walked
+when an observed walk contains its whole participant sequence, in order and
+consecutively — the [comparison by run](#why-comparison-is-by-run-and-not-by-set)
+above, not "something reached the last hop".
+
+What an observed walk never contains is *which rule let the request in*. A trace
+folds to the services a request went through, so two rules that reach the same
+service are one route, and traffic on either marks it walked.
 
 So where one service is reached by two rules:
 
