@@ -1,6 +1,7 @@
 package views
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/imohiyoko/oekaki/core"
@@ -239,5 +240,87 @@ func TestWhyNothingCouldBeDerivedSaysWhichOfTheTwo(t *testing.T) {
 	ok.Paths = nil
 	if got := WhyNoDeclaredPaths(ok); got != "" {
 		t.Errorf("a graph that derives routes fine is explained as %q", got)
+	}
+}
+
+// routed is an estate a request enters through a routing rule: an ingress that
+// matches a host and a path, then a service that calls a database.
+func routed() *core.Graph {
+	g := core.New()
+	for _, id := range []string{"ingress:shop", "svc:checkout", "db:orders"} {
+		g.Nodes = append(g.Nodes, core.Node{ID: id, Type: "service", Name: id})
+	}
+	g.Edges = []core.Edge{
+		{From: "ingress:shop", To: "svc:checkout", Kind: core.EdgeIACRef, Relation: "routes",
+			Attrs: map[string]any{"via": "shop.example.com/checkout"}},
+		{From: "svc:checkout", To: "db:orders", Kind: core.EdgeIACRef, Relation: "calls"},
+	}
+	g.Normalize()
+	return g
+}
+
+// "Which API is nobody using" is the question being asked. A listing that
+// could only name the boxes involved was answering a different one — the host
+// and path a request arrives on is on the edge, and the derivation dropped it.
+func TestADerivedRouteSaysWhereARequestCameIn(t *testing.T) {
+	g := routed()
+	routes := DeclarePaths(g, DeclareOptions{})
+	if len(routes) != 1 {
+		t.Fatalf("got %d routes: %#v", len(routes), routes)
+	}
+	if got := EntryOf(routes[0]); got != "shop.example.com/checkout" {
+		t.Fatalf("the route does not say where it was entered: %q", got)
+	}
+	// And the line says both: the API, and what it goes through. Naming only
+	// the API would drop the other half of the same answer.
+	g.Paths = routes
+	label := PathLabel(g, routes[0])
+	for _, want := range []string{"shop.example.com/checkout", "svc:checkout", "db:orders"} {
+		if !strings.Contains(label, want) {
+			t.Errorf("the label does not carry %q: %q", want, label)
+		}
+	}
+}
+
+// The entry is the first hop's rule and nothing else's. A route is one way into
+// the estate followed by one service calling another, and a rule further down
+// would be a second way in rather than part of this one.
+func TestTheEntryIsTheFirstHopsRule(t *testing.T) {
+	g := routed()
+	g.Edges = append(g.Edges, core.Edge{
+		From: "db:orders", To: "svc:archive", Kind: core.EdgeIACRef, Relation: "routes",
+		Attrs: map[string]any{"via": "internal.example.com/archive"},
+	})
+	g.Nodes = append(g.Nodes, core.Node{ID: "svc:archive", Type: "service", Name: "archive"})
+	g.Normalize()
+
+	routes := DeclarePaths(g, DeclareOptions{})
+	if len(routes) != 1 {
+		t.Fatalf("got %d routes: %#v", len(routes), routes)
+	}
+	if got := EntryOf(routes[0]); got != "shop.example.com/checkout" {
+		t.Errorf("a rule further down became the way in: %q", got)
+	}
+}
+
+// A route nothing said anything about says nothing about where it came in,
+// rather than an empty prefix on every line.
+func TestARouteWithNoRuleSaysNothingAboutOne(t *testing.T) {
+	g := core.New()
+	for _, id := range []string{"a", "b"} {
+		g.Nodes = append(g.Nodes, core.Node{ID: id, Type: "service", Name: id})
+	}
+	g.Edges = []core.Edge{{From: "a", To: "b", Kind: core.EdgeIACRef, Relation: "calls"}}
+	g.Normalize()
+
+	routes := DeclarePaths(g, DeclareOptions{})
+	if len(routes) != 1 {
+		t.Fatalf("got %d routes", len(routes))
+	}
+	if EntryOf(routes[0]) != "" {
+		t.Errorf("a route invented a way in: %q", EntryOf(routes[0]))
+	}
+	if got := PathLabel(g, routes[0]); got != "a → b" {
+		t.Errorf("the label carries a prefix nobody wrote: %q", got)
 	}
 }

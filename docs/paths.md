@@ -188,6 +188,34 @@ happen, and what *did* happen comes from something that watched. Letting an
 overlay claim otherwise would put a hand-written route on the observed side of
 the very comparison the entity exists for.
 
+### Where a request came in
+
+A route that arrives through a routing rule says which one. An Ingress that
+matches a host and a path is exactly that rule, and the derivation now carries
+it onto the route:
+
+```console
+$ oekaki paths cluster.json
+2 declared routes derived by following references; nothing wrote them down
+unused      shop.example.com/checkout: shop → checkout
+            iac_ref route, and nothing has been seen walking it
+unused      shop.example.com/reports: shop → reports
+```
+
+"Which API is nobody using" is the question being asked. A listing that could
+only name the boxes involved was answering a different one — and a listing that
+named only the API would have dropped what it goes through, which is the other
+half of the same answer. It is on the route as `attrs.entry`, so something
+reading the JSON can filter by it.
+
+It is the **first** hop's rule and nothing else's: a route is one way into the
+estate followed by one service calling another, and a rule further down is a
+second way in rather than part of this one.
+
+Two rules that reach the same backend are both kept. Two paths to one service
+is the ordinary way an API is versioned, and they are one edge — the same
+Ingress to the same Service — but two facts about it.
+
 ### When nothing has written them down
 
 `oekaki paths` derives them by following declared references from wherever a

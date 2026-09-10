@@ -313,6 +313,12 @@ func Paths(g *core.Graph, opts PathOptions) ([]Finding, error) {
 type hop struct {
 	to   string
 	kind core.EdgeKind
+
+	// via is the routing rule this hop came in through, when the document
+	// records one — the host and path an Ingress matched, say. It is only
+	// meaningful on the first hop of a walk: that is the one that says how a
+	// request got in, and everything after it is one service calling another.
+	via string
 }
 
 // callGraph reads the declared calls out of a document: what leads where, and
@@ -337,7 +343,7 @@ func callGraph(g *core.Graph) (next map[string][]hop, roots []string, calls int)
 		if _, ok := g.Node(e.To); !ok {
 			continue
 		}
-		next[e.From] = append(next[e.From], hop{e.To, e.Kind})
+		next[e.From] = append(next[e.From], hop{to: e.To, kind: e.Kind, via: viaOf(e)})
 		called[e.To] = true
 		starts[e.From] = true
 		calls++
@@ -415,8 +421,8 @@ func DeclarePaths(g *core.Graph, opts DeclareOptions) []core.Path {
 	next, roots, _ := callGraph(g)
 
 	var out []core.Path
-	var walk func(chain []string, kind core.EdgeKind, visited map[string]bool)
-	walk = func(chain []string, kind core.EdgeKind, visited map[string]bool) {
+	var walk func(chain []string, kind core.EdgeKind, entry string, visited map[string]bool)
+	walk = func(chain []string, kind core.EdgeKind, entry string, visited map[string]bool) {
 		if len(out) >= limit {
 			return
 		}
@@ -443,8 +449,16 @@ func DeclarePaths(g *core.Graph, opts DeclareOptions) []core.Path {
 			if h.kind == core.EdgeReachable {
 				step = core.EdgeReachable
 			}
+			// Where the request came in. It is the first hop's rule and
+			// nothing else's: a route is one way into the estate followed by
+			// one service calling another, and a rule further down would be a
+			// second way in rather than part of this one.
+			came := entry
+			if len(chain) == 1 {
+				came = h.via
+			}
 			visited[h.to] = true
-			walk(append(chain, h.to), step, visited)
+			walk(append(chain, h.to), step, came, visited)
 			delete(visited, h.to)
 		}
 		if walked || len(chain) < 2 || len(out) >= limit {
@@ -452,13 +466,21 @@ func DeclarePaths(g *core.Graph, opts DeclareOptions) []core.Path {
 		}
 		route := make([]string, len(chain))
 		copy(route, chain)
-		out = append(out, core.Path{
+		p := core.Path{
 			Nodes: route, Kind: kind,
 			Claim: &core.Claim{Origin: core.OriginParser, Note: "derived from declared references"},
-		})
+		}
+		// The host and path a request arrives on is what somebody means when
+		// they ask which API is unused. Dropping it left a listing that could
+		// only say which boxes were involved, which is a different question
+		// and not the one that was asked.
+		if entry != "" {
+			p.Attrs = map[string]any{"entry": entry}
+		}
+		out = append(out, p)
 	}
 	for _, root := range roots {
-		walk([]string{root}, core.EdgeIACRef, map[string]bool{root: true})
+		walk([]string{root}, core.EdgeIACRef, "", map[string]bool{root: true})
 	}
 	return out
 }
@@ -476,11 +498,43 @@ const (
 	defaultDeclareLimit = 500
 )
 
+// viaOf is the routing rule an edge records, when it records one.
+func viaOf(e core.Edge) string {
+	if e.Attrs == nil {
+		return ""
+	}
+	via, _ := e.Attrs["via"].(string)
+	return via
+}
+
+// EntryOf is where a route was entered — the host and path an Ingress or a
+// routing rule matched — or "" when nothing said.
+func EntryOf(p core.Path) string {
+	if p.Attrs == nil {
+		return ""
+	}
+	entry, _ := p.Attrs["entry"].(string)
+	return entry
+}
+
 // PathLabel is a route written the way somebody says it out loud.
+//
+// A route that says where a request came in says it first. "Which API is
+// nobody using" is the question being asked, and a line that could only name
+// the boxes involved was answering a different one — while a line that named
+// only the API would have dropped what it goes through, which is the other
+// half of the same answer.
 func PathLabel(g *core.Graph, p core.Path) string {
 	if p.Label != "" {
 		return p.Label
 	}
+	if entry := EntryOf(p); entry != "" {
+		return entry + ": " + walkLabel(g, p)
+	}
+	return walkLabel(g, p)
+}
+
+func walkLabel(g *core.Graph, p core.Path) string {
 	names := make([]string, 0, len(p.Nodes))
 	for _, id := range p.Nodes {
 		if n, ok := g.Node(id); ok && n.Name != "" {
