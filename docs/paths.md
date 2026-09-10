@@ -245,8 +245,16 @@ many, it finds combinations a request can take and nobody does, which arrive as
 `unused`. Both bury the routes that actually matter, which is the reason to
 write them down.
 
-An API definition or a routing table would produce the same thing — a declared
-`core.Path` — and neither is read yet.
+A **routing table** is read: see [where a request came in](#where-a-request-came-in)
+above. An Ingress says which host and path reach which service, which is a route
+being declared, and the derivation carries it.
+
+An **API definition is not a source of routes.** OpenAPI and gRPC declare a
+service's *surface* — these operations exist — and one document describes one
+service, never what it calls, so the longest walk available from one is
+`client → service`. What they are good for is making an API a thing the graph
+carries, which is an addition to the IR and a different piece of work. See
+[roadmap.md](roadmap.md).
 
 ## How a count becomes an alert
 
