@@ -142,10 +142,12 @@ metadata:
 	var first []string
 	for range 5 {
 		res := parseString(t, body)
+		found := 0
 		for _, e := range res.Graph.Edges {
 			if e.Relation != "routes" {
 				continue
 			}
+			found++
 			rules, _ := e.Attrs["rules"].([]string)
 			if first == nil {
 				first = rules
@@ -158,6 +160,9 @@ metadata:
 					t.Fatalf("two runs disagree: %q and %q", first, rules)
 				}
 			}
+		}
+		if found != 1 {
+			t.Fatalf("got %d routing edges, want the one edge both rules are about", found)
 		}
 	}
 	if len(first) != 2 || first[0] != "a.example.com/a" || first[1] != "b.example.com/z" {
@@ -198,10 +203,12 @@ metadata:
   namespace: shop
 `)
 
+	found := 0
 	for _, e := range res.Graph.Edges {
 		if e.Relation != "routes" {
 			continue
 		}
+		found++
 		via, _ := e.Attrs["via"].(string)
 		for _, want := range []string{"default backend", "any host and path"} {
 			if !strings.Contains(via, want) {
@@ -211,6 +218,9 @@ metadata:
 		if rules, ok := e.Attrs["rules"]; ok {
 			t.Errorf("a rule that matched on nothing was given a name: %#v", rules)
 		}
+	}
+	if found != 1 {
+		t.Fatalf("got %d routing edges, want the one edge both ways in are about", found)
 	}
 }
 
@@ -272,13 +282,18 @@ metadata:
   namespace: shop
 `)
 
+	found := 0
 	for _, e := range res.Graph.Edges {
 		if e.Relation != "routes" {
 			continue
 		}
+		found++
 		rules, _ := e.Attrs["rules"].([]string)
 		if len(rules) != 1 || rules[0] != "shop.example.com" {
 			t.Errorf("the host is not named as the way in: %q", rules)
 		}
+	}
+	if found != 1 {
+		t.Fatalf("got %d routing edges, want the one the rule is about", found)
 	}
 }

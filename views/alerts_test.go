@@ -197,3 +197,29 @@ func TestTheOrderIsTheOneSomebodyWroteAndIsStable(t *testing.T) {
 		}
 	}
 }
+
+// One walk can be recorded twice — what the configuration declares and what
+// the traces observed — and only one of them was told where requests come in.
+// An alert names a subject, and a subject is the walk with no kind in it, so
+// the name has to come from the record that has something to say rather than
+// from whichever kind sorts first. Here the observed one does: "observed"
+// comes before "reachable", and a route through a hop the network merely
+// permits is a reachable route.
+func TestARouteIsNamedByTheRecordThatKnowsTheWayIn(t *testing.T) {
+	g := core.New()
+	for _, id := range []string{"gateway", "checkout"} {
+		g.Nodes = append(g.Nodes, core.Node{ID: id, Type: "service", Name: id})
+	}
+	walk := []string{"gateway", "checkout"}
+	g.Paths = []core.Path{
+		{Nodes: walk, Kind: core.EdgeObserved},
+		{Nodes: walk, Kind: core.EdgeReachable, Attrs: map[string]any{"entry": []string{"shop.example.com/checkout"}}},
+	}
+	g.Normalize()
+
+	got := labelOf(g, core.PathKey(walk))
+	want := "shop.example.com/checkout: gateway → checkout"
+	if got != want {
+		t.Errorf("the route is named %q, want %q", got, want)
+	}
+}

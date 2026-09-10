@@ -591,8 +591,15 @@ func labelOf(g *core.Graph, subject string) string {
 		// about them — the way in, above all — so the same route was named two
 		// ways in one run: with its API on the line a rule fired on, and
 		// without it on the line beside it.
+		//
+		// A subject is a walk, and a walk can be recorded more than once: what
+		// the routing table declares and what the traces observed are two
+		// paths with one key, and only one of them was told where requests
+		// come in. So the one with something to say is the one asked, rather
+		// than whichever kind happens to sort first. A path with nothing to
+		// say names the walk, which is what the rebuilt one below does.
 		for _, p := range g.Paths {
-			if p.Key() == subject {
+			if p.Key() == subject && (p.Label != "" || len(EntryOf(p)) > 0) {
 				return PathLabel(g, p)
 			}
 		}
