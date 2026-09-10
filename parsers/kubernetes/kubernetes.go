@@ -468,7 +468,15 @@ func (b *builder) routes(ing *object) {
 		to := b.reference("Service", ing.namespace, name)
 		where := append([]string(nil), backends[name]...)
 		sort.Strings(where)
-		b.edge(ing.id(), to, "routes", map[string]any{"via": strings.Join(where, ", ")})
+		// Two keys, because they are two things. `via` is how this edge came
+		// to exist in words, which is what every other edge here carries and
+		// what a person reads in a panel. `rules` is the same fact as data,
+		// one entry per rule, which is what something filtering by API path
+		// needs — and a joined string is not that.
+		b.edge(ing.id(), to, "routes", map[string]any{
+			"via":   strings.Join(where, ", "),
+			"rules": where,
+		})
 	}
 
 	// The certificate an Ingress presents is a Secret it cannot start without,

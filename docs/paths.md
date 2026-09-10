@@ -205,16 +205,30 @@ unused      shop.example.com/reports: shop → reports
 "Which API is nobody using" is the question being asked. A listing that could
 only name the boxes involved was answering a different one — and a listing that
 named only the API would have dropped what it goes through, which is the other
-half of the same answer. It is on the route as `attrs.entry`, so something
-reading the JSON can filter by it.
+half of the same answer.
+
+It is on the route as `attrs.entry`, **a list with one entry per rule**, so
+something reading the JSON can match a route against an API path. A joined
+string could not be matched against either of the two paths in it.
+
+```json
+{ "nodes": ["ingress/shop/shop", "service/shop/checkout"], "kind": "iac_ref",
+  "attrs": { "entry": ["shop.example.com/checkout", "shop.example.com/checkout/v2"] } }
+```
+
+Two rules that reach the same backend are both kept. Two paths to one service
+is the ordinary way an API is versioned, and they are one edge — the same
+Ingress to the same Service — but two facts about it, carried as
+`attrs.rules` on the edge beside the `via` note a person reads.
 
 It is the **first** hop's rule and nothing else's: a route is one way into the
 estate followed by one service calling another, and a rule further down is a
 second way in rather than part of this one.
 
-Two rules that reach the same backend are both kept. Two paths to one service
-is the ordinary way an API is versioned, and they are one edge — the same
-Ingress to the same Service — but two facts about it.
+And only from an edge that **routes**. `via` is a general "how did this come to
+exist" note that half the Kubernetes parser writes — a TLS secret, an `envFrom`
+key, a NetworkPolicy — and reading it wherever it appeared turned `web reads
+app-config` into an API somebody could be asked why nobody uses.
 
 ### When nothing has written them down
 

@@ -3,6 +3,7 @@ package views
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/imohiyoko/oekaki/core"
@@ -314,11 +315,11 @@ type hop struct {
 	to   string
 	kind core.EdgeKind
 
-	// via is the routing rule this hop came in through, when the document
-	// records one — the host and path an Ingress matched, say. It is only
+	// rules are the routing rules this hop came in through, when the document
+	// records any — the hosts and paths an Ingress matched. They are only
 	// meaningful on the first hop of a walk: that is the one that says how a
 	// request got in, and everything after it is one service calling another.
-	via string
+	rules []string
 }
 
 // callGraph reads the declared calls out of a document: what leads where, and
@@ -343,7 +344,7 @@ func callGraph(g *core.Graph) (next map[string][]hop, roots []string, calls int)
 		if _, ok := g.Node(e.To); !ok {
 			continue
 		}
-		next[e.From] = append(next[e.From], hop{to: e.To, kind: e.Kind, via: viaOf(e)})
+		next[e.From] = append(next[e.From], hop{to: e.To, kind: e.Kind, rules: routingRules(e)})
 		called[e.To] = true
 		starts[e.From] = true
 		calls++
@@ -421,8 +422,8 @@ func DeclarePaths(g *core.Graph, opts DeclareOptions) []core.Path {
 	next, roots, _ := callGraph(g)
 
 	var out []core.Path
-	var walk func(chain []string, kind core.EdgeKind, entry string, visited map[string]bool)
-	walk = func(chain []string, kind core.EdgeKind, entry string, visited map[string]bool) {
+	var walk func(chain []string, kind core.EdgeKind, entry []string, visited map[string]bool)
+	walk = func(chain []string, kind core.EdgeKind, entry []string, visited map[string]bool) {
 		if len(out) >= limit {
 			return
 		}
@@ -455,7 +456,7 @@ func DeclarePaths(g *core.Graph, opts DeclareOptions) []core.Path {
 			// second way in rather than part of this one.
 			came := entry
 			if len(chain) == 1 {
-				came = h.via
+				came = h.rules
 			}
 			visited[h.to] = true
 			walk(append(chain, h.to), step, came, visited)
@@ -474,13 +475,13 @@ func DeclarePaths(g *core.Graph, opts DeclareOptions) []core.Path {
 		// they ask which API is unused. Dropping it left a listing that could
 		// only say which boxes were involved, which is a different question
 		// and not the one that was asked.
-		if entry != "" {
-			p.Attrs = map[string]any{"entry": entry}
+		if len(entry) > 0 {
+			p.Attrs = map[string]any{"entry": append([]string(nil), entry...)}
 		}
 		out = append(out, p)
 	}
 	for _, root := range roots {
-		walk([]string{root}, core.EdgeIACRef, "", map[string]bool{root: true})
+		walk([]string{root}, core.EdgeIACRef, nil, map[string]bool{root: true})
 	}
 	return out
 }
@@ -498,23 +499,56 @@ const (
 	defaultDeclareLimit = 500
 )
 
-// viaOf is the routing rule an edge records, when it records one.
-func viaOf(e core.Edge) string {
-	if e.Attrs == nil {
-		return ""
+// routingRules are the rules an edge says a request arrives by.
+//
+// Only from an edge that routes. `via` is a general "how did this come to
+// exist" note that half the Kubernetes parser writes — a TLS secret, an
+// envFrom key, a NetworkPolicy — and reading it wherever it appears turned
+// `web reads app-config` into an API somebody could be asked why nobody uses.
+func routingRules(e core.Edge) []string {
+	if e.Attrs == nil || !strings.Contains(strings.ToLower(e.Relation), "route") {
+		return nil
 	}
-	via, _ := e.Attrs["via"].(string)
-	return via
+	if rules := stringsOf(e.Attrs["rules"]); len(rules) > 0 {
+		return rules
+	}
+	// A document written before the rules were kept as a list, or by something
+	// else that routes and says how in words.
+	if via, ok := e.Attrs["via"].(string); ok && via != "" {
+		return []string{via}
+	}
+	return nil
 }
 
-// EntryOf is where a route was entered — the host and path an Ingress or a
-// routing rule matched — or "" when nothing said.
-func EntryOf(p core.Path) string {
-	if p.Attrs == nil {
-		return ""
+// stringsOf reads a list of strings out of an attribute, whether it arrived as
+// one or came back through JSON as a list of anything.
+func stringsOf(v any) []string {
+	switch list := v.(type) {
+	case []string:
+		return append([]string(nil), list...)
+	case []any:
+		out := make([]string, 0, len(list))
+		for _, one := range list {
+			if s, ok := one.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
 	}
-	entry, _ := p.Attrs["entry"].(string)
-	return entry
+	return nil
+}
+
+// EntryOf is where a route was entered — the hosts and paths an Ingress or a
+// routing rule matched — or empty when nothing said.
+//
+// A list rather than one joined string: "which API is unused" is a question
+// something asks of the JSON, and an answer of "shop.example.com/checkout,
+// shop.example.com/checkout/v2" cannot be matched against either of them.
+func EntryOf(p core.Path) []string {
+	if p.Attrs == nil {
+		return nil
+	}
+	return stringsOf(p.Attrs["entry"])
 }
 
 // PathLabel is a route written the way somebody says it out loud.
@@ -528,8 +562,8 @@ func PathLabel(g *core.Graph, p core.Path) string {
 	if p.Label != "" {
 		return p.Label
 	}
-	if entry := EntryOf(p); entry != "" {
-		return entry + ": " + walkLabel(g, p)
+	if entry := EntryOf(p); len(entry) > 0 {
+		return strings.Join(entry, ", ") + ": " + walkLabel(g, p)
 	}
 	return walkLabel(g, p)
 }
