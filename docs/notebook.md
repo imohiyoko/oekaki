@@ -223,6 +223,19 @@ to go and search.
 finer than the diagram's own `read`: a note only some readers should see, or a
 reader who may read every note and write none.
 
+**Usage per API path, not per walk.** A route says which ways in reach it —
+the host and path an Ingress matched — but whether it was walked is decided by
+the services a request went through, because that is what a trace folds to. One
+service reached by `/checkout` and `/checkout/v2` is one route: traffic on
+either marks it walked, and a listing cannot say which of the two is dead.
+
+What that needs is the request path on the observation itself, which no
+collector writes. It cannot be solved by splitting the route into one per rule:
+a route is identified by its participants, so two routes through the same
+services are one route — and that identity is what makes an observation about a
+route addressable. Either the evidence gains a field, or the answer stays at
+the walk.
+
 ---
 
 ## Wanted, not started

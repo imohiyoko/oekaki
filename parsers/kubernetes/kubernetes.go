@@ -440,18 +440,33 @@ func (b *builder) routes(ing *object) {
 	// facts about it. Keeping only the last silently dropped /checkout the
 	// moment /checkout/v2 was added beside it, which is the half somebody is
 	// asking about when they ask what is unused.
-	backends := map[string][]string{}
-	collect := func(backend any, where string) {
+	//
+	// Two lists, because they are two things. words is how this edge came to
+	// exist said in words, which is what every other edge here carries and
+	// what a person reads in a panel; it includes the ways in that are not a
+	// host and a path. paths is the same fact as data, and only the entries
+	// something can match an API against — a default backend is a way in, and
+	// it is not an API path, so writing it where a consumer expects one would
+	// be a promise this cannot keep.
+	words := map[string][]string{}
+	paths := map[string][]string{}
+	collect := func(backend any, where string, matchable bool) {
 		name := str(backend, "service", "name")
 		if name == "" {
 			name = str(backend, "serviceName")
 		}
-		if name != "" && !slices.Contains(backends[name], where) {
-			backends[name] = append(backends[name], where)
+		if name == "" {
+			return
+		}
+		if !slices.Contains(words[name], where) {
+			words[name] = append(words[name], where)
+		}
+		if matchable && !slices.Contains(paths[name], where) {
+			paths[name] = append(paths[name], where)
 		}
 	}
-	collect(dig(ing.body, "spec", "defaultBackend"), "default backend")
-	collect(dig(ing.body, "spec", "backend"), "default backend")
+	collect(dig(ing.body, "spec", "defaultBackend"), "default backend", false)
+	collect(dig(ing.body, "spec", "backend"), "default backend", false)
 	for _, rule := range seq(ing.body, "spec", "rules") {
 		for _, p := range seq(rule, "http", "paths") {
 			// A rule that names neither host nor path still is not the
@@ -459,24 +474,23 @@ func (b *builder) routes(ing *object) {
 			// statement from catching what nothing else did.
 			where := str(rule, "host") + str(p, "path")
 			if where == "" {
-				where = "any host and path"
+				collect(dig(p, "backend"), "any host and path", false)
+				continue
 			}
-			collect(dig(p, "backend"), where)
+			collect(dig(p, "backend"), where, true)
 		}
 	}
-	for _, name := range sortedKeys(backends) {
+	for _, name := range sortedKeys(words) {
 		to := b.reference("Service", ing.namespace, name)
-		where := append([]string(nil), backends[name]...)
-		sort.Strings(where)
-		// Two keys, because they are two things. `via` is how this edge came
-		// to exist in words, which is what every other edge here carries and
-		// what a person reads in a panel. `rules` is the same fact as data,
-		// one entry per rule, which is what something filtering by API path
-		// needs — and a joined string is not that.
-		b.edge(ing.id(), to, "routes", map[string]any{
-			"via":   strings.Join(where, ", "),
-			"rules": where,
-		})
+		said := append([]string(nil), words[name]...)
+		sort.Strings(said)
+		attrs := map[string]any{"via": strings.Join(said, ", ")}
+		if matchable := paths[name]; len(matchable) > 0 {
+			rules := append([]string(nil), matchable...)
+			sort.Strings(rules)
+			attrs["rules"] = rules
+		}
+		b.edge(ing.id(), to, "routes", attrs)
 	}
 
 	// The certificate an Ingress presents is a Secret it cannot start without,
@@ -722,10 +736,23 @@ func widen(into, extra map[string]any) map[string]any {
 			// Compared as whole values, not as text. "8080" contains "80", and
 			// a substring test would drop a port because another one spells
 			// it.
-			if partsOf(have)[add] {
-				continue
+			//
+			// And the value arriving may itself be several, because a routing
+			// edge writes its rules joined. Testing the whole of "a, b"
+			// against a set holding a and b separately found neither, and
+			// appended it entire: "a, b, a, b" — the words then saying twice
+			// what the list beside them says once, which is the disagreement
+			// between the two halves this function exists to prevent.
+			known := partsOf(have)
+			out := have
+			for _, one := range splitParts(add) {
+				if known[one] {
+					continue
+				}
+				known[one] = true
+				out += ", " + one
 			}
-			into[key] = have + ", " + add
+			into[key] = out
 
 		case []string:
 			// A list widens the same way the words beside it do. Leaving it at
@@ -759,11 +786,23 @@ func union(have, add []string) []string {
 	return out
 }
 
+// splitParts is a joined attribute read back as the values it was built from,
+// in the order they were written.
+func splitParts(joined string) []string {
+	var out []string
+	for _, part := range strings.Split(joined, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
 // partsOf splits a joined attribute back into the values it was built from.
 func partsOf(joined string) map[string]bool {
 	out := map[string]bool{}
-	for _, part := range strings.Split(joined, ",") {
-		if part = strings.TrimSpace(part); part != "" {
+	for _, part := range splitParts(joined) {
+		if part != "" {
 			out[part] = true
 		}
 	}
