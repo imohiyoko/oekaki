@@ -207,8 +207,15 @@ that named only the API would have dropped what it goes through, which is the
 other half of the same answer.
 
 It is on the route as `attrs.entry`, **a list with one entry per rule**, so
-something reading the JSON can match a route against an API path. A joined
-string could not be matched against either of the two paths in it.
+something reading the JSON can tell one way in from another and group by it. A
+joined string could not be told apart from either of the two paths in it.
+
+It **names** a way in; it does not decide whether a URL matches one. An entry
+is the host and the path a rule matched on, run together — `shop.example.com`,
+`/checkout`, `shop.example.com/checkout`, `*.example.com/checkout` — and the
+`pathType` that says whether the path is exact or a prefix is not carried,
+because that is matching semantics rather than identity. Anything deciding
+whether a request belongs to a rule has to read the rule.
 
 ```json
 { "nodes": ["ingress/shop/shop", "service/shop/checkout"], "kind": "iac_ref",
@@ -217,15 +224,13 @@ string could not be matched against either of the two paths in it.
 
 Two rules that reach the same backend are both kept. Two paths to one service
 is the ordinary way an API is versioned, and they are one edge — the same
-Ingress to the same Service — but two facts about it, carried as
-`attrs.rules` on the edge, beside `attrs.ways` — every way in the edge exists
-for, including the ones that are not a host and a path.
+Ingress to the same Service — but two facts about it, carried as `attrs.rules`
+on the edge beside the `via` note a person reads.
 
-Both are lists rather than one joined string, and that is not a style choice: a
-joined string cannot be merged. Nothing can tell a value that holds several
-things from one that merely contains a comma — a label selector is
-`app=web,tier=front`, one value — so splitting to merge would break that, and
-not splitting would double this.
+`rules` is a **list** and `via` is words, because they are read by different
+things. A list can be merged when the same edge is read twice; a joined string
+cannot, since nothing can tell a value that holds several things from one that
+merely contains a comma — a label selector is `app=web,tier=front`, one value.
 
 It is the **first** hop's rule and nothing else's: a route is one way into the
 estate followed by one service calling another, and a rule further down is a
@@ -235,9 +240,13 @@ And only from an edge that **routes**, and only from its `rules`. `via` is a
 general "how did this come to exist" note that half the Kubernetes parser writes
 — a TLS secret, an `envFrom` key, a NetworkPolicy — and reading it wherever it
 appeared turned `web reads app-config` into an API somebody could be asked why
-nobody uses. `ways` holds ways in that are not an API path either, like a
-default backend; an entry nothing can be matched against is not a smaller
-answer, it is a wrong one, so those stay out of `rules`.
+nobody uses.
+
+`rules` holds what a rule **matched on**, and only that. A rule that matched on
+a host alone names that host, which is a way in somebody can tell from another.
+A rule that matched on nothing — a default backend, a rule with neither host nor
+path — has no name to give, and stays in the words: a name nothing can be told
+apart by is not a smaller answer, it is a wrong one.
 
 ### What an entry does not say
 

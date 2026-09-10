@@ -1,7 +1,7 @@
 package kubernetes
 
 import (
-	"slices"
+	"strings"
 	"testing"
 )
 
@@ -53,13 +53,15 @@ metadata:
 		// Compared entry by entry. `/checkout` is a substring of
 		// `/checkout/v2`, so a containment test passes on the version that
 		// dropped it — which is the exact failure this test is here to catch.
-		for _, key := range []string{"ways", "rules"} {
-			list, _ := e.Attrs[key].([]string)
-			if len(list) != 2 ||
-				list[0] != "shop.example.com/checkout" ||
-				list[1] != "shop.example.com/checkout/v2" {
-				t.Errorf("%s is %q", key, list)
-			}
+		rules, _ := e.Attrs["rules"].([]string)
+		if len(rules) != 2 ||
+			rules[0] != "shop.example.com/checkout" ||
+			rules[1] != "shop.example.com/checkout/v2" {
+			t.Errorf("the rules are %q", rules)
+		}
+		via, _ := e.Attrs["via"].(string)
+		if want := "shop.example.com/checkout, shop.example.com/checkout/v2"; via != want {
+			t.Errorf("the words read %q, want %q", via, want)
 		}
 	}
 	if found != 1 {
@@ -200,14 +202,14 @@ metadata:
 		if e.Relation != "routes" {
 			continue
 		}
-		ways, _ := e.Attrs["ways"].([]string)
+		via, _ := e.Attrs["via"].(string)
 		for _, want := range []string{"default backend", "any host and path"} {
-			if !slices.Contains(ways, want) {
-				t.Errorf("the ways in lost %q: %q", want, ways)
+			if !strings.Contains(via, want) {
+				t.Errorf("the words lost %q: %q", want, via)
 			}
 		}
 		if rules, ok := e.Attrs["rules"]; ok {
-			t.Errorf("a description was written where an API path is promised: %#v", rules)
+			t.Errorf("a rule that matched on nothing was given a name: %#v", rules)
 		}
 	}
 }
@@ -238,5 +240,45 @@ func TestAListMergesAsASet(t *testing.T) {
 	rules, _ := into["rules"].([]string)
 	if len(rules) != 2 || rules[0] != "a.example.com/one" || rules[1] != "b.example.com/two" {
 		t.Errorf("the rules are %q", rules)
+	}
+}
+
+// A rule that matched on a host alone names that host, which is a way in
+// somebody can tell from another. What has no name is a rule that matched on
+// nothing — a default backend, a rule with neither host nor path — and that is
+// the line: `rules` holds what the rule matched on.
+func TestARuleThatMatchedOnAHostAloneIsStillNamed(t *testing.T) {
+	res := parseString(t, `
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: shop
+  namespace: shop
+spec:
+  rules:
+    - host: shop.example.com
+      http:
+        paths:
+          - backend:
+              service:
+                name: checkout
+                port:
+                  number: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: checkout
+  namespace: shop
+`)
+
+	for _, e := range res.Graph.Edges {
+		if e.Relation != "routes" {
+			continue
+		}
+		rules, _ := e.Attrs["rules"].([]string)
+		if len(rules) != 1 || rules[0] != "shop.example.com" {
+			t.Errorf("the host is not named as the way in: %q", rules)
+		}
 	}
 }
