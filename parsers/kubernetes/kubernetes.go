@@ -713,19 +713,50 @@ func widen(into, extra map[string]any) map[string]any {
 			into[key] = value
 			continue
 		}
-		have, haveOK := current.(string)
-		add, addOK := value.(string)
-		if !haveOK || !addOK {
-			continue
+		switch have := current.(type) {
+		case string:
+			add, ok := value.(string)
+			if !ok {
+				continue
+			}
+			// Compared as whole values, not as text. "8080" contains "80", and
+			// a substring test would drop a port because another one spells
+			// it.
+			if partsOf(have)[add] {
+				continue
+			}
+			into[key] = have + ", " + add
+
+		case []string:
+			// A list widens the same way the words beside it do. Leaving it at
+			// the first reading was the failure this function's own comment
+			// describes: an edge narrowed to a rule that is only half of it —
+			// and worse here, because the two halves would then disagree, with
+			// the words saying two rules and the data saying one.
+			add, ok := value.([]string)
+			if !ok {
+				continue
+			}
+			into[key] = union(have, add)
 		}
-		// Compared as whole values, not as text. "8080" contains "80", and a
-		// substring test would drop a port because another one spells it.
-		if partsOf(have)[add] {
-			continue
-		}
-		into[key] = have + ", " + add
 	}
 	return into
+}
+
+// union is every value either reading saw, once each and in a stable order.
+func union(have, add []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(have)+len(add))
+	for _, list := range [][]string{have, add} {
+		for _, one := range list {
+			if !seen[one] {
+				seen[one] = true
+				out = append(out, one)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // partsOf splits a joined attribute back into the values it was built from.
