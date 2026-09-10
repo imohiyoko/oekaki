@@ -1,7 +1,7 @@
 package kubernetes
 
 import (
-	"strings"
+	"slices"
 	"testing"
 )
 
@@ -50,16 +50,16 @@ metadata:
 			continue
 		}
 		found++
-		// Compared whole. `/checkout` is a substring of `/checkout/v2`, so a
-		// containment test passes on the version that dropped it — which is
-		// the exact failure this test is here to catch.
-		via, _ := e.Attrs["via"].(string)
-		if want := "shop.example.com/checkout, shop.example.com/checkout/v2"; via != want {
-			t.Errorf("the rules read %q, want %q", via, want)
-		}
-		rules, _ := e.Attrs["rules"].([]string)
-		if len(rules) != 2 || rules[0] != "shop.example.com/checkout" || rules[1] != "shop.example.com/checkout/v2" {
-			t.Errorf("the rules as data are %q", rules)
+		// Compared entry by entry. `/checkout` is a substring of
+		// `/checkout/v2`, so a containment test passes on the version that
+		// dropped it — which is the exact failure this test is here to catch.
+		for _, key := range []string{"ways", "rules"} {
+			list, _ := e.Attrs[key].([]string)
+			if len(list) != 2 ||
+				list[0] != "shop.example.com/checkout" ||
+				list[1] != "shop.example.com/checkout/v2" {
+				t.Errorf("%s is %q", key, list)
+			}
 		}
 	}
 	if found != 1 {
@@ -137,23 +137,28 @@ metadata:
   name: checkout
   namespace: shop
 `
-	first := ""
+	var first []string
 	for range 5 {
 		res := parseString(t, body)
 		for _, e := range res.Graph.Edges {
 			if e.Relation != "routes" {
 				continue
 			}
-			via, _ := e.Attrs["via"].(string)
-			if first == "" {
-				first = via
+			rules, _ := e.Attrs["rules"].([]string)
+			if first == nil {
+				first = rules
 			}
-			if via != first {
-				t.Fatalf("two runs disagree: %q and %q", first, via)
+			if len(rules) != len(first) {
+				t.Fatalf("two runs disagree: %q and %q", first, rules)
+			}
+			for i := range rules {
+				if rules[i] != first[i] {
+					t.Fatalf("two runs disagree: %q and %q", first, rules)
+				}
 			}
 		}
 	}
-	if first != "a.example.com/a, b.example.com/z" {
+	if len(first) != 2 || first[0] != "a.example.com/a" || first[1] != "b.example.com/z" {
 		t.Errorf("the rules are not in order: %q", first)
 	}
 }
@@ -195,10 +200,10 @@ metadata:
 		if e.Relation != "routes" {
 			continue
 		}
-		via, _ := e.Attrs["via"].(string)
+		ways, _ := e.Attrs["ways"].([]string)
 		for _, want := range []string{"default backend", "any host and path"} {
-			if !strings.Contains(via, want) {
-				t.Errorf("the words lost %q: %q", want, via)
+			if !slices.Contains(ways, want) {
+				t.Errorf("the ways in lost %q: %q", want, ways)
 			}
 		}
 		if rules, ok := e.Attrs["rules"]; ok {
@@ -207,20 +212,31 @@ metadata:
 	}
 }
 
-// A joined value read a second time comes apart before it is compared. Testing
-// the whole of "a, b" against a set holding a and b separately found neither
-// and appended it entire — the words then saying twice what the list beside
-// them says once.
-func TestAJoinedValueReadAgainDoesNotDoubleItself(t *testing.T) {
-	into := map[string]any{"via": "a.example.com/one, b.example.com/two"}
-	widen(into, map[string]any{"via": "a.example.com/one, b.example.com/two"})
-	if via, _ := into["via"].(string); via != "a.example.com/one, b.example.com/two" {
-		t.Errorf("the words doubled: %q", via)
-	}
+// A value is whole, however many commas are in it.
+//
+// A label selector is `app=web,tier=front` — one value that happens to contain
+// a comma — and splitting it to merge part by part dropped `tier=front` and
+// left a string that was neither selector. Anything here that really holds
+// several things is a list, and lists merge as sets.
+func TestAValueThatContainsACommaIsStillOneValue(t *testing.T) {
+	into := map[string]any{"selector": "app=web,tier=front"}
+	widen(into, map[string]any{"selector": "app=api,tier=front"})
 
-	widen(into, map[string]any{"via": "a.example.com/one, c.example.com/three"})
-	want := "a.example.com/one, b.example.com/two, c.example.com/three"
-	if via, _ := into["via"].(string); via != want {
-		t.Errorf("the words read %q, want %q", via, want)
+	want := "app=web,tier=front, app=api,tier=front"
+	if got, _ := into["selector"].(string); got != want {
+		t.Errorf("the selectors read %q, want %q", got, want)
+	}
+}
+
+// A list merges as a set: everything either reading saw, once each, in an
+// order two runs agree on.
+func TestAListMergesAsASet(t *testing.T) {
+	into := map[string]any{"rules": []string{"b.example.com/two"}}
+	widen(into, map[string]any{"rules": []string{"a.example.com/one"}})
+	widen(into, map[string]any{"rules": []string{"a.example.com/one"}})
+
+	rules, _ := into["rules"].([]string)
+	if len(rules) != 2 || rules[0] != "a.example.com/one" || rules[1] != "b.example.com/two" {
+		t.Errorf("the rules are %q", rules)
 	}
 }

@@ -253,7 +253,7 @@ func routed() *core.Graph {
 	g.Edges = []core.Edge{
 		{From: "ingress:shop", To: "svc:checkout", Kind: core.EdgeIACRef, Relation: "routes",
 			Attrs: map[string]any{
-				"via":   "shop.example.com/checkout",
+				"ways":  []string{"shop.example.com/checkout"},
 				"rules": []string{"shop.example.com/checkout"},
 			}},
 		{From: "svc:checkout", To: "db:orders", Kind: core.EdgeIACRef, Relation: "calls"},
@@ -293,7 +293,7 @@ func TestTheEntryIsTheFirstHopsRule(t *testing.T) {
 	g.Edges = append(g.Edges, core.Edge{
 		From: "db:orders", To: "svc:archive", Kind: core.EdgeIACRef, Relation: "routes",
 		Attrs: map[string]any{
-			"via":   "internal.example.com/archive",
+			"ways":  []string{"internal.example.com/archive"},
 			"rules": []string{"internal.example.com/archive"},
 		},
 	})
@@ -390,16 +390,16 @@ func TestTheEntriesAreAListAndNotOneJoinedString(t *testing.T) {
 
 // An entry comes from `rules` and nowhere else.
 //
-// `via` says how the edge came to exist in words, and the words include ways in
-// that are not an API path — a default backend, a rule matching any host.
-// Reading them put "default backend" where a consumer was promised something it
-// could match an API against, which is worse than saying nothing: an entry that
-// cannot be matched is not a smaller answer, it is a wrong one.
-func TestWordsAreNotAnEntry(t *testing.T) {
+// `ways` is every way in this edge exists for, and some of them are not an API
+// path — a default backend, a rule matching any host. Reading them put "default
+// backend" where a consumer was promised something it could match an API
+// against, which is worse than saying nothing: an entry that cannot be matched
+// is not a smaller answer, it is a wrong one.
+func TestAWayInIsNotAlwaysAnEntry(t *testing.T) {
 	g := routed()
 	for i := range g.Edges {
 		if g.Edges[i].Relation == "routes" {
-			g.Edges[i].Attrs = map[string]any{"via": "default backend"}
+			g.Edges[i].Attrs = map[string]any{"ways": []string{"default backend"}}
 		}
 	}
 	g.Normalize()
