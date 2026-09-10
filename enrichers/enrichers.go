@@ -46,7 +46,13 @@ type Unmatched struct {
 	Assert   string            `json:"assert"`
 	Reason   string            `json:"reason"`
 
-	// Action is what was done about it: "adopted" or "dropped".
+	// Action is what was done about it: "adopted", "dropped" or "reported".
+	//
+	// It is what the summary line leads with, because it is the part a reader
+	// acts on. Reason follows it. The line used to lead with "matched nothing"
+	// instead, which was one of the reasons rather than the outcome — and a
+	// lie for the ones where the selector matched something that could not be
+	// used.
 	Action string `json:"action"`
 }
 
@@ -130,7 +136,11 @@ func (r *Report) WriteText(w io.Writer) {
 	}
 
 	for _, u := range r.Unmatched {
-		fmt.Fprintf(w, "  matched nothing (%s): %s\n", u.Action, selectorString(u.Selector))
+		line := fmt.Sprintf("  %s: %s", u.Action, selectorString(u.Selector))
+		if u.Reason != "" {
+			line += " — " + u.Reason
+		}
+		fmt.Fprintln(w, line)
 	}
 	for _, a := range r.Ambiguous {
 		fmt.Fprintf(w, "  ambiguous, not applied: %s -> %s\n",
