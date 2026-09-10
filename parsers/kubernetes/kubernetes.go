@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strings"
 
@@ -432,14 +433,21 @@ func (b *builder) selects(svc *object) {
 // because a repository that still has the older shape is exactly the
 // repository that needs to see it drawn.
 func (b *builder) routes(ing *object) {
-	backends := map[string]string{}
+	// Every rule that reaches a Service, not the last one read.
+	//
+	// Two paths to one backend is the ordinary way an API is versioned, and
+	// they are one edge — the same Ingress to the same Service — but two
+	// facts about it. Keeping only the last silently dropped /checkout the
+	// moment /checkout/v2 was added beside it, which is the half somebody is
+	// asking about when they ask what is unused.
+	backends := map[string][]string{}
 	collect := func(backend any, where string) {
 		name := str(backend, "service", "name")
 		if name == "" {
 			name = str(backend, "serviceName")
 		}
-		if name != "" {
-			backends[name] = where
+		if name != "" && !slices.Contains(backends[name], where) {
+			backends[name] = append(backends[name], where)
 		}
 	}
 	collect(dig(ing.body, "spec", "defaultBackend"), "default backend")
@@ -458,7 +466,9 @@ func (b *builder) routes(ing *object) {
 	}
 	for _, name := range sortedKeys(backends) {
 		to := b.reference("Service", ing.namespace, name)
-		b.edge(ing.id(), to, "routes", map[string]any{"via": backends[name]})
+		where := append([]string(nil), backends[name]...)
+		sort.Strings(where)
+		b.edge(ing.id(), to, "routes", map[string]any{"via": strings.Join(where, ", ")})
 	}
 
 	// The certificate an Ingress presents is a Secret it cannot start without,
@@ -793,7 +803,7 @@ func joined(m map[string]string) string {
 	return strings.Join(parts, ",")
 }
 
-func sortedKeys(m map[string]string) []string {
+func sortedKeys[V any](m map[string]V) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
 		out = append(out, k)

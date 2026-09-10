@@ -164,10 +164,20 @@ nothing, so every observed route reads as unannounced; where there are many, it
 finds combinations a request *can* take and nobody does, which arrive as
 `unused`. Both bury the routes that matter.
 
-What is left is the sources that are not a person: an OpenAPI or gRPC
-definition, a routing table, an ingress or gateway configuration. Each would
-produce the same thing the overlay does — a declared `core.Path` — which is why
-the overlay came first.
+The routing side is done too, and it turned out to be already half there. A
+Kubernetes Ingress records `routes` edges carrying the host and path it
+matches, and the derivation already walked them — it was throwing the host and
+path away. Now it keeps them, so a listing can say which API is unused rather
+than only which boxes were involved.
+
+**OpenAPI and gRPC are not a source of routes**, which is worth writing down
+because the list above said they were. Those documents declare a service's
+*surface* — these operations exist — and one of them describes one service,
+never what it calls. From an OpenAPI document alone the longest walk available
+is `client → service`. What they are actually good for is making an API a thing
+the graph carries, which is what "a communication diagram is a cluster of APIs,
+and one API opens into its sequence" needs — an addition to the IR, and a
+different piece of work from this one.
 
 **Spike and silence.** Done — [rules.md](rules.md). A bound is written down
 per subject or per route, silence is a condition of its own because the
