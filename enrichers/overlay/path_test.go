@@ -224,3 +224,80 @@ func TestARouteDoesNotCarryAResourceField(t *testing.T) {
 		t.Errorf("the error does not say which field: %v", err)
 	}
 }
+
+// Two selectors, one after the other, naming the same box. A request does not
+// go from a box to itself, so this is a typo — and `a → b → a` is a real loop,
+// which is why core allows repeats and why the check has to be here. Left
+// alone it produces a route nothing can ever walk, permanently unused, in
+// silence: the shape this whole assertion exists to stop being manufactured.
+func TestAHopThatRepeatsTheOneBeforeItIsRefused(t *testing.T) {
+	g, r := apply(t, doc(`
+	  {"assert":"path",
+	   "through":[{"name":"api","type":"aws_lb"},
+	              {"node":"aws_lb.api"},
+	              {"node":"aws_db_instance.orders"}]}`), Options{})
+
+	if len(g.Paths) != 0 {
+		t.Fatalf("a route through a box and then itself was applied: %#v", g.Paths)
+	}
+	if r.r.Clean() {
+		t.Error("the report says nothing went wrong")
+	}
+}
+
+// And a route that genuinely comes back through something it already went
+// through is still a route. The check is about two hops in a row, not about
+// repeats.
+func TestARouteMayComeBackThroughSomething(t *testing.T) {
+	g, _ := apply(t, doc(`
+	  {"assert":"path",
+	   "through":[{"node":"aws_lb.api"},
+	              {"node":"aws_db_instance.orders"},
+	              {"node":"aws_lb.api"}]}`), Options{})
+
+	if len(g.Paths) != 1 {
+		t.Fatalf("a loop was refused: %#v", g.Paths)
+	}
+	if err := g.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The same walk declared twice. Normalize folds paths that agree, keeping the
+// better-ranked claim, and the second label goes with the one it dropped —
+// silently, and differently depending on which origin each assertion carried,
+// so `oekaki diff` would show the label flipping for no reason anybody wrote
+// down.
+func TestTheSameWalkDeclaredTwiceIsToldRatherThanFolded(t *testing.T) {
+	g, r := apply(t, doc(`
+	  {"assert":"path","label":"first",
+	   "through":[{"node":"aws_lb.api"},{"node":"aws_db_instance.orders"}]},
+	  {"assert":"path","label":"second",
+	   "through":[{"node":"aws_lb.api"},{"node":"aws_db_instance.orders"}]}`), Options{})
+
+	if len(g.Paths) != 1 {
+		t.Fatalf("got %d routes: %#v", len(g.Paths), g.Paths)
+	}
+	// The first one wins, because it is the one that was applied — not the
+	// one a claim rank happened to prefer.
+	if g.Paths[0].Label != "first" {
+		t.Errorf("the surviving route is called %q", g.Paths[0].Label)
+	}
+	if r.r.Clean() {
+		t.Error("the second assertion vanished without a word")
+	}
+}
+
+// The same walk under a different kind is a different route: the entity exists
+// for the gap between what may happen and what did.
+func TestTheSameWalkUnderAnotherKindIsAnotherRoute(t *testing.T) {
+	g, _ := apply(t, doc(`
+	  {"assert":"path","kind":"iac_ref",
+	   "through":[{"node":"aws_lb.api"},{"node":"aws_db_instance.orders"}]},
+	  {"assert":"path","kind":"reachable",
+	   "through":[{"node":"aws_lb.api"},{"node":"aws_db_instance.orders"}]}`), Options{})
+
+	if len(g.Paths) != 2 {
+		t.Fatalf("got %d routes: %#v", len(g.Paths), g.Paths)
+	}
+}

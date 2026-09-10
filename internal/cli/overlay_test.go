@@ -156,8 +156,14 @@ func TestGraphWithOverlayThenRenderMatchesDirectRender(t *testing.T) {
 func TestUnmatchedEvidenceIsReportedOnStderr(t *testing.T) {
 	r := mustRun(t, "", "graph", plan, "--overlay", overlayFile(t, overlayBody))
 
-	if !strings.Contains(r.stderr, "matched nothing") {
-		t.Errorf("stderr does not mention the unmatched subject: %q", r.stderr)
+	// What was done about it, then why. Leading with "matched nothing" said
+	// one of the reasons where the outcome belongs, and said it falsely for
+	// the ones where the selector matched something that could not be used.
+	if !strings.Contains(r.stderr, "adopted:") {
+		t.Errorf("stderr does not say what was done about it: %q", r.stderr)
+	}
+	if !strings.Contains(r.stderr, "no resource in this graph answers to it") {
+		t.Errorf("stderr does not say why: %q", r.stderr)
 	}
 	if !strings.Contains(r.stderr, "ghost") {
 		t.Errorf("stderr does not name the unmatched subject: %q", r.stderr)

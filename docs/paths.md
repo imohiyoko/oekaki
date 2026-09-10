@@ -149,8 +149,23 @@ the route would then be permanently `unused` while the real one stayed
 manufactured from a typo, in silence.
 
 A hop that names a **container** is refused for a plainer reason: a container
-does not call anything, which is why the IR refuses a path through one. Which
-hop, and why, is in `--overlay-report`.
+does not call anything, which is why the IR refuses a path through one.
+
+Two more are refused for the same reason as the first: a route that cannot be
+walked is a route permanently `unused`, and nobody would ever find out why.
+
+- **A hop that repeats the one before it.** `a → a` is a typo; `a → b → a` is a
+  real loop, which is why the IR allows repeats and why this is checked here
+  rather than there.
+- **The same walk declared twice in one run.** `Normalize` folds routes that
+  agree and keeps the better-ranked claim, so the second label would go with
+  the one it dropped — silently, and differently depending on which origin each
+  assertion carried, which would show up as a label flipping in `oekaki diff`
+  for no reason anybody wrote down. The same walk under a different `kind` is a
+  different route, and both are kept.
+
+Every refusal names the assertion, says why, and appears on stderr as well as
+in `--overlay-report`.
 
 The route carries the claim of whoever wrote it, so a listing can say who said
 so — and `oekaki diff` reports it when it changes, which is the point of writing

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/imohiyoko/oekaki/core"
 	"github.com/imohiyoko/oekaki/enrichers"
@@ -204,6 +205,9 @@ func cloneClaim(claim *core.Claim) *core.Claim {
 func (e *enricher) Enrich(g *core.Graph) (*enrichers.Report, error) {
 	report := &enrichers.Report{Enricher: e.Name()}
 	ix := NewIndex(g)
+	// The walks this run has already recorded, so a document that declares one
+	// twice is told rather than folded.
+	declared := map[string]bool{}
 	tallies := map[string]*tally{}
 	nodeClaims := newNodeFieldClaims(g)
 	edgeClaims := newEdgeAssertionTracker(g)
@@ -216,7 +220,7 @@ func (e *enricher) Enrich(g *core.Graph) (*enrichers.Report, error) {
 		if w := doc.window(); w != "" && report.Window == "" {
 			report.Window = w
 		}
-		if err := e.applyDocument(g, ix, doc, tallies, nodeClaims, edgeClaims, report); err != nil {
+		if err := e.applyDocument(g, ix, doc, tallies, nodeClaims, edgeClaims, declared, report); err != nil {
 			return nil, err
 		}
 		recordOverlay(g, doc)
@@ -237,7 +241,7 @@ func (e *enricher) Enrich(g *core.Graph) (*enrichers.Report, error) {
 	return report, nil
 }
 
-func (e *enricher) applyDocument(g *core.Graph, ix *Index, doc *Document, tallies map[string]*tally, nodeClaims nodeFieldClaims, edgeClaims *edgeAssertionTracker, report *enrichers.Report) error {
+func (e *enricher) applyDocument(g *core.Graph, ix *Index, doc *Document, tallies map[string]*tally, nodeClaims nodeFieldClaims, edgeClaims *edgeAssertionTracker, declared map[string]bool, report *enrichers.Report) error {
 	sinkIDs := map[string]string{}
 
 	for _, a := range doc.Assertions {
@@ -295,6 +299,21 @@ func (e *enricher) applyDocument(g *core.Graph, ix *Index, doc *Document, tallie
 			if len(walk) < 2 {
 				continue
 			}
+			// Two selectors that name the same box, one after the other. A
+			// request does not go from a box to itself, so this is a typo —
+			// and `a → b → a` is a real loop, which is why core allows repeats
+			// and why the check has to be here. Left alone it produces a route
+			// nothing can ever walk, permanently unused, in silence: the shape
+			// this whole assertion exists to stop being manufactured.
+			if at := repeatedHop(walk); at > 0 {
+				report.Unmatched = append(report.Unmatched, enrichers.Unmatched{
+					Selector: a.Through[at].asMap(), Assert: a.Assert, Action: "dropped",
+					Reason: fmt.Sprintf(
+						"this hop and the one before it are both %q, and a request does not go from a box to itself; a route that comes back through something names what it went through in between",
+						walk[at]),
+				})
+				continue
+			}
 			kind := a.Kind
 			if kind == "" {
 				// What a person writes down is a claim about what may happen,
@@ -302,6 +321,22 @@ func (e *enricher) applyDocument(g *core.Graph, ix *Index, doc *Document, tallie
 				// belong to. What did happen comes from something that
 				// watched, and Document.Validate refuses to be told otherwise.
 				kind = core.EdgeIACRef
+			}
+			// The same walk twice. Normalize folds paths that agree, keeping
+			// the better-ranked claim, and the second label would go with the
+			// one it dropped — silently, and differently depending on which
+			// origin each assertion carried. Within one run the author can
+			// fix it, so say so instead.
+			if key := string(kind) + " " + core.PathKey(walk); declared[key] {
+				report.Unmatched = append(report.Unmatched, enrichers.Unmatched{
+					Selector: a.Through[0].asMap(), Assert: a.Assert, Action: "dropped",
+					Reason: fmt.Sprintf(
+						"this run already declares %s as an %s route; a second assertion of the same walk would be folded into the first and its label lost",
+						strings.Join(walk, " → "), kind),
+				})
+				continue
+			} else {
+				declared[key] = true
 			}
 			g.Paths = append(g.Paths, core.Path{
 				Nodes: walk, Kind: kind, Label: a.Label, Claim: &claim,
@@ -322,6 +357,17 @@ func (e *enricher) applyDocument(g *core.Graph, ix *Index, doc *Document, tallie
 		}
 	}
 	return nil
+}
+
+// repeatedHop is the index of the first hop that repeats the one before it, or
+// 0 when none does.
+func repeatedHop(walk []string) int {
+	for i := 1; i < len(walk); i++ {
+		if walk[i] == walk[i-1] {
+			return i
+		}
+	}
+	return 0
 }
 
 // participant resolves one hop of a route.
