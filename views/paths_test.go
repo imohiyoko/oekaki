@@ -268,7 +268,7 @@ func TestADerivedRouteSaysWhereARequestCameIn(t *testing.T) {
 	if len(routes) != 1 {
 		t.Fatalf("got %d routes: %#v", len(routes), routes)
 	}
-	if got := EntryOf(routes[0]); got != "shop.example.com/checkout" {
+	if got := EntryOf(routes[0]); len(got) != 1 || got[0] != "shop.example.com/checkout" {
 		t.Fatalf("the route does not say where it was entered: %q", got)
 	}
 	// And the line says both: the API, and what it goes through. Naming only
@@ -298,7 +298,7 @@ func TestTheEntryIsTheFirstHopsRule(t *testing.T) {
 	if len(routes) != 1 {
 		t.Fatalf("got %d routes: %#v", len(routes), routes)
 	}
-	if got := EntryOf(routes[0]); got != "shop.example.com/checkout" {
+	if got := EntryOf(routes[0]); len(got) != 1 || got[0] != "shop.example.com/checkout" {
 		t.Errorf("a rule further down became the way in: %q", got)
 	}
 }
@@ -317,10 +317,84 @@ func TestARouteWithNoRuleSaysNothingAboutOne(t *testing.T) {
 	if len(routes) != 1 {
 		t.Fatalf("got %d routes", len(routes))
 	}
-	if EntryOf(routes[0]) != "" {
-		t.Errorf("a route invented a way in: %q", EntryOf(routes[0]))
+	if got := EntryOf(routes[0]); len(got) != 0 {
+		t.Errorf("a route invented a way in: %q", got)
 	}
 	if got := PathLabel(g, routes[0]); got != "a → b" {
 		t.Errorf("the label carries a prefix nobody wrote: %q", got)
+	}
+}
+
+// `via` is a general "how did this come to exist" note that half the Kubernetes
+// parser writes — a TLS secret, an envFrom key, a NetworkPolicy — and reading it
+// wherever it appears turned `web reads app-config` into an API somebody could
+// be asked why nobody uses.
+func TestOnlyAnEdgeThatRoutesSaysHowARequestArrived(t *testing.T) {
+	g := core.New()
+	for _, id := range []string{"web", "app-config"} {
+		g.Nodes = append(g.Nodes, core.Node{ID: id, Type: "service", Name: id})
+	}
+	g.Edges = []core.Edge{{
+		From: "web", To: "app-config", Kind: core.EdgeIACRef, Relation: "reads",
+		Attrs: map[string]any{"via": "envFrom"},
+	}}
+	g.Normalize()
+
+	routes := DeclarePaths(g, DeclareOptions{})
+	if len(routes) != 1 {
+		t.Fatalf("got %d routes", len(routes))
+	}
+	if got := EntryOf(routes[0]); len(got) != 0 {
+		t.Fatalf("reading a config map became an API: %q", got)
+	}
+	if got := PathLabel(g, routes[0]); got != "web → app-config" {
+		t.Errorf("the label carries something nobody called an entry: %q", got)
+	}
+}
+
+// Every rule is its own entry. "Which API is unused" is a question something
+// asks of the JSON, and an answer of "a, b" cannot be matched against either
+// of them.
+func TestTheEntriesAreAListAndNotOneJoinedString(t *testing.T) {
+	g := routed()
+	for i := range g.Edges {
+		if g.Edges[i].Relation == "routes" {
+			g.Edges[i].Attrs = map[string]any{
+				"via":   "shop.example.com/checkout, shop.example.com/checkout/v2",
+				"rules": []string{"shop.example.com/checkout", "shop.example.com/checkout/v2"},
+			}
+		}
+	}
+	g.Normalize()
+
+	routes := DeclarePaths(g, DeclareOptions{})
+	if len(routes) != 1 {
+		t.Fatalf("got %d routes", len(routes))
+	}
+	entry := EntryOf(routes[0])
+	if len(entry) != 2 {
+		t.Fatalf("the entries are %q", entry)
+	}
+	for i, want := range []string{"shop.example.com/checkout", "shop.example.com/checkout/v2"} {
+		if entry[i] != want {
+			t.Errorf("entry %d is %q, want %q", i, entry[i], want)
+		}
+	}
+}
+
+// A document written before the rules were kept as a list still says how a
+// request arrived, because the words are still there.
+func TestAnOlderDocumentStillSaysHowARequestArrived(t *testing.T) {
+	g := routed()
+	for i := range g.Edges {
+		if g.Edges[i].Relation == "routes" {
+			g.Edges[i].Attrs = map[string]any{"via": "shop.example.com/checkout"}
+		}
+	}
+	g.Normalize()
+
+	routes := DeclarePaths(g, DeclareOptions{})
+	if got := EntryOf(routes[0]); len(got) != 1 || got[0] != "shop.example.com/checkout" {
+		t.Errorf("the entry was lost with the list: %q", got)
 	}
 }
