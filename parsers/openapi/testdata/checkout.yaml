@@ -1,0 +1,33 @@
+openapi: 3.0.3
+info:
+  title: Checkout
+  version: 2.1.0
+servers:
+  - url: https://shop.example.com
+paths:
+  /orders:
+    get:
+      operationId: listOrders
+      summary: Every order this customer has placed
+      tags: [orders, reporting]
+    post:
+      operationId: placeOrder
+      tags: [orders]
+  /orders/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getOrder
+      tags: [orders]
+    delete:
+      operationId: cancelOrder
+      deprecated: true
+  /health:
+    $ref: "./health.yaml#/paths/~1health"
+  x-internal:
+    get:
+      operationId: notAPath

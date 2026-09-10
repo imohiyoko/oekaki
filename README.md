@@ -208,6 +208,23 @@ It is a conservative reading. A relation is recorded only when the other end is
 a type this parser also read, nothing is inferred from method sets, and a name
 two types carry is dropped rather than guessed at. See [docs/code.md].
 
+### Reading a surface
+
+An OpenAPI document declares which operations a service offers — these
+exist — and not a route: one document describes one service and never says
+what it calls. Each operation becomes a node, and the document's own operations
+sit together in one container.
+
+```console
+$ oekaki graph cluster.yaml --api service/shop/checkout=openapi.yaml -o estate.json
+```
+
+The id in front of the file is who serves the surface. A document names itself
+with a title somebody wrote in a repository, an estate names its boxes with
+ids, and matching `Checkout` to `service/shop/checkout` because they look
+alike is the invention this project refuses — so whoever knows writes it down.
+Without one the operations still arrive, joined to nothing. See [docs/api.md].
+
 ### Combining repositories
 
 The graph input can be a repository directory, Terraform JSON document, or a
@@ -555,6 +572,7 @@ Useful flags for `render`:
 | `--reachability FILE` | Apply normalized effective paths from a network-policy/NACL/proxy collector; repeatable |
 | `--log-inventory FILE` | Join classified log metadata; repeatable |
 | `--traces FILE` | Join request traces and observed service paths; repeatable |
+| `--api [ID=]FILE` | Read an OpenAPI document as a surface, served by the element `ID` names; repeatable |
 | `--ai-candidates FILE` | Apply validated model-produced nodes and relationship candidates; repeatable |
 | `--ai-command FILE` | Explicitly run a local model adapter with the graph on stdin |
 | `--ai-arg VALUE` | Pass one argument to `--ai-command`; repeatable, without shell expansion |
@@ -789,6 +807,7 @@ Apache-2.0. See [LICENSE](LICENSE).
 The binaries embed Graphviz, which is EPL-2.0. Every release archive carries
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) with the full attribution.
 
+[docs/api.md]: docs/api.md
 [docs/kubernetes.md]: docs/kubernetes.md
 [docs/code.md]: docs/code.md
 [docs/folding.md]: docs/folding.md
