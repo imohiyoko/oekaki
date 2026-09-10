@@ -509,15 +509,15 @@ func routingRules(e core.Edge) []string {
 	if e.Attrs == nil || !strings.Contains(strings.ToLower(e.Relation), "route") {
 		return nil
 	}
-	if rules := stringsOf(e.Attrs["rules"]); len(rules) > 0 {
-		return rules
-	}
-	// A document written before the rules were kept as a list, or by something
-	// else that routes and says how in words.
-	if via, ok := e.Attrs["via"].(string); ok && via != "" {
-		return []string{via}
-	}
-	return nil
+	// From `rules` and nowhere else.
+	//
+	// `via` says how the edge came to exist in words, and the words include
+	// ways in that are not an API path — a default backend, a rule matching
+	// any host. Falling back to them put "default backend" where a consumer
+	// was promised something it could match an API against, which is worse
+	// than saying nothing: an entry that cannot be matched is not a smaller
+	// answer, it is a wrong one.
+	return stringsOf(e.Attrs["rules"])
 }
 
 // stringsOf reads a list of strings out of an attribute, whether it arrived as

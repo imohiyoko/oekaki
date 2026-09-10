@@ -202,10 +202,9 @@ unused      shop.example.com/checkout: shop → checkout
 unused      shop.example.com/reports: shop → reports
 ```
 
-"Which API is nobody using" is the question being asked. A listing that could
-only name the boxes involved was answering a different one — and a listing that
-named only the API would have dropped what it goes through, which is the other
-half of the same answer.
+A listing that could only name the boxes involved was hard to act on — and one
+that named only the API would have dropped what it goes through, which is the
+other half of the same answer.
 
 It is on the route as `attrs.entry`, **a list with one entry per rule**, so
 something reading the JSON can match a route against an API path. A joined
@@ -225,10 +224,37 @@ It is the **first** hop's rule and nothing else's: a route is one way into the
 estate followed by one service calling another, and a rule further down is a
 second way in rather than part of this one.
 
-And only from an edge that **routes**. `via` is a general "how did this come to
-exist" note that half the Kubernetes parser writes — a TLS secret, an `envFrom`
-key, a NetworkPolicy — and reading it wherever it appeared turned `web reads
-app-config` into an API somebody could be asked why nobody uses.
+And only from an edge that **routes**, and only from its `rules`. `via` is a
+general "how did this come to exist" note that half the Kubernetes parser writes
+— a TLS secret, an `envFrom` key, a NetworkPolicy — and reading it wherever it
+appeared turned `web reads app-config` into an API somebody could be asked why
+nobody uses. The words also hold ways in that are not an API path, like a
+default backend; an entry nothing can be matched against is not a smaller
+answer, it is a wrong one, so those stay in the words alone.
+
+### What an entry does not say
+
+**A route is used or unused as a walk, not as an API path.** Traffic is folded
+into the services a request went through — that is what a trace records — so a
+route through `checkout` is walked if *anything* reached `checkout`, whichever
+rule let it in.
+
+So where one service is reached by two rules:
+
+- if traffic came in on `/checkout/v2` only, the route counts as walked, and
+  `/checkout` being dead is not reported;
+- if nothing came in at all, the route is `unused` and the line names both
+  paths, though only one of them may be the one nobody wants.
+
+The entry says **which ways in reach this walk**, not which of them carried the
+traffic. Saying which would need traffic attributed per rule — a request path
+on the observation itself — and nothing collects that today. Splitting the
+route into one per rule is not available either: a route is identified by its
+participants, so two routes through the same services are one route, which is
+what makes an observation about it addressable at all.
+
+Where the difference matters, an overlay can write the two routes down as
+separate walks through whatever tells them apart.
 
 ### When nothing has written them down
 

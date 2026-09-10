@@ -1,6 +1,7 @@
 package kubernetes
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -154,5 +155,72 @@ metadata:
 	}
 	if first != "a.example.com/a, b.example.com/z" {
 		t.Errorf("the rules are not in order: %q", first)
+	}
+}
+
+// A default backend is a way in, and it is not an API path. It stays in the
+// words a person reads and out of the list a consumer matches against: an entry
+// nothing can be matched against is not a smaller answer, it is a wrong one.
+func TestADescriptionIsNotAnAPIPath(t *testing.T) {
+	res := parseString(t, `
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: shop
+  namespace: shop
+spec:
+  defaultBackend:
+    service:
+      name: checkout
+      port:
+        number: 80
+  rules:
+    - http:
+        paths:
+          - path: ""
+            backend:
+              service:
+                name: checkout
+                port:
+                  number: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: checkout
+  namespace: shop
+`)
+
+	for _, e := range res.Graph.Edges {
+		if e.Relation != "routes" {
+			continue
+		}
+		via, _ := e.Attrs["via"].(string)
+		for _, want := range []string{"default backend", "any host and path"} {
+			if !strings.Contains(via, want) {
+				t.Errorf("the words lost %q: %q", want, via)
+			}
+		}
+		if rules, ok := e.Attrs["rules"]; ok {
+			t.Errorf("a description was written where an API path is promised: %#v", rules)
+		}
+	}
+}
+
+// A joined value read a second time comes apart before it is compared. Testing
+// the whole of "a, b" against a set holding a and b separately found neither
+// and appended it entire — the words then saying twice what the list beside
+// them says once.
+func TestAJoinedValueReadAgainDoesNotDoubleItself(t *testing.T) {
+	into := map[string]any{"via": "a.example.com/one, b.example.com/two"}
+	widen(into, map[string]any{"via": "a.example.com/one, b.example.com/two"})
+	if via, _ := into["via"].(string); via != "a.example.com/one, b.example.com/two" {
+		t.Errorf("the words doubled: %q", via)
+	}
+
+	widen(into, map[string]any{"via": "a.example.com/one, c.example.com/three"})
+	want := "a.example.com/one, b.example.com/two, c.example.com/three"
+	if via, _ := into["via"].(string); via != want {
+		t.Errorf("the words read %q, want %q", via, want)
 	}
 }

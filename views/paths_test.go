@@ -252,7 +252,10 @@ func routed() *core.Graph {
 	}
 	g.Edges = []core.Edge{
 		{From: "ingress:shop", To: "svc:checkout", Kind: core.EdgeIACRef, Relation: "routes",
-			Attrs: map[string]any{"via": "shop.example.com/checkout"}},
+			Attrs: map[string]any{
+				"via":   "shop.example.com/checkout",
+				"rules": []string{"shop.example.com/checkout"},
+			}},
 		{From: "svc:checkout", To: "db:orders", Kind: core.EdgeIACRef, Relation: "calls"},
 	}
 	g.Normalize()
@@ -289,7 +292,10 @@ func TestTheEntryIsTheFirstHopsRule(t *testing.T) {
 	g := routed()
 	g.Edges = append(g.Edges, core.Edge{
 		From: "db:orders", To: "svc:archive", Kind: core.EdgeIACRef, Relation: "routes",
-		Attrs: map[string]any{"via": "internal.example.com/archive"},
+		Attrs: map[string]any{
+			"via":   "internal.example.com/archive",
+			"rules": []string{"internal.example.com/archive"},
+		},
 	})
 	g.Nodes = append(g.Nodes, core.Node{ID: "svc:archive", Type: "service", Name: "archive"})
 	g.Normalize()
@@ -382,19 +388,27 @@ func TestTheEntriesAreAListAndNotOneJoinedString(t *testing.T) {
 	}
 }
 
-// A document written before the rules were kept as a list still says how a
-// request arrived, because the words are still there.
-func TestAnOlderDocumentStillSaysHowARequestArrived(t *testing.T) {
+// An entry comes from `rules` and nowhere else.
+//
+// `via` says how the edge came to exist in words, and the words include ways in
+// that are not an API path — a default backend, a rule matching any host.
+// Reading them put "default backend" where a consumer was promised something it
+// could match an API against, which is worse than saying nothing: an entry that
+// cannot be matched is not a smaller answer, it is a wrong one.
+func TestWordsAreNotAnEntry(t *testing.T) {
 	g := routed()
 	for i := range g.Edges {
 		if g.Edges[i].Relation == "routes" {
-			g.Edges[i].Attrs = map[string]any{"via": "shop.example.com/checkout"}
+			g.Edges[i].Attrs = map[string]any{"via": "default backend"}
 		}
 	}
 	g.Normalize()
 
 	routes := DeclarePaths(g, DeclareOptions{})
-	if got := EntryOf(routes[0]); len(got) != 1 || got[0] != "shop.example.com/checkout" {
-		t.Errorf("the entry was lost with the list: %q", got)
+	if got := EntryOf(routes[0]); len(got) != 0 {
+		t.Errorf("a description became an API path: %q", got)
+	}
+	if got := PathLabel(g, routes[0]); got != "ingress:shop → svc:checkout → db:orders" {
+		t.Errorf("the label carries something nobody can match: %q", got)
 	}
 }
