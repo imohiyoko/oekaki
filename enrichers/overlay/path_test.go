@@ -301,3 +301,55 @@ func TestTheSameWalkUnderAnotherKindIsAnotherRoute(t *testing.T) {
 		t.Fatalf("got %d routes: %#v", len(g.Paths), g.Paths)
 	}
 }
+
+// A hop is not optional. checkSelector is silent about an empty selector,
+// because an absent subject is an ordinary thing elsewhere — but an empty hop
+// resolves to nothing and takes the whole route down with it, at apply time,
+// for a reason nobody could see from the document.
+//
+// The schema says the same with minProperties, and both layers keep saying it
+// for the reason the other checks here do: Document and Validate are exported,
+// and a caller that builds one by hand never passes through the schema.
+func TestAHopNeedsASelector(t *testing.T) {
+	err := Parse2(t, doc(`{"assert":"path","through":[{},{"node":"aws_lb.api"}]}`))
+	if !strings.Contains(err.Error(), "/assertions/0/through/0") {
+		t.Errorf("the schema error does not point at the hop: %v", err)
+	}
+
+	err = onlyValidate(t, Assertion{
+		Assert: AssertPath, Through: []Selector{{}, {"node": "b"}},
+	})
+	if !strings.Contains(err.Error(), "through[0]") || !strings.Contains(err.Error(), "names nothing") {
+		t.Errorf("the reason does not say which hop is empty, or why it matters: %v", err)
+	}
+}
+
+// Across runs nothing is dropped and Normalize's ordinary rule applies: the
+// routes fold, and the better-ranked claim keeps it. Within one run the applier
+// gets there first, which is the difference the docs have to state.
+func TestAcrossRunsTheBetterClaimKeepsTheRoute(t *testing.T) {
+	g, _ := apply(t, doc(`
+	  {"assert":"path","label":"written down",
+	   "through":[{"node":"aws_lb.api"},{"node":"aws_db_instance.orders"}]}`), Options{})
+	if len(g.Paths) != 1 {
+		t.Fatalf("got %d routes", len(g.Paths))
+	}
+
+	// A second run, over the graph the first one produced.
+	guess, err := Parse([]byte(`{"kind":"oekaki.overlay","version":"0.1",
+	  "metadata":{"origin":"ai","author":"assistant"},
+	  "assertions":[{"assert":"path","label":"guessed","confidence":0.6,
+	    "through":[{"node":"aws_lb.api"},{"node":"aws_db_instance.orders"}]}]}`), "guess.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New([]*Document{guess}, Options{}).Enrich(g); err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Paths) != 1 {
+		t.Fatalf("the same walk became %d routes: %#v", len(g.Paths), g.Paths)
+	}
+	if g.Paths[0].Label != "written down" {
+		t.Errorf("a guess took the route from the person who wrote it: %q", g.Paths[0].Label)
+	}
+}

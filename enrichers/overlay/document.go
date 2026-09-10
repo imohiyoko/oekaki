@@ -282,6 +282,15 @@ func (d *Document) Validate() error {
 			problems = append(problems, checkSelector(sel, where+"."+name)...)
 		}
 		for j, sel := range a.Through {
+			// checkSelector is silent about an empty one, because an absent
+			// subject is an ordinary thing elsewhere. A hop is not optional:
+			// an empty selector resolves to nothing, and the whole route is
+			// dropped at apply time for a reason nobody can see from here.
+			if len(sel) == 0 {
+				problems = append(problems, fmt.Sprintf(
+					"%s.through[%d]: a hop needs at least one selector key; an empty one names nothing", where, j))
+				continue
+			}
 			problems = append(problems, checkSelector(sel, fmt.Sprintf("%s.through[%d]", where, j))...)
 		}
 
