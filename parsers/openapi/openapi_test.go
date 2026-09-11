@@ -255,3 +255,27 @@ func TestATitleWithNoLettersStillNamesOneSurface(t *testing.T) {
 		t.Error("the surface has no id at all")
 	}
 }
+
+// `true`, `True` and `TRUE` are one value written three ways, and yaml keeps
+// the word somebody typed. Which of these is deprecated is one of the
+// questions an operation is a node for, and two of the three ways of
+// answering it must not come out as the opposite.
+func TestDeprecatedIsReadHoweverItIsWritten(t *testing.T) {
+	for _, written := range []string{"true", "True", "TRUE"} {
+		res, err := parse(t, "openapi: 3.0.3\ninfo:\n  title: Checkout\npaths:\n  /orders:\n    get:\n      deprecated: "+written+"\n")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if node(t, res.Graph, "api/checkout/get/orders").Attrs["deprecated"] != true {
+			t.Errorf("`deprecated: %s` is read as a live endpoint", written)
+		}
+	}
+
+	res, err := parse(t, "openapi: 3.0.3\ninfo:\n  title: Checkout\npaths:\n  /orders:\n    get:\n      deprecated: false\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, said := node(t, res.Graph, "api/checkout/get/orders").Attrs["deprecated"]; said {
+		t.Error("an operation the document says is not deprecated carries the attribute anyway")
+	}
+}
