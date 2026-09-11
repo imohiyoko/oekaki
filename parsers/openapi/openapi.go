@@ -253,7 +253,7 @@ func operationAttrs(op *yaml.Node, method, path string) map[string]any {
 	if id := text(field(op, "operationId")); id != "" {
 		attrs["operation_id"] = id
 	}
-	if deprecated := field(op, "deprecated"); deprecated != nil && deprecated.Value == "true" {
+	if deprecated := field(op, "deprecated"); says(deprecated) {
 		attrs["deprecated"] = true
 	}
 	if tags := field(op, "tags"); tags != nil && tags.Kind == yaml.SequenceNode {
@@ -350,6 +350,16 @@ func entry(n *yaml.Node, key string) (k, value *yaml.Node) {
 		}
 	}
 	return nil, nil
+}
+
+// says reports a scalar the document wrote as true.
+//
+// `true`, `True` and `TRUE` are one value written three ways, and yaml keeps
+// the word somebody typed: comparing that word to "true" makes two of the
+// three mean the opposite of what they say, and an endpoint that was retired
+// is drawn as a live one.
+func says(n *yaml.Node) bool {
+	return n != nil && n.Kind == yaml.ScalarNode && strings.EqualFold(n.Value, "true")
 }
 
 // text returns a scalar's value, and "" for anything else — a mapping where a
