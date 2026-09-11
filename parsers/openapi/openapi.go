@@ -30,10 +30,12 @@
 package openapi
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"sort"
 	"strings"
+	"unicode"
 
 	"gopkg.in/yaml.v3"
 
@@ -290,12 +292,18 @@ func source(file string, line int) *core.Source {
 
 // slug turns a title into something usable in an id: an id is read in a URL,
 // a fragment and a command line, and a title is written for a person.
+//
+// What it takes out is punctuation and space, not the alphabet. Keeping only
+// the ASCII letters would leave 注文 with nothing at all, and would put two
+// documents that share no character between them under one id — reported, if
+// they are read together, as "two surfaces with one title", which is not what
+// happened.
 func slug(title string) string {
 	var b strings.Builder
 	dash := false
 	for _, r := range strings.ToLower(title) {
 		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+		case unicode.IsLetter(r), unicode.IsDigit(r):
 			b.WriteRune(r)
 			dash = false
 		default:
@@ -305,7 +313,14 @@ func slug(title string) string {
 			}
 		}
 	}
-	return strings.TrimSuffix(b.String(), "-")
+	if out := strings.TrimSuffix(b.String(), "-"); out != "" {
+		return out
+	}
+	// A title of nothing but punctuation still has to name this surface and
+	// not every other one. There is nothing in it to read, so the id says so
+	// rather than being empty and colliding with the next one.
+	digest := sha256.Sum256([]byte(title))
+	return fmt.Sprintf("untitled-%x", digest[:4])
 }
 
 // unwrap returns the mapping inside a decoded document.
