@@ -98,6 +98,11 @@ than a drawing can carry. The answers, in the order they were built:
 - **`oekaki diff`**, which is what determinism was for: a comparison is only
   meaningful if identical infrastructure produces identical output.
   [diff.md](diff.md)
+- **A surface as entities.** An OpenAPI document declares which operations a
+  service offers — these exist — and not a route: one document describes one
+  service and never says what it calls. An operation is a node, and which
+  element serves it is written down rather than guessed from a title.
+  [api.md](api.md)
 
 Still ahead in this line of work:
 
@@ -109,12 +114,10 @@ Still ahead in this line of work:
   volume against a declared baseline. All of them are additional `assert`
   values resolved by the same ladder, which is the payoff of unifying the
   overlay format rather than shipping one file format per question
-- **API endpoints as entities.** An OpenAPI or gRPC document declares a
-  service's *surface* — these operations exist — not a route: one document
-  describes one service and never says what it calls. What it is good for is
-  making an API a thing the graph carries, which is what "a communication
-  diagram is a cluster of APIs, and one API opens into its sequence" needs. It
-  is an addition to the IR rather than another source of routes
+- A gRPC reader. A `.proto` service declares the same shape an OpenAPI
+  document does — these operations exist — and lands as the same entity, so
+  what is left is the reading rather than the design. See
+  [api.md](api.md#what-is-not-read)
 
 `oekaki serve` grew a state directory, a roles model and a management page in
 v0.5. The authorization it can express is deliberately small — three permission

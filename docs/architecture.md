@@ -21,6 +21,7 @@ where contributions come in.
 | `parsers/tfsource/` | committed `.tf` source → IR, without init or credentials |
 | `parsers/kubernetes/` | a stream of manifests → IR ([docs/kubernetes.md](kubernetes.md)) |
 | `parsers/source/` | multi-language source tree → code IR: files, packages, functions and types; extensible parser registry ([docs/code.md](code.md)) |
+| `parsers/openapi/` | an OpenAPI document → the surface it declares: one container, one node per operation ([docs/api.md](api.md)) |
 | `collectors/` | vendor-neutral adapters for logs, metrics, traces, and explicit reachability probes |
 | `enrichers/` | What an enricher is, and what it may write |
 | `enrichers/overlay/` | Assertions a human or a model wrote → IR annotations |

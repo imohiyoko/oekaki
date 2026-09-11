@@ -217,6 +217,10 @@ is the host and the path a rule matched on, run together — `shop.example.com`,
 because that is matching semantics rather than identity. Anything deciding
 whether a request belongs to a rule has to read the rule.
 
+The operations on the other side of a way in are entities of their own, read
+from the service's own document. They are not matched to an entry here, for
+the reason above and from the other side: see [api.md](api.md).
+
 ```json
 { "nodes": ["ingress/shop/shop", "service/shop/checkout"], "kind": "iac_ref",
   "attrs": { "entry": ["shop.example.com/checkout", "shop.example.com/checkout/v2"] } }
