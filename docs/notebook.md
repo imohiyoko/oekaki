@@ -243,6 +243,18 @@ the viewer, because a door into an empty room is worse than no door. A link
 offered because a URL could plausibly be built for this resource type is the
 same mistake with a slower failure: the reader finds out by arriving at a 404.
 
+**A link is as visible as the claim that carries it, and no more.** There is no
+visibility narrower than the diagram yet — it is the fourth permission above,
+and nothing has needed it — and a URL must not be the first thing that does.
+Two properties make that worth stating rather than assuming. A link carries its
+query, so it says more than the box it hangs off: the subject, the metric,
+often the site. And every page of an atlas is a standalone graph document, so a
+URL on a claim is serialized into every page carrying that claim, not only the
+one somebody opened. Both are acceptable while `read` is the only visibility
+there is. When the fourth permission arrives, the link has to be dropped where
+its claim is dropped, in the derivation — a page that never recorded a door is a
+different document from one that draws a door and then hides it.
+
 **The collector writes the URL, whole.** The alternative — a template in the
 configuration directory with the subject interpolated into it — is worse twice
 over. It assembles a URL out of a name somebody else chose, which is the kind of
@@ -256,8 +268,19 @@ credentials, which is where every other vendor-shaped thing here already lives.
 markup-from-data class the security review above was about. Anchors are not new
 here, but every one built so far carries an object URL this page created itself:
 the first `href` taken from a document is the first one whose scheme was chosen
-somewhere else. An https allowlist belongs in the first version rather than the
-second.
+somewhere else.
+
+"An https allowlist" is not yet a rule anybody can implement the same way twice,
+so: parse it with the URL parser, refuse what does not parse, and require the
+parsed scheme to be exactly `https:`. The parser's normalization is the point —
+case, embedded whitespace, and the shapes that are only `javascript:` once a
+browser has finished with them. Everything else is refused.
+
+And it is refused where the URL is **recorded**, not only where it is drawn.
+The graph is read by things that are not this viewer, so a schema that lets a
+`javascript:` URL validate is a graph that hands the problem to whoever reads it
+next — and the schema is the part of this project that is supposed to be the
+product. `oekaki validate` should reject it before any page is asked to.
 
 **What is not settled is the half a person writes.** An overlay is authored by
 people, so a person can write a URL, and then the objection to links in notes
