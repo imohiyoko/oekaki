@@ -56,11 +56,22 @@ So the id is on the flag, and whoever knows the estate writes it:
 --api service/shop/checkout=openapi.yaml
 ```
 
+The id names an element, and a container is one: a namespace owns a surface
+as well as a service does, because nodes and containers share one namespace
+and an edge may point at either.
+
 Without it the operations still arrive. A surface read on its own is a
 listing — which operations exist, which are deprecated, which belong to a
 team — and the graph says nobody has placed it by joining it to nothing. An id
 that names nothing in the graph is an error rather than a silent drop: the
 join was the question the flag was answering.
+
+The owner is what comes before the `=`, so a leading `=` says there is no
+owner — which is how a document whose path has an `=` in it is written down:
+
+```console
+--api =reports/q1=final.yaml
+```
 
 ## Why an operation is not matched to a route
 
