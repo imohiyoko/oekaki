@@ -279,3 +279,73 @@ func TestDeprecatedIsReadHoweverItIsWritten(t *testing.T) {
 		t.Error("an operation the document says is not deprecated carries the attribute anyway")
 	}
 }
+
+// An alias is not a $ref. There is no second file to go and read: the
+// document has already resolved it, and an operation written once and used
+// twice is declared twice. Dropping the second loses it in silence, because
+// the path it was under is not reported as having held no operation.
+func TestAnAliasIsADeclarationTheDocumentAlreadyMade(t *testing.T) {
+	res, err := parse(t, `openapi: 3.0.3
+info:
+  title: Checkout
+paths:
+  /orders:
+    get: &listing
+      operationId: listOrders
+      tags: [orders]
+  /baskets:
+    get: *listing
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	n := node(t, res.Graph, "api/checkout/get/baskets")
+	if n.Attrs["operation_id"] != "listOrders" {
+		t.Errorf("the operation behind the alias arrived with nothing in it: %#v", n.Attrs)
+	}
+	if tags, _ := n.Attrs["tags"].([]string); len(tags) != 1 || tags[0] != "orders" {
+		t.Errorf("the tags behind the alias are %q", tags)
+	}
+}
+
+// `<<: *defaults` is the document saying these operations are here too. A
+// reader that passed over it counts fewer operations than the document
+// declares, and cannot say which ones — the path held the others, so it is
+// not reported as skipped either.
+func TestAMergeKeyDeclaresWhatItBringsIn(t *testing.T) {
+	res, err := parse(t, `openapi: 3.0.3
+info:
+  title: Checkout
+x-defaults: &defaults
+  get:
+    operationId: read
+paths:
+  /orders:
+    <<: *defaults
+    post:
+      operationId: place
+  /baskets:
+    <<: *defaults
+    get:
+      operationId: readBaskets
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if res.Operations != 3 {
+		t.Fatalf("read %d operations, want the 3 the document declares: %#v", res.Operations, res.Skipped)
+	}
+	if slices.Contains(res.Skipped, "/orders") {
+		t.Error("a path whose operations were dropped is not reported as holding none")
+	}
+	if node(t, res.Graph, "api/checkout/get/orders").Attrs["operation_id"] != "read" {
+		t.Error("the merged operation did not arrive")
+	}
+	// What a mapping writes out wins over what it merges in, which is what a
+	// merge key means.
+	if got := node(t, res.Graph, "api/checkout/get/baskets").Attrs["operation_id"]; got != "readBaskets" {
+		t.Errorf("the merged default beat what the path itself says: %#v", got)
+	}
+}

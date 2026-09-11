@@ -259,7 +259,7 @@ func operationAttrs(op *yaml.Node, method, path string) map[string]any {
 	if tags := field(op, "tags"); tags != nil && tags.Kind == yaml.SequenceNode {
 		var out []string
 		for _, t := range tags.Content {
-			if t.Value != "" {
+			if t := resolve(t); t != nil && t.Value != "" {
 				out = append(out, t.Value)
 			}
 		}
@@ -323,12 +323,35 @@ func slug(title string) string {
 	return fmt.Sprintf("untitled-%x", digest[:4])
 }
 
+// maxFollow bounds how far an alias or a merge key is followed. A document
+// may name itself in a circle — `a: &x {b: *x}` parses — and no document
+// anybody wrote lays its defaults this deep.
+const maxFollow = 32
+
 // unwrap returns the mapping inside a decoded document.
 func unwrap(n *yaml.Node) *yaml.Node {
 	if n != nil && n.Kind == yaml.DocumentNode && len(n.Content) == 1 {
-		return n.Content[0]
+		return resolve(n.Content[0])
 	}
-	return n
+	return resolve(n)
+}
+
+// resolve follows an alias to the node it names.
+//
+// An anchor and an alias are one node the document wrote twice, and it has
+// already done the resolving: unlike a `$ref`, there is no second file to go
+// and read. Stopping at the alias drops an operation that is plainly declared,
+// and drops it in silence — the path item it was under is not empty, so it is
+// not reported as having held no operation either.
+func resolve(n *yaml.Node) *yaml.Node {
+	for range maxFollow {
+		if n == nil || n.Kind != yaml.AliasNode {
+			return n
+		}
+		n = n.Alias
+	}
+	// An alias that comes back round to itself is not read approximately.
+	return nil
 }
 
 // field returns the value of a mapping key, or nil.
@@ -341,15 +364,54 @@ func field(n *yaml.Node, key string) *yaml.Node {
 // line an operation was declared on: the value's line is its first field,
 // which for two operations written under one path is the same line twice.
 func entry(n *yaml.Node, key string) (k, value *yaml.Node) {
-	if n == nil || n.Kind != yaml.MappingNode {
+	return lookup(n, key, maxFollow)
+}
+
+// lookup is entry, with the depth left to follow.
+//
+// A merge key is followed like any other way the document writes a thing
+// down. `<<: *defaults` says these entries are here too, and a reader that
+// passed over it would count fewer operations than the document declares
+// without being able to say which ones.
+func lookup(n *yaml.Node, key string, depth int) (k, value *yaml.Node) {
+	n = resolve(n)
+	if n == nil || n.Kind != yaml.MappingNode || depth <= 0 {
 		return nil, nil
 	}
+	var merged []*yaml.Node
 	for i := 0; i+1 < len(n.Content); i += 2 {
+		if n.Content[i].Tag == "!!merge" {
+			merged = append(merged, n.Content[i+1])
+			continue
+		}
 		if n.Content[i].Value == key {
-			return n.Content[i], n.Content[i+1]
+			return n.Content[i], resolve(n.Content[i+1])
+		}
+	}
+	// What a mapping writes out wins over what it merges in, and an earlier
+	// merge over a later one. That is what a merge key means, and the line
+	// that comes back with the value is the line the winner was written on.
+	for _, m := range merged {
+		for _, from := range mappings(m) {
+			if k, value := lookup(from, key, depth-1); value != nil {
+				return k, value
+			}
 		}
 	}
 	return nil, nil
+}
+
+// mappings lists what a merge key brings in: one mapping, or a sequence of
+// them in the order they are to be tried.
+func mappings(n *yaml.Node) []*yaml.Node {
+	n = resolve(n)
+	if n == nil {
+		return nil
+	}
+	if n.Kind == yaml.SequenceNode {
+		return n.Content
+	}
+	return []*yaml.Node{n}
 }
 
 // says reports a scalar the document wrote as true.

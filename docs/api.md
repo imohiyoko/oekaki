@@ -109,5 +109,9 @@ shallow one: the entity, and the few fields a listing is built from.
 resolving a file the document points at, and what arrives here should be one
 document read once.
 
+An anchor is not that. `&defaults`, `*defaults` and `<<:` are the document
+written twice and already resolved — there is no second file — so they are
+read, and an operation that arrives by one is declared like any other.
+
 **gRPC.** A `.proto` service declares the same shape — these operations
 exist — and is the obvious second reader. It is not written yet.
