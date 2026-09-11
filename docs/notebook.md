@@ -218,6 +218,58 @@ which generation. Three parts: generation, diagram, element. This is what makes
 a link usable in a conversation ("look at this one") rather than an invitation
 to go and search.
 
+**A diagram should be able to send a reader out to where the reading came
+from.** An observation arrived from Datadog, or Prometheus, or a log store, and
+what a reader wants next is that tool's own view of it. Today the page never
+sends a reader anywhere: the only `href` that reaches the drawing is an SVG
+`<use>` naming an icon, the two anchors `renderers/html/app.js` builds exist to
+download a Blob it made itself, and `location.href` is read and never assigned.
+So this is opening a surface rather than extending a feature, and the shape is
+worth settling before it is written.
+
+**The address belongs to the claim, not to the node.** A node is what Terraform
+said, and it has never heard of Datadog. What knows where it came from is the
+evidence attached to it, which already carries an origin and an author — and
+`Claim` is exactly where there is nowhere to put an address today. Hang the link
+off the claim and a box has a door only when some evidence on it has one: a node
+read by two collectors gets two doors, each labelled by whose reading it is,
+without anything having to classify them. An `iac_ref` edge gets none, which is
+the right answer rather than a gap — a declared edge has no observability tool
+behind it to open.
+
+**A door leading out follows the atlas rule for doors leading in.** Which box
+has an inside is recorded when the atlas is derived rather than guessed at by
+the viewer, because a door into an empty room is worse than no door. A link
+offered because a URL could plausibly be built for this resource type is the
+same mistake with a slower failure: the reader finds out by arriving at a 404.
+
+**The collector writes the URL, whole.** The alternative — a template in the
+configuration directory with the subject interpolated into it — is worse twice
+over. It assembles a URL out of a name somebody else chose, which is the kind of
+string building this page does nowhere else; and the configuration directory
+only exists under `serve`, so a page opened from `file://` would have no doors
+while a served copy of the same page had them. A URL carried in the graph works
+in both, and keeps the vendor's own knowledge in the collector beside the
+credentials, which is where every other vendor-shaped thing here already lives.
+
+**The scheme has to be checked.** `javascript:` and `data:` in an `href` are the
+markup-from-data class the security review above was about. Anchors are not new
+here, but every one built so far carries an object URL this page created itself:
+the first `href` taken from a document is the first one whose scheme was chosen
+somewhere else. An https allowlist belongs in the first version rather than the
+second.
+
+**What is not settled is the half a person writes.** An overlay is authored by
+people, so a person can write a URL, and then the objection to links in notes
+applies again word for word: a destination this page sends a reader to on the
+say-so of whoever typed it. The claim's origin is already on the panel, so the
+material for a distinction is there; whether a door somebody typed should look
+like a door a collector recorded is not decided here.
+
+This is the outward half of *Address an element, not just a diagram* above. With
+both, a diagram stops being where a reader ends up and becomes somewhere they
+pass through.
+
 **Free-text notes on a node or an edge, in Markdown.** Done — see
 [notes.md](notes.md) and the decision above. What is still open is anything
 finer than the diagram's own `read`: a note only some readers should see, or a
