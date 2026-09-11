@@ -208,3 +208,50 @@ func TestTwoReadsAgree(t *testing.T) {
 		}
 	}
 }
+
+// A title is written in whatever alphabet its author writes in, and the id it
+// becomes has to tell two of them apart. Keeping only the ASCII letters puts
+// 注文 API and API under one id, and reports the second as a surface that
+// shares the first one's title — which is not what happened.
+func TestATitleKeepsTheLettersItIsWrittenIn(t *testing.T) {
+	surface := func(title string) *Result {
+		t.Helper()
+		res, err := parse(t, "openapi: 3.0.3\ninfo:\n  title: "+title+"\npaths:\n  /orders:\n    get: {}\n")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+
+	if jp, en := surface("注文 API"), surface("API"); jp.Graph.Groups[0].ID == en.Graph.Groups[0].ID {
+		t.Errorf("注文 API and API are one surface: %q", en.Graph.Groups[0].ID)
+	}
+
+	only := surface("注文")
+	if id := only.Graph.Groups[0].ID; id == "api:" {
+		t.Errorf("a title written in no ASCII at all left no id: %q", id)
+	}
+	if id := only.Graph.Nodes[0].ID; strings.Contains(id, "//") {
+		t.Errorf("the surface left no name in the operation's id: %q", id)
+	}
+}
+
+// A title with nothing in it to read still names this surface and not the
+// next one. An id that is empty collides with every other empty one.
+func TestATitleWithNoLettersStillNamesOneSurface(t *testing.T) {
+	first, err := parse(t, "openapi: 3.0.3\ninfo:\n  title: \"***\"\npaths: {}\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := parse(t, "openapi: 3.0.3\ninfo:\n  title: \"###\"\npaths: {}\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if first.Graph.Groups[0].ID == second.Graph.Groups[0].ID {
+		t.Errorf("two titles are one surface: %q", first.Graph.Groups[0].ID)
+	}
+	if first.Graph.Groups[0].ID == "api:" {
+		t.Error("the surface has no id at all")
+	}
+}
