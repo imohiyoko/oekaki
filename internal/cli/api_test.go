@@ -133,3 +133,55 @@ func TestTwoSurfacesWithOneTitleAreRefused(t *testing.T) {
 		t.Errorf("the error does not name the title they share: %q", r.stderr)
 	}
 }
+
+// Nodes and containers are one namespace and an edge may point at either, so
+// a namespace owns a surface as well as a service does. Telling somebody who
+// wrote down a container's id that nothing here has it sends them looking for
+// a mistake they did not make.
+func TestAContainerCanOwnASurface(t *testing.T) {
+	g := core.New()
+	g.Axes = []core.Axis{{ID: core.AxisNetwork, Label: "Network"}}
+	g.Groups = []core.Group{{ID: "ns-shop", Axis: core.AxisNetwork, Type: "namespace", Label: "shop"}}
+	g.Normalize()
+
+	r := mustRun(t, "", "graph", graphFile(t, g),
+		"--api", "ns-shop="+surfaceFile(t, checkoutSurface))
+
+	declared := 0
+	for _, e := range graphOf(t, r.stdout).Edges {
+		if e.From == "ns-shop" && e.Relation == "declares" {
+			declared++
+		}
+	}
+	if declared != 2 {
+		t.Errorf("%d operations are declared by the container, want 2", declared)
+	}
+}
+
+// The owner is what comes before the `=`, and a leading `=` says the owner is
+// nothing. Without that there is no way to write down a path that has an `=`
+// in it: it is read as a document belonging to something called `a`.
+func TestAPathWithAnEqualsSignCanBeWrittenDown(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "a=b.yaml")
+	if err := os.WriteFile(path, []byte(checkoutSurface), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	r := mustRun(t, "", "graph", estateFile(t), "--api", "="+path)
+	if _, ok := graphOf(t, r.stdout).Node("api/checkout/get/orders"); !ok {
+		t.Error("the document was not read")
+	}
+}
+
+// An owner with no document after it is a flag half written. Reading "" and
+// reporting that it could not be opened names neither the flag nor the
+// mistake.
+func TestAnOwnerWithNoDocumentSaysSo(t *testing.T) {
+	r := run(t, "", "graph", estateFile(t), "--api", "service/shop/checkout=")
+	if r.code == 0 {
+		t.Fatal("a flag with no document was read")
+	}
+	if !strings.Contains(r.stderr, "--api") {
+		t.Errorf("the error does not say which flag it is about: %q", r.stderr)
+	}
+}
