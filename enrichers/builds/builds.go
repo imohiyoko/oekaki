@@ -34,11 +34,19 @@ type Enricher struct {
 	// becomes a node of its own: the record says it exists and built this, and
 	// that much is known without anybody deciding where it sits in the estate.
 	//
+	// An id may name one of the graph's inputs — a whole repository — in
+	// which case the edge still points at a node for the repository, and that
+	// node records which input it is so a drawing can open its code.
+	//
 	// An id here must name something. It comes from whoever called this rather
 	// than from the evidence, so an id that names nothing is their mistake to
 	// hear about before the run starts — the command line checks it, and a
 	// graph left pointing at a box that is not there fails validation.
 	Repositories map[string]string
+
+	// Inputs are the ids of the documents this graph was read from, so a
+	// mapping that names one can be told from a mapping that names an element.
+	Inputs map[string]bool
 }
 
 func (Enricher) Name() string { return "builds" }
@@ -240,8 +248,17 @@ func lookup(byKey map[string]built, image string) (built, bool) {
 // target is the element the edge points at, and whether this invented it: the
 // one somebody wrote down, or a node for the repository itself.
 func (e Enricher) target(g *core.Graph, b built) (string, bool, error) {
+	// The input this repository is, when somebody said so. It goes on the node
+	// rather than on the edge because it is a fact about the repository and
+	// not about this build, and it is written in the vocabulary a combined
+	// graph already uses: every node of an input carries the same attribute
+	// naming it.
+	of := ""
 	if id, ok := e.Repositories[b.repository]; ok {
-		return id, false, nil
+		if !e.Inputs[id] {
+			return id, false, nil
+		}
+		of = id
 	}
 
 	id := NodeRepository + ":" + b.repository
@@ -259,10 +276,14 @@ func (e Enricher) target(g *core.Graph, b built) (string, bool, error) {
 		}
 		return id, false, nil
 	}
-	g.Nodes = append(g.Nodes, core.Node{
+	node := core.Node{
 		ID: id, Type: NodeRepository, Name: b.repository,
 		Claim: &core.Claim{Origin: core.OriginParser, Note: b.run.Label()},
-	})
+	}
+	if of != "" {
+		node.Attrs = map[string]any{"repository": of}
+	}
+	g.Nodes = append(g.Nodes, node)
 	return id, true, nil
 }
 
