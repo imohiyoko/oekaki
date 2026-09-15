@@ -1,0 +1,21 @@
+{
+  "kind": "oekaki.builds",
+  "version": "0.1",
+  "builds": [
+    {
+      "repository": "acme/checkout",
+      "commit": "9f1c0f2e6a0b4c8d1e3f5a7b9c0d2e4f6a8b0c1d",
+      "ref": "refs/heads/main",
+      "run": {
+        "id": "17243",
+        "workflow": "release",
+        "url": "https://github.com/acme/checkout/actions/runs/17243",
+        "completed_at": "2026-09-14T10:02:11Z"
+      },
+      "images": [
+        { "reference": "registry.example/checkout:1.4.0", "digest": "sha256:aaaa" },
+        { "reference": "registry.example/checkout:latest", "digest": "sha256:aaaa" }
+      ]
+    }
+  ]
+}

@@ -225,6 +225,23 @@ ids, and matching `Checkout` to `service/shop/checkout` because they look
 alike is the invention this project refuses — so whoever knows writes it down.
 Without one the operations still arrive, joined to nothing. See [docs/api.md].
 
+### Reading what built an image
+
+Between the code graph and the infrastructure graph is an image tag, and the
+record of where it came from lives in the CI system and nowhere else. Hand that
+record over and a running workload is joined to the repository that built it,
+with an `observed` edge whose claim names the run:
+
+```console
+$ oekaki graph cluster.yaml --builds builds.json -o estate.json
+```
+
+The join is made on the image reference, which is the one identifier both
+halves share. Nothing is stripped or completed: a repository called `checkout`
+that builds an image called `checkout` is not evidence of anything. `--no-builds`
+refuses the reading, because whether a CI system belongs in the picture is the
+estate's decision. See [docs/builds.md].
+
 ### Combining repositories
 
 The graph input can be a repository directory, Terraform JSON document, or a
@@ -808,6 +825,7 @@ The binaries embed Graphviz, which is EPL-2.0. Every release archive carries
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) with the full attribution.
 
 [docs/api.md]: docs/api.md
+[docs/builds.md]: docs/builds.md
 [docs/kubernetes.md]: docs/kubernetes.md
 [docs/code.md]: docs/code.md
 [docs/folding.md]: docs/folding.md

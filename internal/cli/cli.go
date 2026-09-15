@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	buildrecords "github.com/imohiyoko/oekaki/collectors/builds"
 	loginventorycollector "github.com/imohiyoko/oekaki/collectors/loginventory"
 	reachabilitycollector "github.com/imohiyoko/oekaki/collectors/reachability"
 	tracecollector "github.com/imohiyoko/oekaki/collectors/traces"
@@ -280,6 +281,7 @@ type renderFlags struct {
 	traceFiles      stringList
 	apiFiles        stringList
 	repositories    stringList
+	builds          buildFlags
 	overlay         overlayFlags
 	layout          string
 	layoutUnmatched string
@@ -343,6 +345,7 @@ func runRender(ctx context.Context, env Env, args []string) error {
 	fs.Var(&f.apiFiles, "api", "read an OpenAPI document as a surface; prefix it with the id of the element it belongs to, as `--api service/shop/checkout=openapi.yaml`; repeatable")
 	fs.Var(&f.repositories, "repo", "add a repository, source directory, Terraform output, or graph; repeatable")
 	fs.Var(&f.repositories, "input", "alias for --repo; repeatable")
+	f.builds.register(fs)
 	f.overlay.register(fs, true)
 	fs.Usage = func() {
 		fmt.Fprintf(env.Stderr, "Usage: oekaki render <input> [flags]\n\nFlags:\n")
@@ -403,6 +406,9 @@ func runRender(ctx context.Context, env Env, args []string) error {
 	}
 
 	if err := applyAPIs(env, g, f.apiFiles); err != nil {
+		return err
+	}
+	if err := applyBuilds(env, g, f.builds); err != nil {
 		return err
 	}
 	if err := applyOverlays(env, g, f.overlay); err != nil {
@@ -667,6 +673,8 @@ func runGraph(ctx context.Context, env Env, args []string) error {
 	data := fs.Bool("include-data-sources", false, "include data.* lookups as nodes")
 	unknownSource := fs.Bool("include-unknown-source", false, "include text files with unrecognized source extensions")
 	var repositories stringList
+	var buildRecords buildFlags
+	buildRecords.register(fs)
 	var ov overlayFlags
 	ov.register(fs, false)
 	var observationsFiles, exposureFiles, aiCandidateFiles stringList
@@ -719,6 +727,9 @@ func runGraph(ctx context.Context, env Env, args []string) error {
 	}
 
 	if err := applyAPIs(env, g, apiFiles); err != nil {
+		return err
+	}
+	if err := applyBuilds(env, g, buildRecords); err != nil {
 		return err
 	}
 	if err := applyOverlays(env, g, ov); err != nil {
@@ -987,6 +998,18 @@ func runValidate(env Env, args []string) error {
 			return err
 		}
 		fmt.Fprintf(env.Stdout, "ok: %d rules\n", len(doc.Rules))
+		return nil
+	}
+	if schema.IsBuilds(raw) {
+		doc, err := buildrecords.Parse(raw, displayName(fs.Arg(0)))
+		if err != nil {
+			return err
+		}
+		images := 0
+		for _, b := range doc.Builds {
+			images += len(b.Images)
+		}
+		fmt.Fprintf(env.Stdout, "ok: %d builds, %d images\n", len(doc.Builds), images)
 		return nil
 	}
 	if schema.IsReachability(raw) {

@@ -1,0 +1,10 @@
+{
+  "kind": "oekaki.builds",
+  "version": "0.1",
+  "builds": [{
+    "repository": "acme/checkout",
+    "author": "somebody",
+    "run": { "id": "8" },
+    "images": [{ "reference": "registry.example/checkout:1.4.0" }]
+  }]
+}
