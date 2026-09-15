@@ -11,6 +11,8 @@
 package builds
 
 import (
+	"sort"
+
 	"github.com/imohiyoko/oekaki/collectors/builds"
 	"github.com/imohiyoko/oekaki/core"
 	"github.com/imohiyoko/oekaki/enrichers"
@@ -76,7 +78,9 @@ func (e Enricher) Enrich(g *core.Graph) (*enrichers.Report, error) {
 		if !ok {
 			continue
 		}
-		matched[b.image.Reference] = true
+		for _, key := range b.image.Keys() {
+			matched[key] = true
+		}
 		to, invented := e.target(g, b)
 		if invented {
 			// A box that was not in the estate a moment ago, said out loud.
@@ -97,14 +101,21 @@ func (e Enricher) Enrich(g *core.Graph) (*enrichers.Report, error) {
 		// One entry per image rather than per key: an image is indexed under
 		// its reference and under its digest, and an image nothing runs
 		// should be reported once, not once per way of naming it.
-		if key == b.image.Reference && !matched[key] {
-			r.Unmatched = append(r.Unmatched, enrichers.Unmatched{
-				Selector: map[string]string{"image": b.image.Reference},
-				Assert:   "build",
-				Reason:   "nothing here runs it (built by " + b.repository + ")",
-				Action:   "reported",
-			})
+		//
+		// And not at all if the estate runs it under one of its other names.
+		// One build pushing :1.4.0 and :latest at one digest, joined to a
+		// workload that pins the digest, would otherwise be reported as
+		// something nothing here runs — which is the opposite of true, in the
+		// one line a reader is meant to act on.
+		if key != b.image.Reference || anyOf(matched, b.image.Keys()) {
+			continue
 		}
+		r.Unmatched = append(r.Unmatched, enrichers.Unmatched{
+			Selector: map[string]string{"image": b.image.Reference},
+			Assert:   "build",
+			Reason:   "nothing here runs it (built by " + b.repository + ")",
+			Action:   "reported",
+		})
 	}
 
 	g.Normalize()
@@ -120,7 +131,7 @@ func (e Enricher) Enrich(g *core.Graph) (*enrichers.Report, error) {
 // here knows which.
 func (e Enricher) resolve() (map[string]built, map[string][]string) {
 	byKey := map[string]built{}
-	contested := map[string]map[string]bool{}
+	contested := map[string]*clash{}
 
 	for _, d := range e.Documents {
 		for _, b := range d.Builds {
@@ -132,10 +143,16 @@ func (e Enricher) resolve() (map[string]built, map[string][]string) {
 					case !ok:
 						byKey[key] = this
 					case seen.repository != this.repository:
-						if contested[key] == nil {
-							contested[key] = map[string]bool{seen.repository: true}
+						c := contested[key]
+						if c == nil {
+							c = &clash{
+								repositories: map[string]bool{seen.repository: true},
+								references:   map[string]bool{seen.image.Reference: true},
+							}
+							contested[key] = c
 						}
-						contested[key][this.repository] = true
+						c.repositories[this.repository] = true
+						c.references[this.image.Reference] = true
 					case this.run.Later(seen.run):
 						byKey[key] = this
 					}
@@ -144,17 +161,70 @@ func (e Enricher) resolve() (map[string]built, map[string][]string) {
 		}
 	}
 
-	out := make(map[string][]string, len(contested))
-	for key, repositories := range contested {
+	for key := range contested {
 		delete(byKey, key)
-		names := make([]string, 0, len(repositories))
-		for name := range repositories {
-			names = append(names, name)
-		}
-		out[key] = names
 	}
 
+	out := make(map[string][]string, len(contested))
+	for key, c := range contested {
+		// The same conflict, said once. Two repositories claiming one tag at
+		// one digest contest the reference and the digest both, and reporting
+		// the digest as well would put a second line under a bare sha256:…
+		// that reads as a second conflict somebody has to go and look into.
+		if !c.references[key] && c.alsoSaidOf(contested) {
+			continue
+		}
+		out[key] = sorted(c.repositories)
+	}
 	return byKey, out
+}
+
+// clash is one image two repositories both claim.
+type clash struct {
+	repositories map[string]bool
+	references   map[string]bool
+}
+
+// alsoSaidOf reports whether one of this clash's references carries the same
+// clash, which is where it is worth reading.
+func (c *clash) alsoSaidOf(contested map[string]*clash) bool {
+	for ref := range c.references {
+		if other, ok := contested[ref]; ok && sameSet(c.repositories, other.repositories) {
+			return true
+		}
+	}
+	return false
+}
+
+func sameSet(a, b map[string]bool) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k := range a {
+		if !b[k] {
+			return false
+		}
+	}
+	return true
+}
+
+func sorted(set map[string]bool) []string {
+	out := make([]string, 0, len(set))
+	for k := range set {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// anyOf reports whether the set holds any of these keys.
+func anyOf(set map[string]bool, keys []string) bool {
+	for _, k := range keys {
+		if set[k] {
+			return true
+		}
+	}
+	return false
 }
 
 // lookup finds the build behind what a node is running: the reference as

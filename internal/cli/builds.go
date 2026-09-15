@@ -18,7 +18,7 @@ type buildFlags struct {
 
 func (b *buildFlags) register(fs *flag.FlagSet) {
 	fs.Var(&b.files, "builds", "apply a CI build record, joining a running image to the repository that built it; repeatable, - reads standard input")
-	fs.Var(&b.repositories, "build-repo", "which element in this graph a repository is, as `--build-repo acme/checkout=repo-1-checkout`; repeatable")
+	fs.Var(&b.repositories, "build-repo", "which element in this graph a repository is, as `--build-repo acme/checkout=repo-1-checkout:source:dir:cmd`; repeatable")
 	fs.BoolVar(&b.refuse, "no-builds", false, "ignore --builds and --build-repo, however they were passed")
 }
 
@@ -44,26 +44,8 @@ func applyBuilds(env Env, g *core.Graph, f buildFlags) error {
 		return nil
 	}
 
-	repositories := map[string]string{}
-	for _, value := range f.repositories {
-		repository, id, found := strings.Cut(value, "=")
-		repository, id = strings.TrimSpace(repository), strings.TrimSpace(id)
-		if !found || repository == "" || id == "" {
-			return fmt.Errorf("--build-repo %s: write it as repository=id, such as acme/checkout=repo-1-checkout", value)
-		}
-		// The same refusal --api makes, from the other side: an id that names
-		// nothing is a join somebody meant to make and did not, and letting it
-		// pass quietly leaves the record looking applied.
-		if !element(g, id) {
-			return fmt.Errorf("--build-repo %s: nothing here has the id %q", value, id)
-		}
-		if was, ok := repositories[repository]; ok && was != id {
-			return fmt.Errorf("--build-repo %s: %s was already said to be %q", value, repository, was)
-		}
-		repositories[repository] = id
-	}
-
 	docs := make([]*builds.Document, 0, len(f.files))
+	built := map[string]bool{}
 	for _, path := range f.files {
 		raw, err := readInput(env, path)
 		if err != nil {
@@ -73,7 +55,36 @@ func applyBuilds(env Env, g *core.Graph, f buildFlags) error {
 		if err != nil {
 			return err
 		}
+		for _, b := range doc.Builds {
+			built[b.Repository] = true
+		}
 		docs = append(docs, doc)
+	}
+
+	repositories := map[string]string{}
+	for _, value := range f.repositories {
+		repository, id, found := strings.Cut(value, "=")
+		repository, id = strings.TrimSpace(repository), strings.TrimSpace(id)
+		if !found || repository == "" || id == "" {
+			return fmt.Errorf("--build-repo %s: write it as repository=id, such as acme/checkout=repo-1-checkout:source:dir:cmd", value)
+		}
+		// The same refusal --api makes, from the other side: an id that names
+		// nothing is a join somebody meant to make and did not, and letting it
+		// pass quietly leaves the record looking applied.
+		if !element(g, id) {
+			return fmt.Errorf("--build-repo %s: nothing here has the id %q", value, id)
+		}
+		// And the other half of the same sentence. A repository no record
+		// mentions is a mapping that will never be consulted: the run still
+		// joins, to a repository node invented under the name somebody was
+		// trying to override, and nothing would have said so.
+		if !built[repository] {
+			return fmt.Errorf("--build-repo %s: no record here says %s built anything", value, repository)
+		}
+		if was, ok := repositories[repository]; ok && was != id {
+			return fmt.Errorf("--build-repo %s: %s was already said to be %q", value, repository, was)
+		}
+		repositories[repository] = id
 	}
 
 	report, err := buildsenricher.Enricher{Documents: docs, Repositories: repositories}.Enrich(g)

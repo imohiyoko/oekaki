@@ -209,3 +209,82 @@ func TestANodeWithNoImageIsLeftAlone(t *testing.T) {
 		t.Fatalf("report = %+v, edges = %v", r, g.Edges)
 	}
 }
+
+// One build pushing a tag and :latest at one digest, joined to a workload that
+// pins the digest. The estate runs that image; saying nothing does is the
+// opposite of true in the one line a reader acts on.
+func TestAnImageRunUnderAnotherOfItsNamesIsNotReportedMissing(t *testing.T) {
+	doc := `{
+      "kind": "oekaki.builds", "version": "0.1",
+      "builds": [{
+        "repository": "acme/checkout",
+        "run": { "id": "1" },
+        "images": [
+          { "reference": "registry.example/checkout:1.4.0", "digest": "sha256:aaaa" },
+          { "reference": "registry.example/checkout:latest", "digest": "sha256:aaaa" }
+        ]
+      }]
+    }`
+	g := graphRunning("registry.example/checkout@sha256:aaaa")
+	r, err := (Enricher{Documents: []*builds.Document{record(t, doc)}}).Enrich(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Applied != 1 {
+		t.Fatalf("applied %d", r.Applied)
+	}
+	if len(r.Unmatched) != 0 {
+		t.Errorf("reported as missing anyway: %+v", r.Unmatched)
+	}
+}
+
+// Two repositories claiming one tag at one digest contest both the reference
+// and the digest. It is one conflict, and a second line under a bare sha256
+// reads as another one to go and investigate.
+func TestOneConflictIsSaidOnce(t *testing.T) {
+	doc := `{
+      "kind": "oekaki.builds", "version": "0.1",
+      "builds": [
+        { "repository": "acme/checkout", "run": { "id": "1" },
+          "images": [{ "reference": "registry.example/checkout:1.4.0", "digest": "sha256:aaaa" }] },
+        { "repository": "acme/legacy-checkout", "run": { "id": "2" },
+          "images": [{ "reference": "registry.example/checkout:1.4.0", "digest": "sha256:aaaa" }] }
+      ]
+    }`
+	g := graphRunning("registry.example/checkout:1.4.0")
+	r, err := (Enricher{Documents: []*builds.Document{record(t, doc)}}).Enrich(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Ambiguous) != 1 {
+		t.Fatalf("ambiguous = %+v", r.Ambiguous)
+	}
+	if got := r.Ambiguous[0].Selector["image"]; got != "registry.example/checkout:1.4.0" {
+		t.Errorf("reported under %q rather than the reference", got)
+	}
+}
+
+// Two repositories pushing one digest under different tags are two facts, and
+// both are worth a line.
+func TestADigestContestedOnItsOwnIsStillSaid(t *testing.T) {
+	doc := `{
+      "kind": "oekaki.builds", "version": "0.1",
+      "builds": [
+        { "repository": "acme/checkout", "run": { "id": "1" },
+          "images": [{ "reference": "registry.example/checkout:1.4.0", "digest": "sha256:aaaa" }] },
+        { "repository": "acme/other", "run": { "id": "2" },
+          "images": [{ "reference": "registry.example/other:9", "digest": "sha256:aaaa" }] }
+      ]
+    }`
+	g := graphRunning("registry.example/checkout@sha256:aaaa")
+	r, err := (Enricher{Documents: []*builds.Document{record(t, doc)}}).Enrich(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Ambiguous) != 1 || r.Ambiguous[0].Selector["image"] != "sha256:aaaa" {
+		t.Fatalf("ambiguous = %+v", r.Ambiguous)
+	}
+	if r.Applied != 0 {
+		t.Errorf("applied %d: a contested digest should join to nothing", r.Applied)
+	}
+}
