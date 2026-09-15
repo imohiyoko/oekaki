@@ -20,6 +20,10 @@ var aws = &Profile{
 		"aws_security_group": true,
 	},
 
+	ContainerDefinitions: map[string]string{
+		"aws_ecs_task_definition": "container_definitions",
+	},
+
 	Attrs: map[string][]string{
 		"aws_vpc":                 {"cidr_block", "enable_dns_hostnames"},
 		"aws_subnet":              {"availability_zone", "cidr_block", "map_public_ip_on_launch"},
