@@ -1,0 +1,5 @@
+{
+  "kind": "oekaki.builds",
+  "version": "0.1",
+  "builds": [{ "repository": "acme/checkout", "run": { "id": "8" }, "images": [{ "digest": "sha256:aaaa" }] }]
+}

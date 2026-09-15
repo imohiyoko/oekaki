@@ -17,6 +17,17 @@ Nothing here is a commitment.
 Short entries, each one a conclusion somebody can point at instead of
 relitigating.
 
+**Which system is this container — read the build, never the resemblance.**
+The record of "this container is that repository at that commit" exists in the
+CI system and nowhere else, so that is what is read: a document the pipeline
+wrote, handed over like every other collector's, joined on the image reference
+the two halves already share. Matching a repository name against an image name
+because they look alike stayed refused, and a rebuilt tag resolves by run time
+rather than by whichever record was read last, so the drawing stays
+deterministic. The repository becomes a node of its own unless somebody says
+which element it already is — the estate knows that and the record cannot.
+[builds.md](builds.md)
+
 **The properties a security review found, and what keeps them true.** A review
 of the whole repository found nothing above its reporting bar. That is a
 statement about how the code is written today, not a permanent one, and the
@@ -312,30 +323,6 @@ a route is identified by its participants, so two routes through the same
 services are one route — and that identity is what makes an observation about a
 route addressable. Either the evidence gains a field, or the answer stays at
 the walk.
-
----
-
-## Wanted, not started
-
-**Which system is this container?** The code graph says what the source
-declares and the Terraform graph says what runs, and between them is an image
-tag that nothing here reads the source of.
-
-In an enterprise that join is already automated and already written down: a
-pipeline builds an image from a commit, and a pull request writes that image's
-digest into the IaC. So the record of "this container is that repository at that
-commit" lives in the CI system — GitHub Actions or whatever stands in its place
-— and that is the only place it exists. Matching a repository name against an
-image name because they look alike is precisely the invention this project
-refuses.
-
-The shape follows the boundary that is already here: a collector reads the
-build's own record and writes it as ordinary evidence, the join arrives as an
-`observed` edge with a claim naming the run it came from, and a flag refuses to
-read any of it — whether a CI system belongs in the picture is the estate's
-decision, not this program's default. Written down in
-[roadmap.md](roadmap.md#what-builds-this-image--the-missing-half-of-the-code-to-infrastructure-join)
-so the mechanism is not invented in a hurry later.
 
 ---
 

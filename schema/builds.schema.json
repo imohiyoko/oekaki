@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/imohiyoko/oekaki/main/schema/builds.schema.json",
+  "title": "oekaki build records",
+  "type": "object",
+  "required": ["kind", "version", "builds"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": { "const": "oekaki.builds" },
+    "version": { "type": "string", "minLength": 1 },
+    "builds": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["repository", "run", "images"],
+        "additionalProperties": false,
+        "properties": {
+          "repository": { "type": "string", "minLength": 1 },
+          "commit": { "type": "string" },
+          "ref": { "type": "string" },
+          "run": {
+            "type": "object",
+            "required": ["id"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "workflow": { "type": "string" },
+              "url": { "type": "string" },
+              "completed_at": { "type": "string" }
+            }
+          },
+          "images": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["reference"],
+              "additionalProperties": false,
+              "properties": {
+                "reference": { "type": "string", "minLength": 1 },
+                "digest": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

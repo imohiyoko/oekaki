@@ -1,0 +1,11 @@
+{
+  "kind": "oekaki.builds",
+  "version": "0.1",
+  "builds": [
+    {
+      "repository": "acme/warehouse",
+      "run": { "id": "8" },
+      "images": [{ "reference": "registry.example/warehouse:2.0.0" }]
+    }
+  ]
+}

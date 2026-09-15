@@ -23,8 +23,10 @@ where contributions come in.
 | `parsers/source/` | multi-language source tree → code IR: files, packages, functions and types; extensible parser registry ([docs/code.md](code.md)) |
 | `parsers/openapi/` | an OpenAPI document → the surface it declares: one container, one node per operation ([docs/api.md](api.md)) |
 | `collectors/` | vendor-neutral adapters for logs, metrics, traces, and explicit reachability probes |
+| `collectors/builds/` | a CI system's own build record → what built which image ([docs/builds.md](builds.md)) |
 | `enrichers/` | What an enricher is, and what it may write |
 | `enrichers/overlay/` | Assertions a human or a model wrote → IR annotations |
+| `enrichers/builds/` | Build records → an `observed` join from a running image to the repository behind it |
 | `enrichers/ai/` | Validated optional model nodes/relationship candidates → IR |
 | `internal/textmetrics/` | How wide text actually is, in points |
 | `renderers/dot/` | IR → Graphviz DOT |

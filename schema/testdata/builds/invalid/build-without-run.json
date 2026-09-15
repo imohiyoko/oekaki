@@ -1,0 +1,5 @@
+{
+  "kind": "oekaki.builds",
+  "version": "0.1",
+  "builds": [{ "repository": "acme/checkout", "images": [{ "reference": "registry.example/checkout:1.4.0" }] }]
+}
