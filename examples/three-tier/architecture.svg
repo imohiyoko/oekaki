@@ -187,7 +187,7 @@
 <!-- aws_ecs_task_definition.api -->
 <g id="node18" class="node">
 <title>aws_ecs_task_definition.api</title>
-<g id="a_node18"><a xlink:title="aws_ecs_task_definition.api&#10;main.tf:214&#10;cpu = 512&#10;family = api&#10;memory = 1024&#10;network_mode = awsvpc">
+<g id="a_node18"><a xlink:title="aws_ecs_task_definition.api&#10;main.tf:214&#10;cpu = 512&#10;family = api&#10;image = public.ecr.aws/nginx/nginx:latest&#10;memory = 1024&#10;network_mode = awsvpc">
 <path fill="#e7f5ec" stroke="#3f9159" stroke-width="1.2" d="M526.65,-38.4C526.65,-38.4 408.09,-38.4 408.09,-38.4 402.09,-38.4 396.09,-32.4 396.09,-26.4 396.09,-26.4 396.09,-12 396.09,-12 396.09,-6 402.09,0 408.09,0 408.09,0 526.65,0 526.65,0 532.65,0 538.65,-6 538.65,-12 538.65,-12 538.65,-26.4 538.65,-26.4 538.65,-32.4 532.65,-38.4 526.65,-38.4"/>
 <text text-anchor="middle" x="467.37" y="-22.2" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#1c4429">api</text>
 <text text-anchor="middle" x="467.37" y="-10.2" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#1c4429">ecs_task_definition</text>

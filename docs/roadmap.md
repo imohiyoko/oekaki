@@ -147,10 +147,11 @@ it with an `observed` edge whose claim names the run, and `--no-builds` refuses
 the whole reading, because whether a CI system belongs in the picture is the
 estate's decision. [builds.md](builds.md)
 
-What it does not cover yet is written down there rather than here: the join
-needs an image on the node, and today only the Kubernetes parser records one.
-An ECS task definition holds the image in its `container_definitions`, and
-reading it is the next step on this line.
+The join needs an image on the node, and two parsers now record one: a pod's
+first container, and an `aws_ecs_task_definition`'s `container_definitions`.
+What is still unread — a Lambda built from an image, Cloud Run, Azure container
+instances, and every field of a container definition that is not the image —
+is written down in [builds.md](builds.md) rather than here.
 
 ## v1.0 — a frozen boundary
 

@@ -104,6 +104,7 @@
       "attrs": {
         "cpu": "512",
         "family": "api",
+        "image": "public.ecr.aws/nginx/nginx:latest",
         "memory": "1024",
         "network_mode": "awsvpc"
       },

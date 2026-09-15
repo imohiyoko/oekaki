@@ -214,7 +214,7 @@ func Parse(input []byte, opts Options) (*core.Graph, error) {
 			Type:     r.typ,
 			Name:     label(r),
 			Provider: r.provider,
-			Attrs:    pickAttrs(r),
+			Attrs:    withImage(r, pickAttrs(r)),
 			Source:   src,
 		})
 	}
@@ -823,6 +823,49 @@ func label(r resource) string {
 		return name
 	}
 	return r.name
+}
+
+// withImage records which image a resource runs, when its provider profile
+// says where to look.
+//
+// It exists for one join: a build record names an image, a running workload
+// runs one, and that reference is the only identifier the two documents share.
+// So one field is read and no others — this is not a model of a container, and
+// the ports, limits and environment in the same document stay unread.
+//
+// The value is the first container's, the same reading parsers/kubernetes
+// makes of a pod. A task with a sidecar built somewhere else has a second
+// answer to "which repository is this", and there is nowhere to put it yet.
+//
+// Anything unreadable is left absent rather than guessed at: the attribute is
+// unknown in a plan for a resource that does not exist yet, and a value that
+// is not a JSON array of objects is not a thing this can take a container out
+// of. An absent image is a join that does not happen, which is the same
+// outcome as before this could read any of them.
+func withImage(r resource, attrs map[string]any) map[string]any {
+	attr, ok := providers.ContainerDefinitionsAttr(r.typ)
+	if !ok {
+		return attrs
+	}
+	encoded, ok := r.values[attr].(string)
+	if !ok || encoded == "" {
+		return attrs
+	}
+
+	var containers []map[string]any
+	if err := json.Unmarshal([]byte(encoded), &containers); err != nil {
+		return attrs
+	}
+	for _, c := range containers {
+		if image, ok := c["image"].(string); ok && image != "" {
+			if attrs == nil {
+				attrs = map[string]any{}
+			}
+			attrs["image"] = image
+			return attrs
+		}
+	}
+	return attrs
 }
 
 // pickAttrs copies the attributes the provider profile asks for, skipping nulls

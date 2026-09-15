@@ -157,15 +157,25 @@ whoever wrote the wrapper.
 
 ## What is not read
 
-**Anything that is not `attrs.image`.** Today that means Kubernetes workloads:
-[parsers/kubernetes](kubernetes.md) records the image of a pod's first
-container. Terraform does not yet record one — an ECS task definition's
-`container_definitions` holds the image, and reading it is a separate change —
-so an ECS service does not join yet. Nothing is invented to cover the gap.
+**Anything that is not `attrs.image`.** Two parsers record one:
+[parsers/kubernetes](kubernetes.md) takes the image of a pod's first container,
+and the Terraform parser takes it out of an `aws_ecs_task_definition`'s
+`container_definitions` — so the join lands on the task definition, which is
+the thing that declares what runs, one `iac_ref` away from the service.
 
-**A pod's second container.** One workload, one image, because that is what the
-parser records. A sidecar built from another repository is a second answer to
-"which system is this", and there is nowhere to put it yet.
+A Lambda built from an image (`image_uri`), Cloud Run and Azure container
+instances are not read. Their images are written down in shapes of their own,
+and each is a small addition to the same place rather than something guessed at
+here.
+
+**Everything else in a container definition.** The image is read and no other
+field is. The ports, limits and environment in the same document stay unread,
+because this is the identifier two documents share rather than a model of a
+container.
+
+**A second container.** One workload, one image, in both parsers. A sidecar
+built from another repository is a second answer to "which system is this", and
+there is nowhere to put it yet.
 
 **The CI system itself.** No poller ships here. `gh api`, a step at the end of
 the pipeline, or anything else that can write JSON is the producer, and the

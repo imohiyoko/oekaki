@@ -91,6 +91,23 @@ type Profile struct {
 	// carrying every computed attribute would bury the signal.
 	Attrs map[string][]string
 
+	// ContainerDefinitions names, per resource type, the attribute holding a
+	// JSON array of container definitions — the shape AWS uses to say what a
+	// task actually runs.
+	//
+	// One field is read out of it and no others: the image, because that is
+	// the identifier a build record shares with a running workload. Nothing
+	// here wants a model of a container.
+	//
+	// It is here rather than in the parser for the reason this package exists:
+	// "what is aws_ecs_task_definition" is answered in one place. And it is
+	// the attribute name rather than a way of reading it, because the reading
+	// is one behaviour the parser already knows — a second provider whose
+	// containers arrive as nested blocks rather than as encoded JSON needs a
+	// different reader, and inventing the shape of that before anything asks
+	// for it would be guessing at which parts matter.
+	ContainerDefinitions map[string]string
+
 	// Categories assigns a drawing category. Types absent here fall back to
 	// the heuristics in CategoryOf, and ultimately to Generic.
 	Categories map[string]Category
@@ -189,6 +206,17 @@ func Attrs(resourceType string) []string {
 		return nil
 	}
 	return p.Attrs[resourceType]
+}
+
+// ContainerDefinitionsAttr returns the attribute holding a resource type's
+// container definitions, when it has one.
+func ContainerDefinitionsAttr(resourceType string) (string, bool) {
+	p := Lookup(resourceType)
+	if p == nil {
+		return "", false
+	}
+	attr, ok := p.ContainerDefinitions[resourceType]
+	return attr, ok
 }
 
 // CategoryOf classifies a resource type for drawing.
