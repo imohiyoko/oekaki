@@ -14,6 +14,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -35,6 +36,7 @@ var (
 	typedCurlyFunc = regexp.MustCompile(`^\s*(?:(?:public|private|protected|internal|static|final|abstract|virtual|override|sealed|synchronized|native|extern|inline|constexpr|friend|unsafe|async|const)\s+)*(?:[A-Za-z_][A-Za-z0-9_:.?]*(?:\s*<[^>{};()]+>)?(?:\s*\[\])?)(?:\s*[*&]+\s*|\s+)([A-Za-z_][A-Za-z0-9_]*)\s*\([^;{}]*\)\s*(?:const\s*)?(?:noexcept\s*)?(?::[^\{]+)?\{`)
 	pythonFunc     = regexp.MustCompile(`^\s*(?:async\s+)?def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
 	goImport       = regexp.MustCompile(`^\s*import\s+(?:[A-Za-z_][A-Za-z0-9_]*\s+)?"([^"]+)"`)
+	goImportLine   = regexp.MustCompile(`^\s*(?:import\s+)?(?:([A-Za-z_.][A-Za-z0-9_]*)\s+)?"([^"]+)"\s*$`)
 	esFromImport   = regexp.MustCompile(`^\s*import\s+(?:[^"']+\s+from\s+)?["']([^"']+)["']`)
 	quotedImport   = regexp.MustCompile(`^\s*(?:import|from)\s+["']([^"']+)["']`)
 	pythonImport   = regexp.MustCompile(`^\s*from\s+([A-Za-z_][A-Za-z0-9_.]*)\s+import\s+`)
@@ -785,7 +787,28 @@ func canResolveCrossFile(callerFile string, caller sourceFileInfo, targetFile st
 	}
 	switch family {
 	case "go":
-		return caller.scope != "" && caller.scope == target.scope
+		if caller.scope != "" && caller.scope == target.scope {
+			return true
+		}
+		// A call into another package of this same tree. Both halves of it are
+		// written down rather than guessed: the import line says what the
+		// qualifier refers to, and the target's package clause says it is that
+		// package. What stays refused is everything outside the tree — a call
+		// to `http.Get` names a package nobody handed us, and a box drawn from
+		// a name is a box nobody can open.
+		//
+		// Two packages in the tree with one name leave two candidates, and the
+		// caller drops anything that is not a single one. That is the same
+		// "exactly one" this parser already applies to types.
+		if call.qualifier == "" || call.qualifier != goPackageName(target.scope) {
+			return false
+		}
+		for _, imp := range caller.imports {
+			if imp.namespace == call.qualifier {
+				return true
+			}
+		}
+		return false
 	case "py", "javascript":
 		for _, imp := range caller.imports {
 			if !importNamesFile(callerFile, targetFile, family, imp.module) {
@@ -822,11 +845,41 @@ var (
 
 func sourceImports(lines, code []string, language string) []sourceImport {
 	var imports []sourceImport
+	// Whether a line belongs to a grouped `import ( … )`. A bare quoted string
+	// is only an import inside one, and reading every quoted line as an import
+	// would invent a package out of an ordinary constant.
+	grouped := false
 	for i, raw := range lines {
 		if i >= len(code) {
 			break
 		}
 		switch languageFamily(language) {
+		case "go":
+			// What a qualifier means is written on the import line, which is
+			// the whole reason this is read: `store.Save` names the package
+			// the file said `store` refers to, and nothing else.
+			// Inside a block the line is read as written rather than through
+			// the masked copy: sanitizing blanks every string, and an import
+			// path is a string. The block itself is what says these lines are
+			// imports — in Go nothing else may appear between the brackets —
+			// so no guess is being made about an ordinary quoted line.
+			if grouped {
+				if strings.TrimSpace(raw) == ")" {
+					grouped = false
+					continue
+				}
+				if groups := goImportLine.FindStringSubmatch(raw); len(groups) > 2 {
+					imports = append(imports, goImportSpec(groups[1], groups[2]))
+				}
+				continue
+			}
+			if strings.HasPrefix(strings.TrimSpace(raw), "import (") {
+				grouped = true
+				continue
+			}
+			if groups, ok := activeGroups(raw, code[i], goImportLine); ok {
+				imports = append(imports, goImportSpec(groups[0], groups[1]))
+			}
 		case "py":
 			if groups, ok := activeGroups(raw, code[i], pythonFromStatement); ok {
 				symbols, wildcard := importBindings(groups[1], "as")
@@ -1011,6 +1064,25 @@ func sourcePackage(file, language string, lines []string) string {
 		}
 	}
 	return filepath.ToSlash(filepath.Dir(file))
+}
+
+// goPackageName takes the package clause out of a Go scope, which carries the
+// directory as well so that two directories declaring one package name stay
+// apart.
+// goImport is one import line: what it refers to, and the name this file
+// refers to it by.
+func goImportSpec(alias, module string) sourceImport {
+	if alias == "" {
+		alias = path.Base(module)
+	}
+	return sourceImport{module: module, namespace: alias}
+}
+
+func goPackageName(scope string) string {
+	if _, name, found := strings.Cut(scope, "\x00"); found {
+		return name
+	}
+	return ""
 }
 
 func hasEdge(g *core.Graph, from, to, relation string) bool {
