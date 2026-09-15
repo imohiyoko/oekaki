@@ -58,13 +58,28 @@ everywhere else — and then against the whole tree, but only when exactly one
 type carries that name. Two `Order`s in two packages is the ordinary shape of a
 repository, and choosing one of them would draw an arrow nobody meant.
 
-**A qualified name is not resolved at all.** `*http.Client`, `models.User` and
-`Outer::Inner` name another package or another scope, and this parser has no
-notion of which is which. Dropping the qualifier and matching what is left
-would join a field to whatever local type happened to be called `Client`, or a
-class to the `Outer` its base was only reached through — an arrow to something
-the declaration never mentioned, in a document whose whole purpose is telling
-apart what was claimed from what was seen.
+**A qualified name in a type is not resolved at all.** `*http.Client`,
+`models.User` and `Outer::Inner` name another package or another scope, and
+this parser has no notion of which is which. Dropping the qualifier and
+matching what is left would join a field to whatever local type happened to be
+called `Client`, or a class to the `Outer` its base was only reached through —
+an arrow to something the declaration never mentioned, in a document whose
+whole purpose is telling apart what was claimed from what was seen.
+
+**A qualified Go call is resolved, but only into this tree.** `store.Save(…)`
+is drawn when the file imports a package whose name is `store`, this tree
+declares a package `store`, and `Save` is declared there exactly once. Neither
+half is a guess: the import line says what the qualifier refers to and the
+package clause says the target is that package. It matters because a call
+chain that stops at every package boundary is not a chain, and a service's own
+flow goes through those boundaries.
+
+Everything outside stays unread. `http.Get` names a package nobody handed us,
+two packages of one name leave two candidates and are refused the way an
+ambiguous type is, and a qualifier that is a value rather than an import —
+`db.Query(…)` — matches no import and resolves to nothing. An aliased import
+(`import st "…/store"`) is refused as well: mapping `st` back to a directory
+means resolving an import path against a module root this parser never reads.
 
 **A declaration has to look like one.** `struct sockaddr_in addr;` declares a
 variable, not a type: a name followed by another name is never a declaration,
