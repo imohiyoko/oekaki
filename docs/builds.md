@@ -129,7 +129,19 @@ and says it built this, and that much is known without anybody deciding where
 it sits in the estate.
 
 When a code graph is loaded as well, whoever knows the estate can say which
-element that repository is, and then the edge points at what is already drawn:
+**input** that repository is. The repository node then records it, and in an
+atlas the box opens as that repository's code map — the descent from a running
+container to one class, by clicking. See [atlas.md](atlas.md).
+
+```console
+$ oekaki graph cluster.yaml --repo ../checkout \
+    --builds builds.json --build-repo acme/checkout=repo-2-checkout
+```
+
+The id on the right is the input's, which `--repo` derives from the directory
+name and the graph records in its metadata. One element of the graph is
+accepted there too, for an estate that would rather point the edge at something
+it already draws:
 
 ```console
 $ oekaki graph cluster.yaml --repo ../checkout \

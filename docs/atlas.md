@@ -17,6 +17,24 @@ level:                 the estate: containers as boxes
        └ sequence:svc:api   one call chain, in order
 ```
 
+A container descends into the code it runs. A build record joins a workload to
+the repository that built it, and when somebody has said which input that
+repository is, the box opens as a **code map**: the functions of that
+repository, what calls what, and what it imports. From there a function opens
+its own page and a type opens as a class diagram, so the descent from a running
+container to one class is a sequence of clicks. See [builds.md](builds.md).
+
+```
+level:                          the estate
+ └ detail:aws_ecs_task_definition.api
+    └ codemap:repository:acme/checkout    what it runs, as code
+       └ detail:…#Handle                  one function
+```
+
+No line on that map crosses into the estate around it. Which function serves
+which API operation, and which import carries which outbound call, is written
+down nowhere — so the map says what the parser read and stops there.
+
 A code graph descends the same way, and a **type** opens as a class diagram
 rather than as the generic inside-of-a-box page — one element still has one
 inside, read the way the thing itself is written. See
