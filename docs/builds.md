@@ -98,15 +98,20 @@ obviously right.
 
 A digest matches too, both ways round: an estate that pins `name@sha256:…`
 never writes the tag the record was pushed with, and a record that pins one
-never writes the tag the estate runs. A record whose reference and `digest`
-field disagree is refused on the spot, because whichever of the two is true,
-the other joins a container to a build that did not produce it.
+never writes the tag the estate runs. A record that says a digest twice and says it differently is refused on the
+spot — whether that is a reference pinned to one digest carrying another in its
+`digest` field, or two entries in one build giving one reference two digests.
+Whichever of the two is true, the other joins a container to a build that did
+not produce it.
 
 ## Two records of one image
 
 Rebuilding a tag is ordinary, so when one repository claims an image twice the
 later run wins — by `run.completed_at`, then by `run.id`, so every machine
-resolves it the same way. Determinism is what `oekaki diff` is built on, and a
+resolves it the same way. Both are compared as what they are rather than as
+text: `19:00+09:00` is an hour *before* `11:00Z` however the two sort as
+strings, and run 9 is before run 10 however they sort as text. A
+`completed_at` nothing can read is refused rather than quietly ignored. Determinism is what `oekaki diff` is built on, and a
 tie broken by map order would take it away.
 
 Two *different* repositories claiming one image is not something to pick a
@@ -132,8 +137,10 @@ $ oekaki graph cluster.yaml --repo ../checkout \
 ```
 
 An id that names nothing is an error rather than a silent drop — the same
-refusal [`--api`](api.md) makes from the other side. The join was the question
-the flag was answering.
+refusal [`--api`](api.md) makes from the other side. So is a repository no
+record mentions: that mapping would never be consulted, the run would join to
+an invented node under the very name somebody was overriding, and nothing
+would have said so. The join was the question the flag was answering.
 
 ## Refusing to read it
 

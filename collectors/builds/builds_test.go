@@ -128,3 +128,69 @@ func TestLaterIsATotalOrder(t *testing.T) {
 		t.Error("the id does not break the tie")
 	}
 }
+
+// Run ids are numbers a CI system counts up, and "9" sorts after "10" as
+// text. The older build would win, silently.
+func TestRunIdsAreComparedAsNumbers(t *testing.T) {
+	if !(builds.Run{ID: "10"}).Later(builds.Run{ID: "9"}) {
+		t.Error("run 10 did not beat run 9")
+	}
+	if (builds.Run{ID: "9"}).Later(builds.Run{ID: "10"}) {
+		t.Error("run 9 beat run 10")
+	}
+	// Not every CI system counts in decimal; text is the honest fallback.
+	if !(builds.Run{ID: "b"}).Later(builds.Run{ID: "a"}) {
+		t.Error("non-numeric ids no longer order at all")
+	}
+}
+
+// Two instants in different offsets are two ways of writing a moment, and as
+// text the earlier one can sort later.
+func TestCompletionIsComparedAsAnInstant(t *testing.T) {
+	tokyo := builds.Run{ID: "1", CompletedAt: "2026-09-14T19:00:00+09:00"} // 10:00Z
+	utc := builds.Run{ID: "2", CompletedAt: "2026-09-14T11:00:00Z"}
+	if !utc.Later(tokyo) || tokyo.Later(utc) {
+		t.Error("the offset was compared as text")
+	}
+}
+
+func TestATimeNothingCanReadIsRefused(t *testing.T) {
+	doc := `{
+      "kind": "oekaki.builds", "version": "0.1",
+      "builds": [{
+        "repository": "acme/checkout",
+        "run": { "id": "1", "completed_at": "last tuesday" },
+        "images": [{ "reference": "img:1" }]
+      }]
+    }`
+	_, err := builds.Parse([]byte(doc), "builds.json")
+	if err == nil {
+		t.Fatal("an unreadable completion time was accepted")
+	}
+	if !strings.Contains(err.Error(), "RFC 3339") {
+		t.Errorf("the error does not say what was wrong:\n%v", err)
+	}
+}
+
+// The same contradiction as a pinned reference disagreeing with its digest
+// field, spelled with two entries instead of one.
+func TestOneReferenceWithTwoDigestsIsRefused(t *testing.T) {
+	doc := `{
+      "kind": "oekaki.builds", "version": "0.1",
+      "builds": [{
+        "repository": "acme/checkout",
+        "run": { "id": "1" },
+        "images": [
+          { "reference": "img:1", "digest": "sha256:aaaa" },
+          { "reference": "img:1", "digest": "sha256:bbbb" }
+        ]
+      }]
+    }`
+	_, err := builds.Parse([]byte(doc), "builds.json")
+	if err == nil {
+		t.Fatal("one reference with two digests was accepted")
+	}
+	if !strings.Contains(err.Error(), "sha256:aaaa") || !strings.Contains(err.Error(), "sha256:bbbb") {
+		t.Errorf("the error names neither digest:\n%v", err)
+	}
+}

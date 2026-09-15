@@ -17,7 +17,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/imohiyoko/oekaki/schema"
 )
@@ -85,6 +87,22 @@ func Parse(raw []byte, source string) (*Document, error) {
 func (d *Document) Validate() error {
 	var problems []string
 	for i, b := range d.Builds {
+		// Which digest each reference was said to have in this build. One
+		// reference with two digests is the same contradiction as a pinned
+		// reference disagreeing with its own digest field, spelled with two
+		// entries instead of one — and the loser of that pair is never
+		// reported, so nothing downstream could notice.
+		digests := map[string]string{}
+
+		// An unreadable instant is refused rather than carried: the order two
+		// records resolve in is decided by comparing them, and a time nothing
+		// can parse would fall back to comparing run ids without saying so.
+		if _, ok := b.Run.completed(); !ok && b.Run.CompletedAt != "" {
+			problems = append(problems, fmt.Sprintf(
+				"builds[%d].run.completed_at: %q is not an RFC 3339 time",
+				i, b.Run.CompletedAt))
+		}
+
 		for j, img := range b.Images {
 			// A reference pinned by digest carries the digest twice, and the
 			// two are matched against a running container separately. Two
@@ -97,6 +115,17 @@ func (d *Document) Validate() error {
 					"builds[%d].images[%d]: %q is pinned to %s but the record says it is %s",
 					i, j, img.Reference, pinned, img.Digest))
 			}
+
+			digest := img.Digest
+			if digest == "" && ok {
+				digest = pinned
+			}
+			if was, seen := digests[img.Reference]; seen && was != digest {
+				problems = append(problems, fmt.Sprintf(
+					"builds[%d].images[%d]: %q is %s here and %s earlier in the same build",
+					i, j, img.Reference, digest, was))
+			}
+			digests[img.Reference] = digest
 		}
 	}
 	if len(problems) == 0 {
@@ -151,9 +180,53 @@ func (r Run) Label() string {
 // same way on every machine. Rebuilding a tag is ordinary; picking a different
 // winner each run would make the drawing non-deterministic, which is the one
 // property the whole pipeline is built on.
+//
+// Both halves are compared as what they are rather than as text. Two instants
+// written in different offsets are the same instant written twice, and
+// `2026-09-14T19:00:00+09:00` sorts after `2026-09-14T11:00:00Z` while being
+// an hour earlier. Run ids are numbers a CI system counts up, and run 9 sorts
+// after run 10 as a string. Either comparison silently prefers the older
+// build — silently, because nothing downstream can tell which one it picked.
 func (r Run) Later(other Run) bool {
-	if r.CompletedAt != other.CompletedAt {
-		return r.CompletedAt > other.CompletedAt
+	mine, iSay := r.completed()
+	theirs, theySay := other.completed()
+	switch {
+	case iSay != theySay:
+		return iSay
+	case iSay && !mine.Equal(theirs):
+		return mine.After(theirs)
+	}
+	if mine, theirs, ok := numbers(r.ID, other.ID); ok {
+		return mine > theirs
 	}
 	return r.ID > other.ID
+}
+
+// completed is when the run finished, and whether it said.
+//
+// Parsing cannot fail here: a record whose time cannot be read is refused by
+// Validate, so this is total by the time anything compares two runs.
+func (r Run) completed() (time.Time, bool) {
+	if r.CompletedAt == "" {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339, r.CompletedAt)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return t, true
+}
+
+// numbers reads two run ids as the numbers a CI system counts up, when both
+// of them are.
+func numbers(a, b string) (int64, int64, bool) {
+	x, err := strconv.ParseInt(a, 10, 64)
+	if err != nil {
+		return 0, 0, false
+	}
+	y, err := strconv.ParseInt(b, 10, 64)
+	if err != nil {
+		return 0, 0, false
+	}
+	return x, y, true
 }

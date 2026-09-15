@@ -155,3 +155,29 @@ func TestValidateReadsABuildRecord(t *testing.T) {
 		t.Errorf("validate said: %q", r.stdout)
 	}
 }
+
+// A mapping for a repository no record mentions never gets consulted: the run
+// still joins, to a node invented under the name somebody was overriding.
+func TestBuildRepoForARepositoryNoRecordMentionsIsAnError(t *testing.T) {
+	r := run(t, "", "graph", runningEstate(t),
+		"--builds", buildsFile(t, buildRecord), "--build-repo", "acme/typo=workload:shop/checkout")
+	if r.code == 0 {
+		t.Fatal("a mapping for an unmentioned repository was accepted")
+	}
+	if !strings.Contains(r.stderr, "acme/typo") {
+		t.Errorf("the error does not name the repository:\n%s", r.stderr)
+	}
+}
+
+// The example in the error is what somebody copies, so it has to be the shape
+// of an id that can exist rather than a scope prefix.
+func TestTheSyntaxErrorShowsAnIdThatCouldExist(t *testing.T) {
+	r := run(t, "", "graph", runningEstate(t),
+		"--builds", buildsFile(t, buildRecord), "--build-repo", "acme/checkout")
+	if r.code == 0 {
+		t.Fatal("a mapping with no = was accepted")
+	}
+	if !strings.Contains(r.stderr, "repo-1-checkout:") {
+		t.Errorf("the example is not a whole id:\n%s", r.stderr)
+	}
+}
