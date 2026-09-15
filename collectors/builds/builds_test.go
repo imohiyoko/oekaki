@@ -194,3 +194,16 @@ func TestOneReferenceWithTwoDigestsIsRefused(t *testing.T) {
 		t.Errorf("the error names neither digest:\n%v", err)
 	}
 }
+
+// A run id is a string of no stated length, and a parser gives up exactly
+// where the wrong answer stops being obvious.
+func TestRunIdsBeyondSixtyFourBitsStillOrder(t *testing.T) {
+	big := builds.Run{ID: "10000000000000000000"}
+	small := builds.Run{ID: "9999999999999999999"}
+	if !big.Later(small) || small.Later(big) {
+		t.Error("past the 64-bit boundary the ids were compared as text")
+	}
+	if !(builds.Run{ID: "10"}).Later(builds.Run{ID: "007"}) {
+		t.Error("leading zeros were not read as the number they are")
+	}
+}

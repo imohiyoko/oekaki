@@ -17,7 +17,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -164,6 +163,23 @@ func (i Image) Keys() []string {
 	return out
 }
 
+// Identity is what decides whether two images are the same image: the digest
+// when there is one, and the reference when there is not.
+//
+// A reference is a name somebody reassigns — one tag can be two images a week
+// apart — so it cannot answer "is this the thing that is running" on its own.
+// The digest can, and is what an estate pins when it wants the question to
+// have one answer.
+func (i Image) Identity() string {
+	if i.Digest != "" {
+		return i.Digest
+	}
+	if digest, ok := DigestOf(i.Reference); ok {
+		return digest
+	}
+	return i.Reference
+}
+
 // Label names a run the way a claim should: by the workflow somebody knows it
 // as, when the record says, and by its id either way.
 func (r Run) Label() string {
@@ -196,8 +212,8 @@ func (r Run) Later(other Run) bool {
 	case iSay && !mine.Equal(theirs):
 		return mine.After(theirs)
 	}
-	if mine, theirs, ok := numbers(r.ID, other.ID); ok {
-		return mine > theirs
+	if later, ok := laterID(r.ID, other.ID); ok {
+		return later
 	}
 	return r.ID > other.ID
 }
@@ -217,16 +233,33 @@ func (r Run) completed() (time.Time, bool) {
 	return t, true
 }
 
-// numbers reads two run ids as the numbers a CI system counts up, when both
-// of them are.
-func numbers(a, b string) (int64, int64, bool) {
-	x, err := strconv.ParseInt(a, 10, 64)
-	if err != nil {
-		return 0, 0, false
+// laterID compares two run ids as the numbers a CI system counts up, when
+// both of them are, and says whether it could.
+//
+// By digit count and then by text, rather than by parsing into an integer. An
+// id is a string of no stated length, and a parser gives up exactly where the
+// numbers get big enough for the wrong answer to stop being obvious: past the
+// 64-bit boundary the comparison would fall back to text without a word, and
+// text puts run 10000000000000000000 before run 9999999999999999999.
+func laterID(a, b string) (later, ok bool) {
+	if !digitsOnly(a) || !digitsOnly(b) {
+		return false, false
 	}
-	y, err := strconv.ParseInt(b, 10, 64)
-	if err != nil {
-		return 0, 0, false
+	x, y := strings.TrimLeft(a, "0"), strings.TrimLeft(b, "0")
+	if len(x) != len(y) {
+		return len(x) > len(y), true
 	}
-	return x, y, true
+	return x > y, true
+}
+
+func digitsOnly(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
