@@ -11,6 +11,7 @@
 package builds
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/imohiyoko/oekaki/collectors/builds"
@@ -81,7 +82,10 @@ func (e Enricher) Enrich(g *core.Graph) (*enrichers.Report, error) {
 		for _, key := range b.image.Keys() {
 			matched[key] = true
 		}
-		to, invented := e.target(g, b)
+		to, invented, err := e.target(g, b)
+		if err != nil {
+			return r, err
+		}
 		if invented {
 			// A box that was not in the estate a moment ago, said out loud.
 			// An edge to an invented repository and an edge to parsed
@@ -243,20 +247,31 @@ func lookup(byKey map[string]built, image string) (built, bool) {
 
 // target is the element the edge points at, and whether this invented it: the
 // one somebody wrote down, or a node for the repository itself.
-func (e Enricher) target(g *core.Graph, b built) (string, bool) {
+func (e Enricher) target(g *core.Graph, b built) (string, bool, error) {
 	if id, ok := e.Repositories[b.repository]; ok {
-		return id, false
+		return id, false, nil
 	}
 
 	id := NodeRepository + ":" + b.repository
-	if _, ok := g.Node(id); ok {
-		return id, false
+	if n, ok := g.Node(id); ok {
+		// Finding one already here is ordinary: a graph this ran on once is
+		// an input the next time, and the repository node it wrote then is
+		// the same repository now. Anything else wearing that id is a
+		// different thing with the same name, and pointing the edge at it
+		// would answer "what built this" with somebody else's box. Nothing
+		// downstream could tell, because the graph would still validate.
+		if n.Type != NodeRepository || n.Name != b.repository {
+			return "", false, fmt.Errorf(
+				"%q is already here as %s %q: that and the repository the record names cannot be told apart",
+				id, n.Type, n.Name)
+		}
+		return id, false, nil
 	}
 	g.Nodes = append(g.Nodes, core.Node{
 		ID: id, Type: NodeRepository, Name: b.repository,
 		Claim: &core.Claim{Origin: core.OriginParser, Note: b.run.Label()},
 	})
-	return id, true
+	return id, true, nil
 }
 
 func edge(from, to, image string, b built) core.Edge {

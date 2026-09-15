@@ -22,9 +22,12 @@ The record of "this container is that repository at that commit" exists in the
 CI system and nowhere else, so that is what is read: a document the pipeline
 wrote, handed over like every other collector's, joined on the image reference
 the two halves already share. Matching a repository name against an image name
-because they look alike stayed refused, and a rebuilt tag resolves by run time
-rather than by whichever record was read last, so the drawing stays
-deterministic. The repository becomes a node of its own unless somebody says
+because they look alike stayed refused. One repository's rebuilt tag resolves
+by run time — `completed_at`, then the run id, both read as what they are
+rather than as text — rather than by whichever record happened to be read
+last, so the drawing stays deterministic; two repositories claiming one image
+resolve to nothing at all, because one of them did not build it and nothing
+here knows which. The repository becomes a node of its own unless somebody says
 which element it already is — the estate knows that and the record cannot.
 [builds.md](builds.md)
 
