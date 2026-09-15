@@ -1,6 +1,7 @@
 package builds
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/imohiyoko/oekaki/collectors/builds"
@@ -286,5 +287,42 @@ func TestADigestContestedOnItsOwnIsStillSaid(t *testing.T) {
 	}
 	if r.Applied != 0 {
 		t.Errorf("applied %d: a contested digest should join to nothing", r.Applied)
+	}
+}
+
+// Reading a graph this already ran on is ordinary: the repository node it
+// wrote then is the same repository now, and reusing it is right.
+func TestARepositoryNodeAlreadyHereIsReused(t *testing.T) {
+	g := graphRunning("registry.example/checkout:1.4.0")
+	g.Nodes = append(g.Nodes, core.Node{
+		ID: "repository:acme/checkout", Type: NodeRepository, Name: "acme/checkout",
+	})
+
+	r, err := (Enricher{Documents: []*builds.Document{record(t, oneBuild)}}).Enrich(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Applied != 1 || len(r.Adopted) != 0 {
+		t.Fatalf("report = %+v", r)
+	}
+	if got := len(g.Nodes); got != 2 {
+		t.Errorf("%d nodes: the repository was added a second time", got)
+	}
+}
+
+// Something else wearing that id is a different thing with the same name. The
+// graph would still validate, so nothing downstream could tell.
+func TestSomethingElseWearingTheRepositoryIdIsRefused(t *testing.T) {
+	g := graphRunning("registry.example/checkout:1.4.0")
+	g.Nodes = append(g.Nodes, core.Node{
+		ID: "repository:acme/checkout", Type: "service", Name: "a service somebody named oddly",
+	})
+
+	_, err := (Enricher{Documents: []*builds.Document{record(t, oneBuild)}}).Enrich(g)
+	if err == nil {
+		t.Fatal("the edge was pointed at somebody else's box")
+	}
+	if !strings.Contains(err.Error(), "repository:acme/checkout") {
+		t.Errorf("the error does not name the id:\n%v", err)
 	}
 }
