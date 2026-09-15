@@ -18,7 +18,7 @@ type buildFlags struct {
 
 func (b *buildFlags) register(fs *flag.FlagSet) {
 	fs.Var(&b.files, "builds", "apply a CI build record, joining a running image to the repository that built it; repeatable, - reads standard input")
-	fs.Var(&b.repositories, "build-repo", "which element in this graph a repository is, as `--build-repo acme/checkout=repo-1-checkout:source:dir:cmd`; repeatable")
+	fs.Var(&b.repositories, "build-repo", "which part of this graph a repository is: an input, as `--build-repo acme/checkout=repo-2-checkout`, or one element of it; repeatable")
 	fs.BoolVar(&b.refuse, "no-builds", false, "ignore --builds and --build-repo, however they were passed")
 }
 
@@ -68,11 +68,16 @@ func applyBuilds(env Env, g *core.Graph, f buildFlags) error {
 		if !found || repository == "" || id == "" {
 			return fmt.Errorf("--build-repo %s: write it as repository=id, such as acme/checkout=repo-1-checkout:source:dir:cmd", value)
 		}
-		// The same refusal --api makes, from the other side: an id that names
-		// nothing is a join somebody meant to make and did not, and letting it
-		// pass quietly leaves the record looking applied.
-		if !element(g, id) {
-			return fmt.Errorf("--build-repo %s: nothing here has the id %q", value, id)
+		// An input is the useful thing to name: it is the whole repository,
+		// and naming it is what lets the drawing open that repository's code
+		// behind the box. One element of it is still accepted, for an estate
+		// that would rather point the edge at something it already draws.
+		//
+		// The same refusal --api makes either way: an id that names nothing is
+		// a join somebody meant to make and did not, and letting it pass
+		// quietly leaves the record looking applied.
+		if !input(g, id) && !element(g, id) {
+			return fmt.Errorf("--build-repo %s: nothing here is %q — not an input, not a node, not a group", value, id)
 		}
 		// And the other half of the same sentence. A repository no record
 		// mentions is a mapping that will never be consulted: the run still
@@ -87,7 +92,7 @@ func applyBuilds(env Env, g *core.Graph, f buildFlags) error {
 		repositories[repository] = id
 	}
 
-	report, err := buildsenricher.Enricher{Documents: docs, Repositories: repositories}.Enrich(g)
+	report, err := buildsenricher.Enricher{Documents: docs, Repositories: repositories, Inputs: inputIDs(g)}.Enrich(g)
 	if report != nil {
 		report.WriteText(env.Stderr)
 	}
@@ -95,4 +100,21 @@ func applyBuilds(env Env, g *core.Graph, f buildFlags) error {
 		return err
 	}
 	return g.Validate()
+}
+
+// input reports whether an id names one of the documents this graph was read
+// from, which is how a whole repository is named.
+func input(g *core.Graph, id string) bool {
+	return inputIDs(g)[id]
+}
+
+func inputIDs(g *core.Graph) map[string]bool {
+	out := map[string]bool{}
+	if g.Metadata == nil {
+		return out
+	}
+	for _, in := range g.Metadata.Inputs {
+		out[in.ID] = true
+	}
+	return out
 }

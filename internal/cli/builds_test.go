@@ -181,3 +181,32 @@ func TestTheSyntaxErrorShowsAnIdThatCouldExist(t *testing.T) {
 		t.Errorf("the example is not a whole id:\n%s", r.stderr)
 	}
 }
+
+// Naming the input is how a whole repository is pointed at, which is what a
+// drawing needs to open its code behind the box.
+func TestBuildRepoCanNameAnInput(t *testing.T) {
+	g := core.New()
+	g.Metadata = &core.Metadata{Inputs: []core.InputRef{{ID: "repo-2-checkout", Path: "../checkout", Kind: "repository"}}}
+	g.Nodes = []core.Node{{
+		ID: "workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
+		Attrs: map[string]any{"image": "registry.example/checkout:1.4.0"},
+	}}
+	g.Normalize()
+
+	r := mustRun(t, "", "graph", graphFile(t, g),
+		"--builds", buildsFile(t, buildRecord), "--build-repo", "acme/checkout=repo-2-checkout")
+
+	out := graphOf(t, r.stdout)
+	repo, ok := out.Node("repository:acme/checkout")
+	if !ok {
+		t.Fatal("no repository node")
+	}
+	if repo.Attrs["repository"] != "repo-2-checkout" {
+		t.Errorf("the repository does not record which input it is: %v", repo.Attrs)
+	}
+	for _, e := range out.Edges {
+		if e.Relation == "built_from" && e.To != "repository:acme/checkout" {
+			t.Errorf("the edge points at %s rather than at the repository", e.To)
+		}
+	}
+}

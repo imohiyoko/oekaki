@@ -59,6 +59,11 @@ const (
 	// the diagram; see Diagram.Order.
 	KindSequence Kind = "sequence"
 
+	// KindCodemap is one repository's code as a map: what calls what, and
+	// what it imports. It is the page behind a container, for the reader who
+	// clicked a box asking "and what does this actually do".
+	KindCodemap Kind = "codemap"
+
 	// KindClass is one type: what it declares, and the other types it says
 	// something about. It is the same shape a UML class diagram has, and it
 	// is derived from what the declarations state — never from comparing
@@ -72,8 +77,18 @@ const (
 const (
 	codeType     = "code_type"
 	codeFunction = "code_function"
+	codeFile     = "code_file"
+	codePackage  = "code_package"
+
+	// repositoryType is a node standing for a repository a build record named.
+	// The string rather than the enrichers' constant: views reads graphs, and
+	// importing an enricher to learn one node type would make the projection
+	// depend on the thing that produced its input.
+	repositoryType = "repository"
 
 	relDeclares = "declares"
+	relCalls    = "calls"
+	relImports  = "imports"
 )
 
 // Where a sequence's order came from.
@@ -325,6 +340,7 @@ func (b *builder) room(id string) bool {
 func levelID(path string) string  { return "level:" + path }
 func detailID(id string) string   { return "detail:" + id }
 func sequenceID(id string) string { return "sequence:" + id }
+func codemapID(id string) string  { return "codemap:" + id }
 
 // level builds the diagram for one containment path and, recursively, for
 // everything openable from it.
@@ -422,6 +438,18 @@ func (b *builder) detailOpening(id string) (Opening, bool) {
 	if len(held) == 0 && len(touched) == 0 {
 		return Opening{}, false
 	}
+	// A repository somebody has placed opens its code rather than its
+	// neighbours. The reader who got here clicked a container asking what it
+	// runs, and the list of workloads that share the image is not that answer.
+	//
+	// One element has one inside, and the viewer keeps one door per box, so
+	// this replaces the detail page rather than sitting beside it.
+	if scope, ok := b.repositoryScope(id); ok {
+		if len(b.codeOf(scope)) > 0 {
+			return Opening{Element: id, Diagram: codemapID(id), Kind: KindCodemap, Label: "コードマップ"}, true
+		}
+	}
+
 	kind := KindDetail
 	label := "中身"
 	if len(held) == 0 && called > 0 {
@@ -447,6 +475,114 @@ func (b *builder) detailOpening(id string) (Opening, bool) {
 	return Opening{Element: id, Diagram: detailID(id), Kind: kind, Label: label}, true
 }
 
+// repositoryScope is the input a repository node was said to be, when a build
+// record's mapping placed it. Absent means nobody said, and a repository
+// nobody placed has no code to open.
+func (b *builder) repositoryScope(id string) (string, bool) {
+	n, ok := b.in.Node(id)
+	if !ok || n.Type != repositoryType {
+		return "", false
+	}
+	scope, ok := n.Attrs["repository"].(string)
+	if !ok || scope == "" {
+		return "", false
+	}
+	return scope, true
+}
+
+// codeOf is the code read from one input: the functions, the files that import
+// something, and what they import.
+//
+// Every node of an input carries that input's id, which is what makes this a
+// selection rather than a guess. Files are kept only when they import — a file
+// is on this page to carry the line out to what it uses, and one that uses
+// nothing would be a box with nothing to say on a page about flow.
+func (b *builder) codeOf(scope string) []string {
+	imports := map[string]bool{}
+	for _, e := range b.in.Edges {
+		if e.Relation == relImports {
+			imports[e.From] = true
+		}
+	}
+
+	var out []string
+	for _, n := range b.in.Nodes {
+		if of, _ := n.Attrs["repository"].(string); of != scope {
+			continue
+		}
+		switch n.Type {
+		case codeFunction, codePackage:
+			out = append(out, n.ID)
+		case codeFile:
+			if imports[n.ID] {
+				out = append(out, n.ID)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// codemap builds one repository's code as a map: what calls what, and what it
+// imports.
+//
+// What is drawn is what the parser recorded and nothing beside it. A function
+// nothing in the tree calls is where a request can come in, the calls are what
+// happens next, and an imported package is a way out — but no line is drawn
+// between those readings and the estate around the box. Which function serves
+// which API operation, and which import carries which outbound call, is
+// written down nowhere; see docs/code.md for what the reading refuses.
+func (b *builder) codemap(id string, open Opening) error {
+	scope, ok := b.repositoryScope(id)
+	if !ok {
+		return nil
+	}
+	members := b.codeOf(scope)
+	if len(members) == 0 || !b.room(open.Diagram) {
+		return nil
+	}
+
+	g := core.New()
+	g.Metadata = b.in.Metadata
+	present := map[string]bool{}
+	for _, member := range members {
+		n, ok := b.in.Node(member)
+		if !ok {
+			continue
+		}
+		copied := *n
+		copied.Groups = nil
+		g.Nodes = append(g.Nodes, copied)
+		present[member] = true
+	}
+	for _, e := range b.in.Edges {
+		if e.Relation != relCalls && e.Relation != relImports {
+			continue
+		}
+		if present[e.From] && present[e.To] {
+			g.Edges = append(g.Edges, e)
+		}
+	}
+	carry(b.in, g)
+	g.Normalize()
+	if err := g.Validate(); err != nil {
+		return err
+	}
+
+	b.out = append(b.out, Diagram{
+		ID: open.Diagram, Kind: KindCodemap, Graph: g,
+		Parent: b.levelOf(id),
+		Origin: id,
+		Title:  open.Label,
+	})
+	for _, member := range members {
+		if err := b.detail(member); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // levelOf is the page an element belongs under: the level of the container it
 // sits in.
 //
@@ -469,6 +605,9 @@ func (b *builder) detail(id string) error {
 	open, ok := b.detailOpening(id)
 	if !ok {
 		return nil
+	}
+	if open.Kind == KindCodemap {
+		return b.codemap(id, open)
 	}
 	if !b.room(open.Diagram) {
 		return nil
