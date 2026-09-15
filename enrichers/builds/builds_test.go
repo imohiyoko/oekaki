@@ -326,3 +326,28 @@ func TestSomethingElseWearingTheRepositoryIdIsRefused(t *testing.T) {
 		t.Errorf("the error does not name the id:\n%v", err)
 	}
 }
+
+// Two builds of one tag at two digests are two images. The estate running the
+// older one is not a reason to stay quiet about the newer.
+func TestOneTagRebuiltAtANewDigestIsStillReportedMissing(t *testing.T) {
+	doc := `{
+      "kind": "oekaki.builds", "version": "0.1",
+      "builds": [
+        { "repository": "acme/checkout", "run": { "id": "1", "completed_at": "2026-09-01T00:00:00Z" },
+          "images": [{ "reference": "registry.example/checkout:prod", "digest": "sha256:old" }] },
+        { "repository": "acme/checkout", "run": { "id": "2", "completed_at": "2026-09-08T00:00:00Z" },
+          "images": [{ "reference": "registry.example/checkout:prod", "digest": "sha256:new" }] }
+      ]
+    }`
+	g := graphRunning("registry.example/checkout@sha256:old")
+	r, err := (Enricher{Documents: []*builds.Document{record(t, doc)}}).Enrich(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Applied != 1 {
+		t.Fatalf("applied %d: the pinned digest should still join", r.Applied)
+	}
+	if len(r.Unmatched) != 1 {
+		t.Fatalf("unmatched = %+v; the digest running here is not the one that tag now means", r.Unmatched)
+	}
+}

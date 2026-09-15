@@ -79,9 +79,7 @@ func (e Enricher) Enrich(g *core.Graph) (*enrichers.Report, error) {
 		if !ok {
 			continue
 		}
-		for _, key := range b.image.Keys() {
-			matched[key] = true
-		}
+		matched[b.image.Identity()] = true
 		to, invented, err := e.target(g, b)
 		if err != nil {
 			return r, err
@@ -111,7 +109,11 @@ func (e Enricher) Enrich(g *core.Graph) (*enrichers.Report, error) {
 		// workload that pins the digest, would otherwise be reported as
 		// something nothing here runs — which is the opposite of true, in the
 		// one line a reader is meant to act on.
-		if key != b.image.Reference || anyOf(matched, b.image.Keys()) {
+		//
+		// What settles that is the digest, not the tag they share. Two builds
+		// of one tag at two digests are two images, and the estate running
+		// the older one is not a reason to stay quiet about the newer.
+		if key != b.image.Reference || matched[b.image.Identity()] {
 			continue
 		}
 		r.Unmatched = append(r.Unmatched, enrichers.Unmatched{
@@ -219,16 +221,6 @@ func sorted(set map[string]bool) []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-// anyOf reports whether the set holds any of these keys.
-func anyOf(set map[string]bool, keys []string) bool {
-	for _, k := range keys {
-		if set[k] {
-			return true
-		}
-	}
-	return false
 }
 
 // lookup finds the build behind what a node is running: the reference as
