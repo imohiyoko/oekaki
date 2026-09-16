@@ -38,7 +38,8 @@ var (
 	goImport       = regexp.MustCompile(`^\s*import\s+(?:[A-Za-z_][A-Za-z0-9_]*\s+)?"([^"]+)"`)
 	goModuleDecl   = regexp.MustCompile(`^\s*module\s+(\S+)`)
 	goImportOpen   = regexp.MustCompile(`^\s*import\s+(\()`)
-	goImportLine   = regexp.MustCompile(`^\s*(?:import\s+)?(?:([A-Za-z_.][A-Za-z0-9_]*)\s+)?"([^"]+)"\s*$`)
+	goImportSingle = regexp.MustCompile(`^\s*import\s+(?:([A-Za-z_.][A-Za-z0-9_]*)\s+)?"([^"]+)"`)
+	goImportMember = regexp.MustCompile(`^\s*(?:([A-Za-z_.][A-Za-z0-9_]*)\s+)?"([^"]+)"`)
 	esFromImport   = regexp.MustCompile(`^\s*import\s+(?:[^"']+\s+from\s+)?["']([^"']+)["']`)
 	quotedImport   = regexp.MustCompile(`^\s*(?:import|from)\s+["']([^"']+)["']`)
 	pythonImport   = regexp.MustCompile(`^\s*from\s+([A-Za-z_][A-Za-z0-9_.]*)\s+import\s+`)
@@ -826,7 +827,11 @@ func canResolveCrossFile(callerFile string, caller sourceFileInfo, targetFile st
 		// leave two — which are dropped, losing the call in exactly the estate
 		// that needed it, because a package and a caller sharing a function
 		// name is ordinary.
-		if importedAs(caller, call.qualifier) {
+		// Only where the reading above could have found something. A tree that
+		// declares no module gets no cross-package edges at all, so applying
+		// the guard there would take same-package edges away and give nothing
+		// back — leaving such a tree worse off than before any of this.
+		if module != "" && importedAs(caller, call.qualifier) {
 			return false
 		}
 		return caller.scope != "" && caller.scope == target.scope
@@ -866,47 +871,14 @@ var (
 
 func sourceImports(lines, code []string, language string) []sourceImport {
 	var imports []sourceImport
-	// Whether a line belongs to a grouped `import ( … )`. A bare quoted string
-	// is only an import inside one, and reading every quoted line as an import
-	// would invent a package out of an ordinary constant.
-	grouped := false
+	var goScan goImportScan
 	for i, raw := range lines {
 		if i >= len(code) {
 			break
 		}
 		switch languageFamily(language) {
 		case "go":
-			// What a qualifier means is written on the import line, which is
-			// the whole reason this is read: `store.Save` names the package
-			// the file said `store` refers to, and nothing else.
-			// Inside a block the line is read as written rather than through
-			// the masked copy: sanitizing blanks every string, and an import
-			// path is a string. The block itself is what says these lines are
-			// imports — in Go nothing else may appear between the brackets —
-			// so no guess is being made about an ordinary quoted line.
-			// Whether a block opened, and whether it closed, is decided on
-			// the masked copy: an `import (` inside a raw string or a comment
-			// is not an import, and a block that never closed would read every
-			// quoted line after it as one. Only the path is taken from the
-			// line as written, because masking blanks every string and an
-			// import path is one.
-			if grouped {
-				if strings.Contains(code[i], ")") {
-					grouped = false
-					continue
-				}
-				if groups := goImportLine.FindStringSubmatch(raw); len(groups) > 2 {
-					imports = append(imports, goImportSpec(groups[1], groups[2]))
-				}
-				continue
-			}
-			if _, ok := activeGroups(raw, code[i], goImportOpen); ok {
-				grouped = true
-				continue
-			}
-			if groups, ok := activeGroups(raw, code[i], goImportLine); ok {
-				imports = append(imports, goImportSpec(groups[0], groups[1]))
-			}
+			imports = append(imports, goScan.line(raw, code[i])...)
 		case "py":
 			if groups, ok := activeGroups(raw, code[i], pythonFromStatement); ok {
 				symbols, wildcard := importBindings(groups[1], "as")
@@ -1091,6 +1063,83 @@ func sourcePackage(file, language string, lines []string) string {
 		}
 	}
 	return filepath.ToSlash(filepath.Dir(file))
+}
+
+// goImportScan reads a file's Go imports a line at a time.
+//
+// It carries state because an import block does: a path is only an import
+// because of the brackets it sits inside, and whether those brackets are open
+// was decided several lines earlier. Two kinds of nesting matter and both are
+// tracked rather than guessed at per line — the block, and a comment inside it.
+type goImportScan struct {
+	grouped bool
+	comment bool
+}
+
+// line returns the imports one line declares.
+//
+// raw is the line as written and code is the masked copy. Both are needed:
+// masking blanks every string and an import path is a string, so the path can
+// only be read from raw — while whether a line is code at all can only be
+// asked of the mask.
+func (s *goImportScan) line(raw, code string) []sourceImport {
+	if s.grouped {
+		return s.inBlock(raw)
+	}
+	// A block only opens on active code, so `import (` written inside a string
+	// or a comment opens nothing.
+	if groups, ok := activeGroups(raw, code, goImportOpen); ok {
+		s.grouped = true
+		// Everything after the bracket belongs to the block, including a whole
+		// one-line group: `import ("fmt")` declares an import and closes again
+		// before the line ends.
+		if at := strings.Index(raw, groups[0]); at >= 0 {
+			return s.inBlock(raw[at+len(groups[0]):])
+		}
+		return nil
+	}
+	if groups, ok := activeGroups(raw, code, goImportSingle); ok {
+		return []sourceImport{goImportSpec(groups[0], groups[1])}
+	}
+	return nil
+}
+
+// inBlock reads what is left of a line inside a grouped import.
+//
+// The masked copy is no help here — every member is a string and masks to
+// whitespace — so the comment a member could be hiding in is tracked instead.
+// Go allows a comment between the brackets, and an import inside one is not an
+// import however much it looks like the line above it.
+func (s *goImportScan) inBlock(raw string) []sourceImport {
+	if s.comment {
+		closed := strings.Index(raw, "*/")
+		if closed < 0 {
+			return nil
+		}
+		s.comment = false
+		raw = raw[closed+2:]
+	}
+	if opened := strings.Index(raw, "/*"); opened >= 0 {
+		if !strings.Contains(raw[opened:], "*/") {
+			s.comment = true
+			raw = raw[:opened]
+		}
+	}
+	if line := strings.Index(raw, "//"); line >= 0 {
+		raw = raw[:line]
+	}
+
+	// The import before the bracket rather than after it: a group whose last
+	// member shares a line with its closing bracket — `"fmt")` — declares that
+	// import and then ends.
+	var out []sourceImport
+	if groups := goImportMember.FindStringSubmatch(raw); len(groups) > 2 {
+		out = append(out, goImportSpec(groups[1], groups[2]))
+	}
+	if strings.Contains(raw, ")") {
+		s.grouped = false
+	}
+	return out
 }
 
 // goImportSpec is one Go import line: the path it names, and the alias this

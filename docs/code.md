@@ -92,11 +92,12 @@ the way it always has.
 
 **A local name that shadows an imported package is read as the package.**
 `func Handle(store *Thing) { store.Save(1) }` in a file that also imports
-`.../store` draws the call at the package, not at the parameter. Telling the
-two apart means knowing what is in scope at that line, which is a type
-checker's job and not this reading's. It is the one place here where a name
-that looks right is taken at face value, and it is written down rather than
-hidden.
+`.../store` is read as a call into that package: it is drawn there if the
+package declares a `Save`, and drawn nowhere at all if it does not — the method
+on the parameter is not found either way. Telling the two apart means knowing
+what is in scope at that line, which is a type checker's job and not this
+reading's. It is the one place here where a name that looks right is taken at
+face value, and it is written down rather than hidden.
 
 **A declaration has to look like one.** `struct sockaddr_in addr;` declares a
 variable, not a type: a name followed by another name is never a declaration,
