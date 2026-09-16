@@ -67,19 +67,36 @@ an arrow to something the declaration never mentioned, in a document whose
 whole purpose is telling apart what was claimed from what was seen.
 
 **A qualified Go call is resolved, but only into this tree.** `store.Save(…)`
-is drawn when the file imports a package whose name is `store`, this tree
-declares a package `store`, and `Save` is declared there exactly once. Neither
-half is a guess: the import line says what the qualifier refers to and the
-package clause says the target is that package. It matters because a call
-chain that stops at every package boundary is not a chain, and a service's own
-flow goes through those boundaries.
+is drawn when the file imports a path that names the directory the target is
+in, and the qualifier is what this file calls that package by — its alias, or
+the package's own clause. It matters because a call chain that stops at every
+package boundary is not a chain, and a service's own flow goes through those
+boundaries.
 
-Everything outside stays unread. `http.Get` names a package nobody handed us,
-two packages of one name leave two candidates and are refused the way an
-ambiguous type is, and a qualifier that is a value rather than an import —
-`db.Query(…)` — matches no import and resolves to nothing. An aliased import
-(`import st "…/store"`) is refused as well: mapping `st` back to a directory
-means resolving an import path against a module root this parser never reads.
+The import path is what gets matched, not the last element of it, so the module
+path is read from `go.mod`. Without that there is no way to turn an import path
+into a directory, and a tree that declares no module keeps its calls inside a
+package: matching on the last element alone would draw `import "net/http"` at a
+local package called `http`, and `github.com/somebody/else/store` at this
+tree's `store`.
+
+The name is read from the package rather than guessed from the path, so
+`.../go-store/v2` imported as `store` resolves, and an alias
+(`import st ".../store"`) resolves under the name the file gave it.
+
+Everything outside stays unread. `http.Get` names a package nobody handed us.
+Two packages of one name are told apart by the path, because the path is what
+is matched. A qualifier that is a value rather than a package — `p.Effect(…)`,
+a method on a receiver — matches no import and resolves inside its own package,
+the way it always has.
+
+**A local name that shadows an imported package is read as the package.**
+`func Handle(store *Thing) { store.Save(1) }` in a file that also imports
+`.../store` draws the call at the package, not at the parameter. Telling the
+two apart means knowing what is in scope at that line, which is a type
+checker's job and not this reading's. It is the one place here where a name
+that looks right is taken at face value, and it is written down rather than
+hidden.
 
 **A declaration has to look like one.** `struct sockaddr_in addr;` declares a
 variable, not a type: a name followed by another name is never a declaration,

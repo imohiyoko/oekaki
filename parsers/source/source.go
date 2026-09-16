@@ -36,6 +36,8 @@ var (
 	typedCurlyFunc = regexp.MustCompile(`^\s*(?:(?:public|private|protected|internal|static|final|abstract|virtual|override|sealed|synchronized|native|extern|inline|constexpr|friend|unsafe|async|const)\s+)*(?:[A-Za-z_][A-Za-z0-9_:.?]*(?:\s*<[^>{};()]+>)?(?:\s*\[\])?)(?:\s*[*&]+\s*|\s+)([A-Za-z_][A-Za-z0-9_]*)\s*\([^;{}]*\)\s*(?:const\s*)?(?:noexcept\s*)?(?::[^\{]+)?\{`)
 	pythonFunc     = regexp.MustCompile(`^\s*(?:async\s+)?def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
 	goImport       = regexp.MustCompile(`^\s*import\s+(?:[A-Za-z_][A-Za-z0-9_]*\s+)?"([^"]+)"`)
+	goModuleDecl   = regexp.MustCompile(`^\s*module\s+(\S+)`)
+	goImportOpen   = regexp.MustCompile(`^\s*import\s+(\()`)
 	goImportLine   = regexp.MustCompile(`^\s*(?:import\s+)?(?:([A-Za-z_.][A-Za-z0-9_]*)\s+)?"([^"]+)"\s*$`)
 	esFromImport   = regexp.MustCompile(`^\s*import\s+(?:[^"']+\s+from\s+)?["']([^"']+)["']`)
 	quotedImport   = regexp.MustCompile(`^\s*(?:import|from)\s+["']([^"']+)["']`)
@@ -614,6 +616,7 @@ type sourceCall struct {
 // the exact same directory and package declaration. Other languages retain the
 // conservative explicit-package/directory boundary.
 func addCrossFileCalls(g *core.Graph, root string) error {
+	module := goModule(root)
 	byFile := map[string][]sourceFunction{}
 	for _, n := range g.Nodes {
 		if n.Type != "code_function" || n.Source == nil || n.Source.File == "" || n.Source.Line == 0 {
@@ -701,7 +704,7 @@ func addCrossFileCalls(g *core.Graph, root string) error {
 					var candidates []sourceFunction
 					for _, candidate := range candidateByID {
 						target, ok := files[candidate.file]
-						if !ok || candidate.id == fn.id || !canResolveCrossFile(file, source, candidate.file, target, call, candidate.name) {
+						if !ok || candidate.id == fn.id || !canResolveCrossFile(file, source, candidate.file, target, call, candidate.name, module) {
 							continue
 						}
 						candidates = append(candidates, candidate)
@@ -780,35 +783,53 @@ func importedTargetNames(source sourceFileInfo, call sourceCall) []string {
 	return out
 }
 
-func canResolveCrossFile(callerFile string, caller sourceFileInfo, targetFile string, target sourceFileInfo, call sourceCall, targetName string) bool {
+func canResolveCrossFile(callerFile string, caller sourceFileInfo, targetFile string, target sourceFileInfo, call sourceCall, targetName, module string) bool {
 	family := languageFamily(caller.lang)
 	if languageFamily(target.lang) != family {
 		return false
 	}
 	switch family {
 	case "go":
-		if caller.scope != "" && caller.scope == target.scope {
-			return true
-		}
-		// A call into another package of this same tree. Both halves of it are
-		// written down rather than guessed: the import line says what the
-		// qualifier refers to, and the target's package clause says it is that
-		// package. What stays refused is everything outside the tree — a call
-		// to `http.Get` names a package nobody handed us, and a box drawn from
-		// a name is a box nobody can open.
-		//
-		// Two packages in the tree with one name leave two candidates, and the
-		// caller drops anything that is not a single one. That is the same
-		// "exactly one" this parser already applies to types.
-		if call.qualifier == "" || call.qualifier != goPackageName(target.scope) {
-			return false
-		}
-		for _, imp := range caller.imports {
-			if imp.namespace == call.qualifier {
-				return true
+		// The cross-package reading first, because it is the exact one: an
+		// import path that names the target's directory, and a qualifier that
+		// matches what this file calls that package by. Nothing is matched on
+		// a name looking right — the module path comes from go.mod, and
+		// without one there is no way to turn an import path into a
+		// directory, so `import "net/http"` would reach a local package that
+		// happens to be called http.
+		if module != "" && call.qualifier != "" {
+			want := module
+			if dir := goScopeDir(target.scope); dir != "" && dir != "." {
+				want += "/" + dir
+			}
+			for _, imp := range caller.imports {
+				if imp.module != want {
+					continue
+				}
+				// The alias when this file gave one, and otherwise the
+				// package's own clause — read from the package rather than
+				// guessed from the last path element, so a version suffix, a
+				// dotted host path and a hyphenated directory are not special
+				// cases.
+				name := imp.namespace
+				if name == "" {
+					name = goPackageName(target.scope)
+				}
+				if call.qualifier == name {
+					return true
+				}
 			}
 		}
-		return false
+		// Otherwise it is a call inside one's own package. A qualifier that
+		// names an imported package is excluded: the caller's own function of
+		// that name is not a candidate for `store.Save`, and offering it would
+		// leave two — which are dropped, losing the call in exactly the estate
+		// that needed it, because a package and a caller sharing a function
+		// name is ordinary.
+		if importedAs(caller, call.qualifier) {
+			return false
+		}
+		return caller.scope != "" && caller.scope == target.scope
 	case "py", "javascript":
 		for _, imp := range caller.imports {
 			if !importNamesFile(callerFile, targetFile, family, imp.module) {
@@ -863,8 +884,14 @@ func sourceImports(lines, code []string, language string) []sourceImport {
 			// path is a string. The block itself is what says these lines are
 			// imports — in Go nothing else may appear between the brackets —
 			// so no guess is being made about an ordinary quoted line.
+			// Whether a block opened, and whether it closed, is decided on
+			// the masked copy: an `import (` inside a raw string or a comment
+			// is not an import, and a block that never closed would read every
+			// quoted line after it as one. Only the path is taken from the
+			// line as written, because masking blanks every string and an
+			// import path is one.
 			if grouped {
-				if strings.TrimSpace(raw) == ")" {
+				if strings.Contains(code[i], ")") {
 					grouped = false
 					continue
 				}
@@ -873,7 +900,7 @@ func sourceImports(lines, code []string, language string) []sourceImport {
 				}
 				continue
 			}
-			if strings.HasPrefix(strings.TrimSpace(raw), "import (") {
+			if _, ok := activeGroups(raw, code[i], goImportOpen); ok {
 				grouped = true
 				continue
 			}
@@ -1066,21 +1093,68 @@ func sourcePackage(file, language string, lines []string) string {
 	return filepath.ToSlash(filepath.Dir(file))
 }
 
-// goPackageName takes the package clause out of a Go scope, which carries the
-// directory as well so that two directories declaring one package name stay
-// apart.
-// goImport is one import line: what it refers to, and the name this file
-// refers to it by.
+// goImportSpec is one Go import line: the path it names, and the alias this
+// file gave it.
+//
+// An absent alias stays absent rather than becoming the last element of the
+// path. A package's name is its package clause, and `gopkg.in/yaml.v3`,
+// `.../store/v2` and `.../go-bar` are all imported under names the path does
+// not spell — so the name is read from the package being imported, where it
+// is written.
 func goImportSpec(alias, module string) sourceImport {
-	if alias == "" {
-		alias = path.Base(module)
-	}
 	return sourceImport{module: module, namespace: alias}
 }
 
+// goPackageName takes the package clause out of a Go scope, which carries the
+// directory as well so that two directories declaring one package name stay
+// apart.
 func goPackageName(scope string) string {
 	if _, name, found := strings.Cut(scope, "\x00"); found {
 		return name
+	}
+	return ""
+}
+
+// importedAs reports whether a qualifier names a package this file imported:
+// an alias it was given, or the last element of its path when it was not.
+//
+// The last element is a guess at the package's name and is wrong for a version
+// suffix or a hyphenated directory — but it is only used to decide that a
+// qualifier is a package rather than a value, and a qualifier that is a value
+// and matches one is a receiver somebody named after a package they import.
+func importedAs(caller sourceFileInfo, qualifier string) bool {
+	if qualifier == "" {
+		return false
+	}
+	for _, imp := range caller.imports {
+		if imp.namespace == qualifier || path.Base(imp.module) == qualifier {
+			return true
+		}
+	}
+	return false
+}
+
+// goScopeDir takes the directory out of a Go scope.
+func goScopeDir(scope string) string {
+	if dir, _, found := strings.Cut(scope, "\x00"); found {
+		return dir
+	}
+	return ""
+}
+
+// goModule reads the module path a tree declares, which is the only thing that
+// turns an import path into a directory. A tree with no go.mod gets no
+// cross-package calls: the alternative is matching on the last path element,
+// and that draws `net/http` at a local package called http.
+func goModule(root string) string {
+	raw, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		if match := goModuleDecl.FindStringSubmatch(line); len(match) > 1 {
+			return match[1]
+		}
 	}
 	return ""
 }
