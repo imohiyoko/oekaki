@@ -44,16 +44,6 @@ func calls(g *core.Graph, from, to string) bool {
 	return false
 }
 
-func imports(g *core.Graph, from string) []string {
-	var out []string
-	for _, e := range g.Edges {
-		if e.Relation == "imports" && e.From == from {
-			out = append(out, e.To)
-		}
-	}
-	return out
-}
-
 // The import path names the directory the target is in, and the package clause
 // says what it is called. Both are written down, so the call is not a guess —
 // and a chain that stops at every package boundary is not a chain.
@@ -177,28 +167,113 @@ func TestAQualifierThatIsAValueResolvesNothing(t *testing.T) {
 	}
 }
 
-// Without a go.mod there is no way to turn an import path into a directory,
-// and matching on the last element is what draws net/http at a local package.
-// So a tree that does not say what module it is keeps its calls inside a
-// package, exactly as before any of this.
-func TestATreeWithNoModulePathResolvesNoCrossPackageCall(t *testing.T) {
+// An import block written inside a string is not an import block, and the
+// quoted lines after it are not imports.
+//
+// Asserted through a call rather than through the import edges: those come
+// from a different reading of the file, and would pass whatever this one did.
+func TestAnImportBlockInAStringIsNotOne(t *testing.T) {
 	g := tree(t, map[string]string{
-		"go.mod":         "",
-		"handler/api.go": "package handler\n\nimport \"example.com/svc/store\"\n\nfunc Handle() {\n\tstore.Save(1)\n}\n",
+		"handler/api.go": "package handler\n\nconst doc = `\nimport (\n\t\"example.com/svc/store\"\n)\n`\n\nfunc Handle() {\n\tstore.Save(1)\n}\n",
 		"store/db.go":    "package store\n\nfunc Save(total int) {}\n",
 	})
 	if calls(g, "file:handler/api.go#Handle", "file:store/db.go#Save") {
-		t.Fatal("a tree with no module path resolved across packages anyway")
+		t.Fatal("an import inside a string was read as one")
 	}
 }
 
-// An import block written inside a string or a comment is not an import
-// block, and the quoted lines after it are not imports.
-func TestAnImportBlockInAStringIsNotOne(t *testing.T) {
+// Go allows a comment between the brackets, and an import inside one is not an
+// import however much it looks like the line above it.
+func TestACommentedOutImportInABlockIsNotOne(t *testing.T) {
 	g := tree(t, map[string]string{
-		"handler/api.go": "package handler\n\nconst doc = `\nimport (\n\t\"example.com/svc/store\"\n)\n`\n\nfunc Handle() {}\n",
+		"handler/api.go": `package handler
+
+import (
+	"fmt"
+	/*
+	"example.com/svc/store"
+	*/
+)
+
+func Handle() {
+	fmt.Println("x")
+	store.Save(1)
+}
+`,
+		"store/db.go": "package store\n\nfunc Save(total int) {}\n",
 	})
-	if got := imports(g, "file:handler/api.go"); len(got) != 0 {
-		t.Fatalf("imports were invented out of a string: %v", got)
+	if calls(g, "file:handler/api.go#Handle", "file:store/db.go#Save") {
+		t.Fatal("an import inside a block comment was read as one")
+	}
+}
+
+// A comment after an import is ordinary Go — a blank driver import is usually
+// written with one. Losing the line loses the import silently, and a call that
+// then finds no package resolves at the caller's own function of that name,
+// which is the arrow this reading exists to refuse.
+func TestATrailingCommentDoesNotHideAnImport(t *testing.T) {
+	for _, tc := range []struct{ name, imports string }{
+		{"grouped", "import (\n\t_ \"example.com/svc/driver\" // registers it\n\t\"example.com/svc/store\" // persistence\n)"},
+		{"single line", "import \"example.com/svc/store\" // persistence"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g := tree(t, map[string]string{
+				"handler/api.go": "package handler\n\n" + tc.imports + "\n\nfunc Handle() {\n\tstore.Save(1)\n}\n\nfunc Save(n int) {}\n",
+				"store/db.go":    "package store\n\nfunc Save(total int) {}\n",
+				"driver/d.go":    "package driver\n\nfunc Register() {}\n",
+			})
+			if !calls(g, "file:handler/api.go#Handle", "file:store/db.go#Save") {
+				t.Error("the import was lost to its own comment")
+			}
+			if calls(g, "file:handler/api.go#Handle", "file:handler/api.go#Save") {
+				t.Error("the call was drawn at the caller's own function of that name")
+			}
+		})
+	}
+}
+
+// A group can open and close on one line, and its last member can share the
+// line with the closing bracket. Both are ordinary gofmt output for one import.
+func TestAGroupOnOneLineIsRead(t *testing.T) {
+	for _, tc := range []struct{ name, imports string }{
+		{"opens and closes", "import (\"example.com/svc/store\")"},
+		{"closes on the last member", "import (\n\t\"example.com/svc/store\")"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g := tree(t, map[string]string{
+				"handler/api.go": "package handler\n\n" + tc.imports + "\n\nfunc Handle() {\n\tstore.Save(1)\n}\n",
+				"store/db.go":    "package store\n\nfunc Save(total int) {}\n",
+			})
+			if !calls(g, "file:handler/api.go#Handle", "file:store/db.go#Save") {
+				t.Error("the import was lost with its brackets")
+			}
+		})
+	}
+}
+
+// A tree that declares no module gets no cross-package edges, so nothing here
+// may take its same-package ones away either. "Exactly as before" has to be
+// true on the side that draws, not only on the side that refuses.
+func TestATreeWithNoModuleKeepsTheEdgesItAlreadyHad(t *testing.T) {
+	files := map[string]string{
+		"go.mod": "",
+		"handler/api.go": `package handler
+
+import "example.com/svc/store"
+
+func Handle() {
+	store.Save(1)
+}
+
+func Save(n int) {}
+`,
+		"store/db.go": "package store\n\nfunc Save(total int) {}\n",
+	}
+	g := tree(t, files)
+	if calls(g, "file:handler/api.go#Handle", "file:store/db.go#Save") {
+		t.Error("a tree with no module path resolved across packages anyway")
+	}
+	if !calls(g, "file:handler/api.go#Handle", "file:handler/api.go#Save") {
+		t.Error("the edge this tree already had was taken away and nothing given back")
 	}
 }
