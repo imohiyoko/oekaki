@@ -277,3 +277,35 @@ func Save(n int) {}
 		t.Error("the edge this tree already had was taken away and nothing given back")
 	}
 }
+
+// An import path is a string, and Go allows either kind of string. Reading
+// only one of them loses the import silently, which is the failure this whole
+// reading is most exposed to.
+func TestARawStringImportPathIsRead(t *testing.T) {
+	for _, tc := range []struct{ name, imports string }{
+		{"single line", "import `example.com/svc/store`"},
+		{"grouped", "import (\n\t`example.com/svc/store`\n)"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g := tree(t, map[string]string{
+				"handler/api.go": "package handler\n\n" + tc.imports + "\n\nfunc Handle() {\n\tstore.Save(1)\n}\n",
+				"store/db.go":    "package store\n\nfunc Save(total int) {}\n",
+			})
+			if !calls(g, "file:handler/api.go#Handle", "file:store/db.go#Save") {
+				t.Error("an import written as a raw string was not read")
+			}
+		})
+	}
+}
+
+// A comment that opens and closes before the import is a note in front of it,
+// not a reason to stop reading the line.
+func TestACommentInFrontOfAnImportDoesNotHideIt(t *testing.T) {
+	g := tree(t, map[string]string{
+		"handler/api.go": "package handler\n\nimport (\n\t/* persistence */ \"example.com/svc/store\"\n)\n\nfunc Handle() {\n\tstore.Save(1)\n}\n",
+		"store/db.go":    "package store\n\nfunc Save(total int) {}\n",
+	})
+	if !calls(g, "file:handler/api.go#Handle", "file:store/db.go#Save") {
+		t.Fatal("a closed comment in front of an import hid it")
+	}
+}
