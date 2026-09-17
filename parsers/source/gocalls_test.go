@@ -522,3 +522,106 @@ func (w Writer) Save(n int) {
 		t.Fatal("a method on a package variable was not found")
 	}
 }
+
+// A comment that opens after the closing bracket is outside the group. Keeping
+// it open into the next declaration swallowed that one whole, and the file
+// never left the group again.
+func TestACommentAfterAGroupDoesNotEatTheNextOne(t *testing.T) {
+	g := tree(t, map[string]string{
+		"handler/http.go": `package handler
+
+import (
+	"fmt"
+) /* a note about the group
+that runs on */
+
+import (
+	"example.com/svc/store"
+)
+
+func HandleOrder() {
+	fmt.Println(store.Save(1))
+}
+
+func Save(n int) int {
+	return n
+}
+`,
+		"store/db.go": `package store
+
+func Save(n int) int {
+	return n
+}
+`,
+	})
+	if !calls(g, "file:handler/http.go#HandleOrder", "file:store/db.go#Save") {
+		t.Fatal("an import block after a trailing comment was not read")
+	}
+	if calls(g, "file:handler/http.go#HandleOrder", "file:handler/http.go#Save") {
+		t.Fatal("store.Save was answered by the caller's own Save")
+	}
+}
+
+// A semicolon is how Go writes two members on one line. Reading only the first
+// dropped the second, and a dropped import is not a missing edge but a wrong
+// one.
+func TestBothMembersOfAOneLineGroupAreRead(t *testing.T) {
+	g := tree(t, map[string]string{
+		"handler/http.go": `package handler
+
+import ("fmt"; "example.com/svc/store")
+
+func HandleOrder() {
+	fmt.Println(store.Save(1))
+}
+
+func Save(n int) int {
+	return n
+}
+`,
+		"store/db.go": `package store
+
+func Save(n int) int {
+	return n
+}
+`,
+	})
+	if !calls(g, "file:handler/http.go#HandleOrder", "file:store/db.go#Save") {
+		t.Fatal("the second member of a one-line group was dropped")
+	}
+	if calls(g, "file:handler/http.go#HandleOrder", "file:handler/http.go#Save") {
+		t.Fatal("store.Save was answered by the caller's own Save")
+	}
+}
+
+// A major-version suffix is not a package name. Guessing `v8` or `yaml.v3`
+// fails to recognise the package, and the call lands on whatever local
+// function happens to share the name.
+func TestAVersionedModuleOutsideTheTreeIsStillRecognisedAsAPackage(t *testing.T) {
+	for name, spec := range map[string]struct{ path, qualifier string }{
+		"element": {"github.com/go-redis/redis/v8", "redis"},
+		"suffix":  {"gopkg.in/yaml.v3", "yaml"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			g := tree(t, map[string]string{
+				"handler/http.go": `package handler
+
+import (
+	"` + spec.path + `"
+)
+
+func HandleOrder() {
+	` + spec.qualifier + `.NewClient(nil)
+}
+
+func NewClient(o any) {
+	_ = o
+}
+`,
+			})
+			if calls(g, "file:handler/http.go#HandleOrder", "file:handler/http.go#NewClient") {
+				t.Fatal("a call into a versioned module outside the tree was answered by a local function")
+			}
+		})
+	}
+}

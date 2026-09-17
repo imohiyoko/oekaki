@@ -1170,15 +1170,27 @@ func (s *goImportScan) inBlock(raw string) []sourceImport {
 		raw = raw[:opened] + " " + raw[opened+2+closed+2:]
 	}
 
-	// The import before the bracket rather than after it: a group whose last
+	// The imports before the bracket rather than after it: a group whose last
 	// member shares a line with its closing bracket — `"fmt")` — declares that
-	// import and then ends.
+	// import and then ends. A semicolon is how Go writes more than one member
+	// on a line, so each side of one is a member of its own; reading only the
+	// first dropped the rest, and a dropped import is what sends a call to the
+	// caller's own function of that name.
 	var out []sourceImport
-	if groups := goImportMember.FindStringSubmatch(raw); len(groups) > 2 {
-		out = append(out, goImportSpec(groups[1], groups[2]))
-	}
-	if strings.Contains(raw, ")") {
-		s.grouped = false
+	for _, part := range strings.Split(raw, ";") {
+		if groups := goImportMember.FindStringSubmatch(part); len(groups) > 2 {
+			out = append(out, goImportSpec(groups[1], groups[2]))
+		}
+		if strings.Contains(part, ")") {
+			// Both kinds of nesting end here. An unterminated comment that
+			// opened after the bracket — `) /* a note about the group` — is
+			// outside the group, and carrying it into the next `import (`
+			// swallowed that whole declaration. The mask already knows where
+			// comments are, so nothing here has to remember one.
+			s.grouped = false
+			s.comment = false
+			break
+		}
 	}
 	return out
 }
@@ -1209,7 +1221,8 @@ func goPackageName(scope string) string {
 //
 // The name is the one the file uses: an alias where it gave one, the package
 // clause where the import is in this tree (filled in by goImportNames), and
-// otherwise the last element of the path. That last one is a guess, but it is
+// otherwise the last element of the path, less a major-version suffix. That
+// last one is a guess, but it is
 // only reached for a package outside the tree, which is never a candidate
 // anyway — and this has to agree with what the resolver calls a package, or
 // the guard fails to fire exactly where the resolver did find the import and
@@ -1231,7 +1244,7 @@ func importedAs(caller sourceFileInfo, qualifier string) bool {
 			}
 			continue
 		}
-		if path.Base(imp.module) == qualifier {
+		if goImportBase(imp.module) == qualifier {
 			return true
 		}
 	}
@@ -1303,6 +1316,30 @@ func goImportDir(imported, module string) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+// goMajorVersion is the major-version element of a module path.
+var goMajorVersion = regexp.MustCompile(`^v[0-9]+$`)
+
+// goImportBase guesses what a package outside this tree is called from its
+// path, which is all there is to go on: its package clause is not in the tree.
+//
+// A major-version suffix is not part of the name. `.../go-redis/redis/v8` is
+// imported as redis and `gopkg.in/yaml.v3` as yaml — both conventions rather
+// than syntax, but they are the two the ecosystem actually writes, and a guess
+// that calls them `v8` and `yaml.v3` fails to recognise the package and hands
+// `redis.NewClient` to whatever local function shares the name.
+func goImportBase(module string) string {
+	base := path.Base(module)
+	if goMajorVersion.MatchString(base) {
+		if dir := path.Dir(module); dir != "." && dir != "/" {
+			base = path.Base(dir)
+		}
+	}
+	if i := strings.LastIndex(base, "."); i > 0 && goMajorVersion.MatchString(base[i+1:]) {
+		base = base[:i]
+	}
+	return base
 }
 
 // goScopeDir takes the directory out of a Go scope.
