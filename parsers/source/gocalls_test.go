@@ -309,3 +309,216 @@ func TestACommentInFrontOfAnImportDoesNotHideIt(t *testing.T) {
 		t.Fatal("a closed comment in front of an import hid it")
 	}
 }
+
+// A package's name is its package clause, and the import path need not spell
+// it. Both readings — the one that resolves the call and the one that keeps
+// the caller's own function from crowding it out — have to agree about that,
+// or the two together lose the call they were each written to find.
+func TestAVersionSuffixedPackageIsStillReachedPastTheCallersOwnName(t *testing.T) {
+	g := tree(t, map[string]string{
+		"handler/http.go": `package handler
+
+import (
+	"example.com/svc/store/v2"
+)
+
+func HandleOrder() {
+	store.Save(1)
+}
+
+func Save(n int) {
+	_ = n
+}
+`,
+		"store/v2/db.go": `package store
+
+func Save(n int) {
+	_ = n
+}
+`,
+	})
+	if !calls(g, "file:handler/http.go#HandleOrder", "file:store/v2/db.go#Save") {
+		t.Fatal("a call into a package whose path ends in a version was not resolved")
+	}
+	if calls(g, "file:handler/http.go#HandleOrder", "file:handler/http.go#Save") {
+		t.Fatal("store.Save was answered by the caller's own Save")
+	}
+}
+
+// A `/*` written inside a line comment opens nothing. Reading it as a block
+// comment used to swallow the rest of the group and its closing bracket, which
+// loses every import below it and leaves the scanner inside a block that never
+// ends.
+func TestABlockCommentInsideALineCommentOpensNothing(t *testing.T) {
+	g := tree(t, map[string]string{
+		"handler/http.go": `package handler
+
+import (
+	// TODO: /* drop this later
+	"example.com/svc/store"
+)
+
+func HandleOrder() {
+	store.Save(1)
+}
+
+func Save(n int) {
+	_ = n
+}
+`,
+		"store/db.go": `package store
+
+func Save(n int) {
+	_ = n
+}
+`,
+	})
+	if !calls(g, "file:handler/http.go#HandleOrder", "file:store/db.go#Save") {
+		t.Fatal("an import below a line comment holding /* was lost")
+	}
+}
+
+// A blank import binds no identifier, so `store` in this file is the parameter
+// and the call is the package's own. Counting the import as a name took the
+// call away and put nothing in its place.
+func TestABlankImportDoesNotClaimAName(t *testing.T) {
+	g := tree(t, map[string]string{
+		"handler/http.go": `package handler
+
+import (
+	_ "example.com/svc/store"
+)
+
+type thing struct{}
+
+func HandleOrder(store *thing) {
+	store.Save(1)
+}
+`,
+		"handler/other.go": `package handler
+
+func Save(n int) {
+	_ = n
+}
+`,
+	})
+	if !calls(g, "file:handler/http.go#HandleOrder", "file:handler/other.go#Save") {
+		t.Fatal("a blank import was read as a package name and took the call with it")
+	}
+}
+
+// `store.Default.Save(1)` is a method on a package variable. The package
+// function of that name is never called, so no arrow is drawn to it.
+func TestAMethodOnAPackageVariableIsNotAPackageFunction(t *testing.T) {
+	g := tree(t, map[string]string{
+		"handler/http.go": `package handler
+
+import (
+	"example.com/svc/store"
+)
+
+func HandleOrder() {
+	store.Default.Save(1)
+}
+`,
+		"store/db.go": `package store
+
+func Save(n int) {
+	_ = n
+}
+`,
+	})
+	if calls(g, "file:handler/http.go#HandleOrder", "file:store/db.go#Save") {
+		t.Fatal("a method call on a package variable was drawn at the package function")
+	}
+}
+
+// go.mod allows the module path to be quoted. A quoted one that keeps its
+// quotes matches no import path, and the tree quietly becomes one with no
+// module at all.
+func TestAQuotedModulePathIsStillAModulePath(t *testing.T) {
+	g := tree(t, map[string]string{
+		"go.mod": "module \"" + module + "\"\n\ngo 1.24\n",
+		"handler/http.go": `package handler
+
+import (
+	"example.com/svc/store"
+)
+
+func HandleOrder() {
+	store.Save(1)
+}
+`,
+		"store/db.go": `package store
+
+func Save(n int) {
+	_ = n
+}
+`,
+	})
+	if !calls(g, "file:handler/http.go#HandleOrder", "file:store/db.go#Save") {
+		t.Fatal("a quoted module path was not read as one")
+	}
+}
+
+// A bracket and a quote are delimiters rather than words, so Go does not
+// require a space in front of either.
+func TestAnImportNeedsNoSpaceBeforeItsPath(t *testing.T) {
+	for name, header := range map[string]string{
+		"single": `import"example.com/svc/store"`,
+		"group":  `import("example.com/svc/store")`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			g := tree(t, map[string]string{
+				"handler/http.go": `package handler
+
+` + header + `
+
+func HandleOrder() {
+	store.Save(1)
+}
+`,
+				"store/db.go": `package store
+
+func Save(n int) {
+	_ = n
+}
+`,
+			})
+			if !calls(g, "file:handler/http.go#HandleOrder", "file:store/db.go#Save") {
+				t.Fatal("an import written without a space before its path was not read")
+			}
+		})
+	}
+}
+
+// The other half of the same rule: a method reached through a package variable
+// is a method, and the declaration says so. Refusing every chained call would
+// take `core.OriginParser.Rank()` away with the wrong one.
+func TestAMethodReachedThroughAPackageVariableIsStillFound(t *testing.T) {
+	g := tree(t, map[string]string{
+		"handler/http.go": `package handler
+
+import (
+	"example.com/svc/store"
+)
+
+func HandleOrder() {
+	store.Default.Save(1)
+}
+`,
+		"store/db.go": `package store
+
+type Writer struct{}
+
+var Default = Writer{}
+
+func (w Writer) Save(n int) {
+	_ = n
+}
+`,
+	})
+	if !calls(g, "file:handler/http.go#HandleOrder", "file:store/db.go#Writer.Save") {
+		t.Fatal("a method on a package variable was not found")
+	}
+}

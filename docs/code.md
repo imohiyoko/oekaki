@@ -90,13 +90,21 @@ is matched. A qualifier that is a value rather than a package — `p.Effect(…)
 a method on a receiver — matches no import and resolves inside its own package,
 the way it always has.
 
+What stands between the package and the call decides which kind of declaration
+was reached. `store.Save(1)` is the package's function and never its method;
+`store.Default.Save(1)` is a method on a package variable and never the
+function `store.Save`. Both are written down in the declaration, so the two are
+told apart rather than guessed between.
+
 **A local name that shadows an imported package is read as the package.**
 `func Handle(store *Thing) { store.Save(1) }` in a file that also imports
 `.../store` is read as a call into that package: it is drawn there if the
 package declares a `Save`, and drawn nowhere at all if it does not — the method
 on the parameter is not found either way. Telling the two apart means knowing
 what is in scope at that line, which is a type checker's job and not this
-reading's. It is the one place here where a name that looks right is taken at
+reading's. A blank or dot import is the exception, because it binds no name:
+`_ ".../store"` shadows nothing, and a `store` in that file is whatever the
+file declared. It is the one place here where a name that looks right is taken at
 face value, and it is written down rather than hidden.
 
 **A declaration has to look like one.** `struct sockaddr_in addr;` declares a
