@@ -38,8 +38,11 @@ var (
 	goImport       = regexp.MustCompile(`^\s*import\s+(?:[A-Za-z_][A-Za-z0-9_]*\s+)?"([^"]+)"`)
 	goModuleDecl   = regexp.MustCompile(`^\s*module\s+(\S+)`)
 	goImportOpen   = regexp.MustCompile(`^\s*import\s+(\()`)
-	goImportSingle = regexp.MustCompile(`^\s*import\s+(?:([A-Za-z_.][A-Za-z0-9_]*)\s+)?"([^"]+)"`)
-	goImportMember = regexp.MustCompile(`^\s*(?:([A-Za-z_.][A-Za-z0-9_]*)\s+)?"([^"]+)"`)
+	// An import path is a string, and Go allows either kind. A path holds
+	// neither quote character, so one class covers both without having to
+	// decide which one opened.
+	goImportSingle = regexp.MustCompile("^\\s*import\\s+(?:([A-Za-z_.][A-Za-z0-9_]*)\\s+)?[\"`]([^\"`]+)[\"`]")
+	goImportMember = regexp.MustCompile("^\\s*(?:([A-Za-z_.][A-Za-z0-9_]*)\\s+)?[\"`]([^\"`]+)[\"`]")
 	esFromImport   = regexp.MustCompile(`^\s*import\s+(?:[^"']+\s+from\s+)?["']([^"']+)["']`)
 	quotedImport   = regexp.MustCompile(`^\s*(?:import|from)\s+["']([^"']+)["']`)
 	pythonImport   = regexp.MustCompile(`^\s*from\s+([A-Za-z_][A-Za-z0-9_.]*)\s+import\s+`)
@@ -1119,11 +1122,21 @@ func (s *goImportScan) inBlock(raw string) []sourceImport {
 		s.comment = false
 		raw = raw[closed+2:]
 	}
-	if opened := strings.Index(raw, "/*"); opened >= 0 {
-		if !strings.Contains(raw[opened:], "*/") {
+	// A comment that opens and closes on this line is taken out of it rather
+	// than ending the reading: `/* note */ "…/store"` is an import with a note
+	// in front of it, and the import is the part that matters.
+	for {
+		opened := strings.Index(raw, "/*")
+		if opened < 0 {
+			break
+		}
+		closed := strings.Index(raw[opened+2:], "*/")
+		if closed < 0 {
 			s.comment = true
 			raw = raw[:opened]
+			break
 		}
+		raw = raw[:opened] + " " + raw[opened+2+closed+2:]
 	}
 	if line := strings.Index(raw, "//"); line >= 0 {
 		raw = raw[:line]
