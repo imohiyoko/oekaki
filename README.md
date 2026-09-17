@@ -92,12 +92,12 @@ exported so the parts can be read and tested separately, not as a library
 contract: before v1.0 an exported signature can change in any release, and
 this repository will not carry a compatibility shim for one.
 
-- **Works:** Terraform, Kubernetes manifest, and multi-language source
-  parsing, `iac_ref`,
+- **Works:** Terraform, Kubernetes manifest, multi-language source, and OpenAPI
+  surface parsing, `iac_ref`,
   `reachable`, and observed edges, observations with thresholds, log inventory
   polling/classification, trace and metrics adapters, exposure findings,
   architecture/network/ER/workflow/request-path/security/code/service and
-  reachability views, plus interactive HTML drill-down.
+  reachability views, `oekaki diff`, plus interactive HTML drill-down.
 - **LLM boundary:** `enrichers/ai.Generate` can pass a graph to an explicitly
   selected local executable and validates its `oekaki.ai-candidates`
   stdout before applying it. Candidates can add opaque nodes as well as
@@ -107,9 +107,13 @@ this repository will not carry a compatibility shim for one.
   from a named graph node and emits normalized reachability evidence. It
   describes the vantage point that ran the probe; it does not pretend to prove
   reachability from every replica.
-- **Not yet:** provider-specific live discovery and `oekaki diff`. See
-  [docs/roadmap.md] for the releases, and [docs/notebook.md] for what is being
-  considered and what has already been decided about it.
+- **Not yet:** a collector that writes a baseline, further assertion kinds, a
+  gRPC reader, and `parsers/cloudformation`.
+- **Not here, by design:** live discovery. Credentials and cloud API calls
+  belong in caller-owned collectors, which hand this process an evidence file
+  rather than a connection. See [docs/roadmap.md] for the releases, and
+  [docs/notebook.md] for what is being considered and what has already been
+  decided about it.
 
 ### Providers
 
