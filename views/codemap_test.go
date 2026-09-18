@@ -153,3 +153,31 @@ func TestTheCodeMapParticipatesInTheLimit(t *testing.T) {
 		t.Error("a door was left pointing at a page that was never built")
 	}
 }
+
+// The trail does not stop here. A reader who arrived from a running container
+// is on the way to something smaller, and a page whose boxes open nothing ends
+// the descent at the point it was meant to keep going.
+func TestTheCodeMapsBoxesOpenTheWayTheyDoAnywhereElse(t *testing.T) {
+	a, err := BuildAtlas(estateWithCode(t, true), AtlasOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := pageOf(a, "codemap:repository:acme/checkout")
+	if page == nil {
+		t.Fatal("there is no code map")
+	}
+	for _, want := range []string{
+		"repo-2-svc:file:handler/http.go",
+		"repo-2-svc:file:handler/http.go#Handle",
+		"repo-2-svc:package:net/http",
+	} {
+		door := openingOf(page, want)
+		if door == nil {
+			t.Errorf("%s opens nothing", want)
+			continue
+		}
+		if pageOf(a, door.Diagram) == nil {
+			t.Errorf("%s opens %s, which is not a page", want, door.Diagram)
+		}
+	}
+}

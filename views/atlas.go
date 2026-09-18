@@ -569,12 +569,24 @@ func (b *builder) codemap(id string, open Opening) error {
 		return err
 	}
 
-	b.out = append(b.out, Diagram{
+	d := Diagram{
 		ID: open.Diagram, Kind: KindCodemap, Graph: g,
 		Parent: b.levelOf(id),
 		Origin: id,
 		Title:  open.Label,
-	})
+	}
+	// A box on this page opens the same way it opens anywhere else: a function
+	// its own page, a type its class diagram. The descent is what the page is
+	// for — a reader who arrived from a running container is on their way to
+	// something smaller — and a page whose boxes open nothing is a dead end at
+	// the exact point the trail was supposed to keep going.
+	for _, member := range members {
+		if open, ok := b.detailOpening(member); ok {
+			d.Opens = append(d.Opens, open)
+		}
+	}
+	b.out = append(b.out, d)
+
 	for _, member := range members {
 		if err := b.detail(member); err != nil {
 			return err
