@@ -193,6 +193,11 @@ func TestBuildRepoCanNameAnInput(t *testing.T) {
 		// stamps every node. An input that put nothing here is not something
 		// a mapping can point at.
 		Attrs: map[string]any{"image": "registry.example/checkout:1.4.0", "repository": "repo-2-checkout"},
+	}, {
+		// An input is named so that its code can be opened, so an input with
+		// code is what the case is about.
+		ID: "repo-2-checkout:file:main.go#Handle", Type: "code_function", Name: "Handle",
+		Attrs: map[string]any{"repository": "repo-2-checkout"},
 	}}
 	g.Normalize()
 
@@ -252,6 +257,10 @@ func TestBuildRepoPlacesARepositoryThatIsAlreadyHere(t *testing.T) {
 			ID: "workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
 			Attrs: map[string]any{"image": "registry.example/checkout:1.4.0", "repository": "repo-2-checkout"},
 		},
+		{
+			ID: "repo-2-checkout:file:main.go#Handle", Type: "code_function", Name: "Handle",
+			Attrs: map[string]any{"repository": "repo-2-checkout"},
+		},
 		// Written by an earlier run, which knew a different estate.
 		{
 			ID: "repository:acme/checkout", Type: "repository", Name: "acme/checkout",
@@ -270,5 +279,82 @@ func TestBuildRepoPlacesARepositoryThatIsAlreadyHere(t *testing.T) {
 	}
 	if repo.Attrs["code_input"] != "repo-2-checkout" {
 		t.Errorf("what this run was told did not hold: %v", repo.Attrs)
+	}
+}
+
+// An input holding no code is a real input and still not something a
+// repository's box can be opened onto. Recording the mapping anyway leaves it
+// looking applied, which is what every other check here refuses.
+func TestBuildRepoRefusesAnInputWithNoCode(t *testing.T) {
+	g := core.New()
+	g.Metadata = &core.Metadata{Inputs: []core.InputRef{{ID: "repo-1-cluster", Path: "cluster.yaml", Kind: "kubernetes"}}}
+	g.Nodes = []core.Node{{
+		ID: "workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
+		Attrs: map[string]any{"image": "registry.example/checkout:1.4.0", "repository": "repo-1-cluster"},
+	}}
+	g.Normalize()
+
+	r := run(t, "", "graph", graphFile(t, g),
+		"--builds", buildsFile(t, buildRecord), "--build-repo", "acme/checkout=repo-1-cluster")
+	if r.code == 0 {
+		t.Fatal("an input with no code was accepted as a repository's code")
+	}
+	if !strings.Contains(r.stderr, "no code was read") {
+		t.Errorf("the error does not say why:\n%s", r.stderr)
+	}
+}
+
+// An input id is a position in the run that wrote it, so a graph read back in
+// as an input carries ids that mean something else here. Every other id is
+// qualified on the way in; these two name inputs and are qualified with them.
+//
+// Left alone, `code_input: repo-2-…` came to mean the next run's own
+// `repo-2-…`, and the code map drew that repository's code under this one's
+// name.
+func TestReadingAGraphBackInKeepsItsRepositoryPointingAtItsOwnCode(t *testing.T) {
+	first := core.New()
+	first.Nodes = []core.Node{
+		{ID: "workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
+			Attrs: map[string]any{"image": "registry.example/checkout:1.4.0", "repository": "repo-2-checkout"}},
+		{ID: "repo-2-checkout:file:main.go#Handle", Type: "code_function", Name: "Handle",
+			Attrs: map[string]any{"repository": "repo-2-checkout"}},
+		{ID: "repository:acme/checkout", Type: "repository", Name: "acme/checkout",
+			Attrs: map[string]any{"code_input": "repo-2-checkout"}},
+	}
+	first.Normalize()
+
+	// Read back in beside something else, so the ids are qualified again and
+	// the new run has a repo-2 of its own.
+	other := core.New()
+	other.Nodes = []core.Node{{
+		ID: "file:billing.go#Charge", Type: "code_function", Name: "Charge",
+		Attrs: map[string]any{"language": "go"},
+	}}
+	other.Normalize()
+
+	r := mustRun(t, "", "graph", graphFile(t, first), "--repo", graphFile(t, other))
+	out := graphOf(t, r.stdout)
+
+	repo, ok := out.Node("repo-1-graph-json:repository:acme/checkout")
+	if !ok {
+		var ids []string
+		for _, n := range out.Nodes {
+			ids = append(ids, n.ID)
+		}
+		t.Fatalf("no repository node among %v", ids)
+	}
+	of, _ := repo.Attrs["code_input"].(string)
+	code, ok := out.Node("repo-1-graph-json:repo-2-checkout:file:main.go#Handle")
+	if !ok {
+		t.Fatal("the code came in under a different id than expected")
+	}
+	came, _ := code.Attrs["repository"].(string)
+	if of != came {
+		t.Errorf("the repository says its code is %q; its code says it came from %q", of, came)
+	}
+	// And it must not name an input of this run, which is a different thing
+	// that happens to sit in the same position.
+	if of == "repo-2-graph-json" {
+		t.Error("the repository now points at the other input of this run")
 	}
 }

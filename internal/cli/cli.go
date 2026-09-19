@@ -1455,6 +1455,35 @@ func repositoryScope(path string, index int) string {
 	return fmt.Sprintf("repo-%d-%s", index+1, name)
 }
 
+// qualifyInputAttrs rewrites the attributes that name an input.
+//
+// `repository` is which input this came from, and `code_input` is which input
+// a repository's code is. Both are ids in the same namespace as
+// `metadata.inputs[].id`, which is qualified a few lines below — so these are
+// qualified the same way, and for the same reason every other id here is: a
+// graph read as an input is a graph whose ids are now inside this one.
+//
+// Leaving `code_input` alone was worse than losing it. Its old value is a
+// position in the run that wrote it — `repo-2-…` — and the next run has a
+// `repo-2-…` of its own, so the untouched id quietly came to mean somebody
+// else's repository, and the code map drew that repository's code under this
+// one's name.
+func qualifyInputAttrs(attrs map[string]any, scope string) {
+	for _, key := range []string{"code_input"} {
+		if was, ok := attrs[key].(string); ok && was != "" {
+			attrs[key] = scope + ":" + was
+		}
+	}
+	// Which input this came from is answered by where it is now, and where it
+	// is now is inside this scope — but the graph it arrived in had inputs of
+	// its own, and that is still true of it.
+	if was, ok := attrs["repository"].(string); ok && was != "" {
+		attrs["repository"] = scope + ":" + was
+		return
+	}
+	attrs["repository"] = scope
+}
+
 func qualifyGraph(g *core.Graph, scope string) {
 	qualify := func(id string) string {
 		if id == "" || strings.HasPrefix(id, "external:") {
@@ -1469,7 +1498,7 @@ func qualifyGraph(g *core.Graph, scope string) {
 			if g.Nodes[i].Attrs == nil {
 				g.Nodes[i].Attrs = map[string]any{}
 			}
-			g.Nodes[i].Attrs["repository"] = scope
+			qualifyInputAttrs(g.Nodes[i].Attrs, scope)
 		}
 		for axis, path := range g.Nodes[i].Groups {
 			parts := strings.Split(path, core.GroupSeparator)
@@ -1494,7 +1523,7 @@ func qualifyGraph(g *core.Graph, scope string) {
 		if g.Groups[i].Attrs == nil {
 			g.Groups[i].Attrs = map[string]any{}
 		}
-		g.Groups[i].Attrs["repository"] = scope
+		qualifyInputAttrs(g.Groups[i].Attrs, scope)
 	}
 	for i := range g.Edges {
 		g.Edges[i].From = qualify(g.Edges[i].From)

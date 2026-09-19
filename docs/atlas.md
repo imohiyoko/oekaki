@@ -21,14 +21,20 @@ A container descends into the code it runs. A build record joins a workload to
 the repository that built it, and when somebody has said which input that
 repository is, the box opens as a **code map**: the functions of that
 repository, what calls what, and what it imports. From there a function opens
-its own page and a type opens as a class diagram, so the descent from a running
-container to one class is a sequence of clicks. See [builds.md](builds.md).
+its own page, and from that page a type opens as a class diagram — so the
+descent from a running container to one class is a sequence of clicks. See
+[builds.md](builds.md).
+
+The map holds functions, the packages they import, and the files that import
+something. Not types: a declaration takes part in flow only through the
+functions that use it, and those are here.
 
 ```
 level:                          the estate
  └ detail:aws_ecs_task_definition.api
     └ codemap:repository:acme/checkout    what it runs, as code
        └ detail:…#Handle                  one function
+          └ class:…#Order                 one type it declares
 ```
 
 No line on that map crosses into the estate around it. Which function serves
