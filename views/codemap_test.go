@@ -11,9 +11,13 @@ import (
 // input the repository is.
 func estateWithCode(t *testing.T, placed bool) *core.Graph {
 	t.Helper()
-	repo := core.Node{ID: "repository:acme/checkout", Type: "repository", Name: "acme/checkout"}
+	// Every node of a combined graph carries the input it came from, this one
+	// included. Which input the repository's *code* is, is a different
+	// question with a different answer, and only somebody's mapping says it.
+	repo := core.Node{ID: "repository:acme/checkout", Type: "repository", Name: "acme/checkout",
+		Attrs: map[string]any{"repository": "repo-1-estate"}}
 	if placed {
-		repo.Attrs = map[string]any{"repository": "repo-2-svc"}
+		repo.Attrs["code_input"] = "repo-2-svc"
 	}
 	g := core.New()
 	g.Nodes = []core.Node{
@@ -179,5 +183,109 @@ func TestTheCodeMapsBoxesOpenTheWayTheyDoAnywhereElse(t *testing.T) {
 		if pageOf(a, door.Diagram) == nil {
 			t.Errorf("%s opens %s, which is not a page", want, door.Diagram)
 		}
+	}
+}
+
+// The repository node wears two answers: the input it came from, and the input
+// its code is. Reading the first one opened that whole input's code — the
+// estate's own graph, in the case that matters, because a repository node
+// arrives inside a previous output.
+func TestTheCodeMapReadsTheRepositorysOwnAnswerAndNotTheOneEveryNodeCarries(t *testing.T) {
+	g := core.New()
+	g.Nodes = []core.Node{
+		{ID: "task", Type: "aws_ecs_task_definition", Name: "api",
+			Attrs: map[string]any{"image": "img:1", "repository": "repo-1-estate"}},
+		{ID: "repository:acme/checkout", Type: "repository", Name: "acme/checkout",
+			Attrs: map[string]any{"repository": "repo-1-estate", "code_input": "repo-2-svc"}},
+		{ID: "repo-2-svc:file/a.go", Type: "code_file", Name: "a.go",
+			Attrs: map[string]any{"repository": "repo-2-svc"}},
+		{ID: "repo-2-svc:file/a.go#A", Type: "code_function", Name: "A",
+			Attrs: map[string]any{"repository": "repo-2-svc"}},
+		{ID: "repo-2-svc:package:net/http", Type: "code_package", Name: "net/http",
+			Attrs: map[string]any{"repository": "repo-2-svc"}},
+		// The estate input's own code — the graph this repository node arrived
+		// inside. It is what reading the wrong attribute reaches.
+		{ID: "repo-1-estate:file/b.go#B", Type: "code_function", Name: "B",
+			Attrs: map[string]any{"repository": "repo-1-estate"}},
+	}
+	g.Edges = []core.Edge{
+		{From: "task", To: "repository:acme/checkout", Kind: core.EdgeObserved, Relation: "built_from"},
+		{From: "repo-2-svc:file/a.go", To: "repo-2-svc:package:net/http", Kind: core.EdgeIACRef, Relation: "imports"},
+	}
+	g.Normalize()
+	if err := g.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := BuildAtlas(g, AtlasOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := pageOf(a, "codemap:repository:acme/checkout")
+	if page == nil {
+		t.Fatal("there is no code map")
+	}
+	for _, n := range page.Graph.Nodes {
+		if n.ID == "repo-1-estate:file/b.go#B" {
+			t.Error("another input's code was drawn on this repository's map")
+		}
+	}
+	held := map[string]bool{}
+	for _, n := range page.Graph.Nodes {
+		held[n.ID] = true
+	}
+	if !held["repo-2-svc:file/a.go#A"] {
+		t.Error("the repository's own code is not on its map")
+	}
+}
+
+// Two repositories in one estate produced two pages with the same name, which
+// is a title only until there are two of them.
+func TestTheCodeMapIsNamedAfterItsRepository(t *testing.T) {
+	a, err := BuildAtlas(estateWithCode(t, true), AtlasOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := pageOf(a, "codemap:repository:acme/checkout")
+	if page == nil {
+		t.Fatal("there is no code map")
+	}
+	if page.Title != "acme/checkout" {
+		t.Errorf("the page is called %q rather than naming its repository", page.Title)
+	}
+	if page.Subtitle == "" {
+		t.Error("the page does not say what kind of page it is")
+	}
+}
+
+// Relations are read folded everywhere else in this file, and a graph that
+// writes `Imports` is not a graph with nothing to say.
+func TestTheCodeMapReadsARelationHoweverItIsWritten(t *testing.T) {
+	g := estateWithCode(t, true)
+	for i := range g.Edges {
+		switch g.Edges[i].Relation {
+		case "imports":
+			g.Edges[i].Relation = "Imports"
+		case "calls":
+			g.Edges[i].Relation = "Calls"
+		}
+	}
+	a, err := BuildAtlas(g, AtlasOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := pageOf(a, "codemap:repository:acme/checkout")
+	if page == nil {
+		t.Fatal("there is no code map")
+	}
+	if len(page.Graph.Edges) == 0 {
+		t.Error("the map draws no lines at all")
+	}
+	held := map[string]bool{}
+	for _, n := range page.Graph.Nodes {
+		held[n.ID] = true
+	}
+	if !held["repo-2-svc:file:handler/http.go"] {
+		t.Error("the file that imports is not on the map")
 	}
 }
