@@ -17,6 +17,41 @@ level:                 the estate: containers as boxes
        └ sequence:svc:api   one call chain, in order
 ```
 
+A container descends into the code it runs. A build record joins a workload to
+the repository that built it, and when somebody has said which input that
+repository is, the box opens as a **code map**: the functions of that
+repository, what calls what, and what it imports. From there a function opens
+its own page, and from that page a type opens as a class diagram — so the
+descent from a running container to one class is a sequence of clicks. See
+[builds.md](builds.md).
+
+Every box on the map is on a line: a function because it calls or is called, a
+file because it imports, a package because something reached it. A function
+nothing calls but which calls something is where a request comes in, so it
+stays; one that neither calls nor is called says nothing about flow, and a
+thousand of them is the unreadable single picture this whole file is about.
+Not types either: a declaration takes part in flow only through the functions
+that use it, and those are here.
+
+The line has to be one the map will actually draw: both of its ends on this
+page, and nobody having said it is not there. A call out of the repository is
+still a call, but it is not a line here, and a box kept for it would sit on the
+page with nothing attached to it — while a line somebody has suppressed is one
+a person went to the trouble of denying, and drawing a page out of those is the
+opposite of what the denial was for.
+
+```
+level:                          the estate
+ └ detail:aws_ecs_task_definition.api
+    └ codemap:repository:acme/checkout    what it runs, as code
+       └ detail:…#Handle                  one function
+          └ detail:…#Order               one type it declares, as a class
+```
+
+No line on that map crosses into the estate around it. Which function serves
+which API operation, and which import carries which outbound call, is written
+down nowhere — so the map says what the parser read and stops there.
+
 A code graph descends the same way, and a **type** opens as a class diagram
 rather than as the generic inside-of-a-box page — one element still has one
 inside, read the way the thing itself is written. See

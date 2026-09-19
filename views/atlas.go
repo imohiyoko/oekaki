@@ -59,6 +59,11 @@ const (
 	// the diagram; see Diagram.Order.
 	KindSequence Kind = "sequence"
 
+	// KindCodemap is one repository's code as a map: what calls what, and
+	// what it imports. It is the page behind a container, for the reader who
+	// clicked a box asking "and what does this actually do".
+	KindCodemap Kind = "codemap"
+
 	// KindClass is one type: what it declares, and the other types it says
 	// something about. It is the same shape a UML class diagram has, and it
 	// is derived from what the declarations state — never from comparing
@@ -72,8 +77,24 @@ const (
 const (
 	codeType     = "code_type"
 	codeFunction = "code_function"
+	codeFile     = "code_file"
+	codePackage  = "code_package"
+
+	// repositoryType is a node standing for a repository a build record named.
+	// The string rather than the enrichers' constant: views reads graphs, and
+	// importing an enricher to learn one node type would make the projection
+	// depend on the thing that produced its input.
+	repositoryType = "repository"
+
+	// attrCodeInput is the input a repository's code was read from, said by a
+	// build record's mapping. Not `repository`, which every node of a
+	// combined graph carries naming the input it came from — one key with two
+	// meanings is decided by whichever was written last.
+	attrCodeInput = "code_input"
 
 	relDeclares = "declares"
+	relCalls    = "calls"
+	relImports  = "imports"
 )
 
 // Where a sequence's order came from.
@@ -309,6 +330,13 @@ type builder struct {
 	// match theirs, without regard to case, so a document that writes
 	// "Declares" does not lose every method it names.
 	declares map[string]map[string]bool
+
+	// code is what each named input holds, read out of the document once per
+	// input for the same reason.
+	code map[string][]string
+
+	// descended records the code maps whose members have already been walked.
+	descended map[string]bool
 }
 
 // room reports whether another diagram may be added, and records the id so a
@@ -325,6 +353,7 @@ func (b *builder) room(id string) bool {
 func levelID(path string) string  { return "level:" + path }
 func detailID(id string) string   { return "detail:" + id }
 func sequenceID(id string) string { return "sequence:" + id }
+func codemapID(id string) string  { return "codemap:" + id }
 
 // level builds the diagram for one containment path and, recursively, for
 // everything openable from it.
@@ -401,6 +430,35 @@ func (b *builder) level(path, parent, origin string) error {
 	}
 	b.out = append(b.out, d)
 
+	// Every code map of this level, before anything else is descended into.
+	//
+	// Pages are built in the order this walks, and the budget is spent in that
+	// order. Both loops below spend it freely: nodes are walked in id order,
+	// where every function of a repository sorts ahead of the repository
+	// itself, and a child level descends as far as it can before returning. A
+	// repository big enough to fill the budget with the pages of its own code
+	// therefore left the container that runs it opening onto nothing — which
+	// is the one descent this page exists to offer.
+	//
+	// The page only, not the pages of its members: descending into the first
+	// repository's members is what used to exhaust the budget before the
+	// second repository was reached, and one repository saved at the cost of
+	// the next one is not the rule this is meant to be.
+	for _, n := range nodes {
+		// Only a repository opens onto a code map, and asking detailOpening
+		// means walking every edge in the graph — a cost every node of every
+		// level would otherwise pay for an answer its type already gives.
+		if n.Type != repositoryType {
+			continue
+		}
+		open, ok := b.detailOpening(n.ID)
+		if !ok || open.Kind != KindCodemap {
+			continue
+		}
+		if err := b.codemapPage(n.ID, open); err != nil {
+			return err
+		}
+	}
 	for _, child := range children {
 		if err := b.level(join(path, child), id, child); err != nil {
 			return err
@@ -422,6 +480,18 @@ func (b *builder) detailOpening(id string) (Opening, bool) {
 	if len(held) == 0 && len(touched) == 0 {
 		return Opening{}, false
 	}
+	// A repository somebody has placed opens its code rather than its
+	// neighbours. The reader who got here clicked a container asking what it
+	// runs, and the list of workloads that share the image is not that answer.
+	//
+	// One element has one inside, and the viewer keeps one door per box, so
+	// this replaces the detail page rather than sitting beside it.
+	if scope, ok := b.repositoryScope(id); ok {
+		if len(b.codeOf(scope)) > 0 {
+			return Opening{Element: id, Diagram: codemapID(id), Kind: KindCodemap, Label: "コードマップ"}, true
+		}
+	}
+
 	kind := KindDetail
 	label := "中身"
 	if len(held) == 0 && called > 0 {
@@ -447,6 +517,246 @@ func (b *builder) detailOpening(id string) (Opening, bool) {
 	return Opening{Element: id, Diagram: detailID(id), Kind: kind, Label: label}, true
 }
 
+// repositoryScope is the input a repository node was said to be, when a build
+// record's mapping placed it. Absent means nobody said, and a repository
+// nobody placed has no code to open.
+//
+// The repository's own attribute, not the one every node carries naming the
+// input it came from. A repository node that arrived inside a previous output
+// wears both, and reading the wrong one opened that input's whole code.
+func (b *builder) repositoryScope(id string) (string, bool) {
+	n, ok := b.in.Node(id)
+	if !ok || n.Type != repositoryType {
+		return "", false
+	}
+	scope, ok := n.Attrs[attrCodeInput].(string)
+	if !ok || scope == "" {
+		return "", false
+	}
+	return scope, true
+}
+
+// codeOf is CodeOf, read once per scope.
+//
+// Once, for the same reason declares is: detailOpening asks it of every
+// repository node on every page it considers, and walking every edge and every
+// node each time turns an estate into a quadratic one.
+func (b *builder) codeOf(scope string) []string {
+	if out, ok := b.code[scope]; ok {
+		return out
+	}
+	out := CodeOf(b.in, scope)
+	if b.code == nil {
+		b.code = map[string][]string{}
+	}
+	b.code[scope] = out
+	return out
+}
+
+// CodeOf is the code read from one input: the functions, the files that import
+// something, and what they import.
+//
+// Every node of an input carries that input's id, which is what makes this a
+// selection rather than a guess.
+//
+// Every box here is on a line. A file is on the page to carry the line out to
+// what it uses, a package is there because something reached it, and a
+// function is there because it calls or is called — the one that calls nothing
+// and is called by nothing has nothing to say on a page about flow, and a
+// thousand of them is a page nobody can read, which is the complaint the atlas
+// exists to answer rather than to reproduce behind a container's box. A
+// function nothing calls but which calls something is where a request comes
+// in, so it stays.
+//
+// Exported because the command line has to answer the same question before it
+// accepts a mapping: an input this finds nothing in is an input whose box
+// cannot be opened. Two readings of "has code" that differ is how a mapping
+// passes every check and then draws nothing.
+func CodeOf(g *core.Graph, scope string) []string {
+	if scope == "" {
+		return nil
+	}
+	kind := map[string]string{}
+	for _, n := range g.Nodes {
+		if of, _ := n.Attrs["repository"].(string); of != scope {
+			continue
+		}
+		switch n.Type {
+		case codeFunction, codePackage, codeFile:
+			kind[n.ID] = n.Type
+		}
+	}
+
+	on := map[string]bool{}
+	for _, e := range g.Edges {
+		// A suppressed edge is one somebody said is not there, and every other
+		// reading in this file skips it. Keeping it here put a box on the page
+		// for a line a person had denied — and let a repository whose code
+		// graph is denied in full answer "there is a code map to draw" at the
+		// command line.
+		if e.Suppressed {
+			continue
+		}
+		// Both ends, because the page keeps a line only when it has both. A
+		// call out of this repository to something that is not on the page
+		// used to put the function there and then drop the only line it had,
+		// leaving the box on a page whose whole rule is that there are none.
+		if kind[e.From] == "" || kind[e.To] == "" {
+			continue
+		}
+		switch {
+		case strings.EqualFold(e.Relation, relImports):
+			if kind[e.From] == codeFile {
+				on[e.From] = true
+			}
+			if kind[e.To] == codePackage {
+				on[e.To] = true
+			}
+		case strings.EqualFold(e.Relation, relCalls):
+			if kind[e.From] == codeFunction {
+				on[e.From] = true
+			}
+			if kind[e.To] == codeFunction {
+				on[e.To] = true
+			}
+		}
+	}
+
+	out := make([]string, 0, len(on))
+	for id := range on {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// codemap builds one repository's code as a map: what calls what, and what it
+// imports.
+//
+// What is drawn is what the parser recorded and nothing beside it. A function
+// nothing in the tree calls is where a request can come in, the calls are what
+// happens next, and an imported package is a way out — but no line is drawn
+// between those readings and the estate around the box. Which function serves
+// which API operation, and which import carries which outbound call, is
+// written down nowhere; see docs/code.md for what the reading refuses.
+func (b *builder) codemap(id string, open Opening) error {
+	if err := b.codemapPage(id, open); err != nil {
+		return err
+	}
+	// Once. This is reached from the level and again from the detail page of
+	// every workload the record joined to this repository, and every visit
+	// asked detailOpening of every member — which walks every edge in the
+	// graph. The pages are already there after the first pass; detail would
+	// decline each of them and charge the walk for saying so.
+	if b.descended[open.Diagram] {
+		return nil
+	}
+	// And not at all once the budget is gone. Every member would be asked
+	// whether it has an inside — a walk of every edge apiece — for pages none
+	// of which can be made, and the estate that spends the budget is exactly
+	// the one where there are most members to ask.
+	if len(b.out) >= b.limit {
+		return nil
+	}
+	scope, ok := b.repositoryScope(id)
+	if !ok {
+		return nil
+	}
+	if b.descended == nil {
+		b.descended = map[string]bool{}
+	}
+	b.descended[open.Diagram] = true
+	for _, member := range b.codeOf(scope) {
+		if err := b.detail(member); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// codemapPage builds the map itself and nothing under it.
+//
+// Separate from the descent into its members because the two want opposite
+// things from the budget: every map of a level is made before any of them
+// spends what is left on the pages of its own code. One repository saved at
+// the cost of the next one is not the rule this is meant to be.
+func (b *builder) codemapPage(id string, open Opening) error {
+	scope, ok := b.repositoryScope(id)
+	if !ok {
+		return nil
+	}
+	members := b.codeOf(scope)
+	if len(members) == 0 || !b.room(open.Diagram) {
+		return nil
+	}
+
+	g := core.New()
+	g.Metadata = b.in.Metadata
+	present := map[string]bool{}
+	for _, member := range members {
+		n, ok := b.in.Node(member)
+		if !ok {
+			continue
+		}
+		copied := *n
+		copied.Groups = nil
+		g.Nodes = append(g.Nodes, copied)
+		present[member] = true
+	}
+	for _, e := range b.in.Edges {
+		if e.Suppressed {
+			continue
+		}
+		// Folded, the way every other relation in this file is read. A graph
+		// that writes `Imports` loses the lines here and the files with them,
+		// leaving a page of boxes and no flow, and saying nothing about it.
+		if !strings.EqualFold(e.Relation, relCalls) && !strings.EqualFold(e.Relation, relImports) {
+			continue
+		}
+		if present[e.From] && present[e.To] {
+			g.Edges = append(g.Edges, e)
+		}
+	}
+	carry(b.in, g)
+	g.Normalize()
+	if err := g.Validate(); err != nil {
+		return fmt.Errorf("code map %q: %w", id, err)
+	}
+
+	// Named after its subject, like every other page. Two repositories placed
+	// in one estate produced two pages both called コードマップ, which is a
+	// title only until there are two of them.
+	subject, _ := b.in.Node(id)
+	title := id
+	if subject != nil {
+		title = orDefault(subject.Name, subject.ID)
+	}
+	d := Diagram{
+		ID: open.Diagram, Kind: KindCodemap, Graph: g,
+		Parent:   b.levelOf(id),
+		Origin:   id,
+		Title:    title,
+		Subtitle: open.Label,
+	}
+	// A box on this page opens the same way it opens anywhere else: a function
+	// its own page, a package or a file its contents. The descent is what the
+	// page is for — a reader who arrived from a running container is on their
+	// way to something smaller — and a page whose boxes open nothing is a dead
+	// end at the exact point the trail was supposed to keep going.
+	//
+	// A type is not a box here, so no door on this page is a class diagram.
+	// This page is about flow, and a declaration takes part in flow only
+	// through the functions that use it; those are here, and their own pages
+	// are where a type is reached.
+	for _, member := range members {
+		if open, ok := b.detailOpening(member); ok {
+			d.Opens = append(d.Opens, open)
+		}
+	}
+	b.out = append(b.out, d)
+	return nil
+}
+
 // levelOf is the page an element belongs under: the level of the container it
 // sits in.
 //
@@ -469,6 +779,9 @@ func (b *builder) detail(id string) error {
 	open, ok := b.detailOpening(id)
 	if !ok {
 		return nil
+	}
+	if open.Kind == KindCodemap {
+		return b.codemap(id, open)
 	}
 	if !b.room(open.Diagram) {
 		return nil

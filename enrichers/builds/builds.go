@@ -25,6 +25,14 @@ const Relation = "built_from"
 // NodeRepository is the type of a node standing for a repository.
 const NodeRepository = "repository"
 
+// AttrCodeInput is the input a repository's code was read from, on the
+// repository node, when somebody said which one it is.
+//
+// Deliberately not `repository`: that attribute is already how a combined
+// graph records which input each node came from, and two meanings on one key
+// means whichever was written last wins.
+const AttrCodeInput = "code_input"
+
 // Enricher applies build records to a graph.
 type Enricher struct {
 	Documents []*builds.Document
@@ -34,11 +42,19 @@ type Enricher struct {
 	// becomes a node of its own: the record says it exists and built this, and
 	// that much is known without anybody deciding where it sits in the estate.
 	//
+	// An id may name one of the graph's inputs — a whole repository — in
+	// which case the edge still points at a node for the repository, and that
+	// node records which input it is so a drawing can open its code.
+	//
 	// An id here must name something. It comes from whoever called this rather
 	// than from the evidence, so an id that names nothing is their mistake to
 	// hear about before the run starts — the command line checks it, and a
 	// graph left pointing at a box that is not there fails validation.
 	Repositories map[string]string
+
+	// Inputs are the ids of the documents this graph was read from, so a
+	// mapping that names one can be told from a mapping that names an element.
+	Inputs map[string]bool
 }
 
 func (Enricher) Name() string { return "builds" }
@@ -67,6 +83,21 @@ func (e Enricher) Enrich(g *core.Graph) (*enrichers.Report, error) {
 			Assert:     "build",
 			Candidates: repositories,
 		})
+	}
+
+	// A mapping that points the repository at an element says the repository
+	// is that element, and says it whether or not anything here happens to be
+	// running an image these records name. Doing it inside the match meant a
+	// estate that had moved on to a tag no record covers kept the answer the
+	// last run wrote — and kept its box open onto the code map of the mapping
+	// the operator had just replaced.
+	for repository, id := range e.Repositories {
+		if e.Inputs[id] {
+			continue
+		}
+		for _, n := range repositoriesNamed(g, repository) {
+			delete(n.Attrs, AttrCodeInput)
+		}
 	}
 
 	matched := map[string]bool{}
@@ -240,30 +271,95 @@ func lookup(byKey map[string]built, image string) (built, bool) {
 // target is the element the edge points at, and whether this invented it: the
 // one somebody wrote down, or a node for the repository itself.
 func (e Enricher) target(g *core.Graph, b built) (string, bool, error) {
+	// The repository this graph already holds, found by what it is rather than
+	// by the id this run would give it.
+	//
+	// A graph that ran this once is an input the next time, and everything in
+	// it arrives qualified with the scope it was read under — so the node is
+	// no longer at `repository:<name>`, while the repository is the same
+	// repository. Matching on the id alone missed it, and then invented a
+	// second box for the same thing: two boxes for one repository, disagreeing
+	// about whether it has code.
+	existing := repositoriesNamed(g, b.repository)
+
+	// The input this repository is, when somebody said so. It goes on the node
+	// rather than on the edge because it is a fact about the repository and
+	// not about this build.
+	//
+	// Under its own key rather than `repository`. That one already means
+	// something else — combining inputs stamps every node with the input it
+	// came from — so a repository node arriving inside a previous output had
+	// this answer overwritten with the input it was read from, and the code
+	// map then drew that whole input's code.
+	of := ""
 	if id, ok := e.Repositories[b.repository]; ok {
-		return id, false, nil
+		if !e.Inputs[id] {
+			// Pointed at an element instead. Whatever an earlier run wrote on
+			// the repository node was cleared before any of this, because it
+			// has to happen whether or not a record matched anything.
+			return id, false, nil
+		}
+		of = id
+	}
+
+	if len(existing) > 0 {
+		// What this run was told is what holds. The node may have arrived with
+		// an answer from the run that first wrote it, pointing at an input of
+		// that graph rather than of this one — and a mapping that passed every
+		// check and then changed nothing is the silent no-op the checks exist
+		// to prevent.
+		//
+		// Every one of them, the way the branch above clears every one of
+		// them. Combining two outputs leaves two boxes for one repository, and
+		// telling only the first where its code is leaves the second one
+		// answering the same question differently.
+		if of != "" {
+			for _, n := range existing {
+				if n.Attrs == nil {
+					n.Attrs = map[string]any{}
+				}
+				n.Attrs[AttrCodeInput] = of
+			}
+		}
+		// The edge still points at one of them: a record says one thing built
+		// this, and drawing it at every box that shares the name would be
+		// adding evidence nobody wrote.
+		return existing[0].ID, false, nil
 	}
 
 	id := NodeRepository + ":" + b.repository
 	if n, ok := g.Node(id); ok {
-		// Finding one already here is ordinary: a graph this ran on once is
-		// an input the next time, and the repository node it wrote then is
-		// the same repository now. Anything else wearing that id is a
-		// different thing with the same name, and pointing the edge at it
-		// would answer "what built this" with somebody else's box. Nothing
-		// downstream could tell, because the graph would still validate.
-		if n.Type != NodeRepository || n.Name != b.repository {
-			return "", false, fmt.Errorf(
-				"%q is already here as %s %q: that and the repository the record names cannot be told apart",
-				id, n.Type, n.Name)
-		}
-		return id, false, nil
+		// Not a repository, then, and not this one: a different thing with the
+		// same name. Pointing the edge at it would answer "what built this"
+		// with somebody else's box, and nothing downstream could tell, because
+		// the graph would still validate.
+		return "", false, fmt.Errorf(
+			"%q is already here as %s %q: that and the repository the record names cannot be told apart",
+			id, n.Type, n.Name)
 	}
-	g.Nodes = append(g.Nodes, core.Node{
+	node := core.Node{
 		ID: id, Type: NodeRepository, Name: b.repository,
 		Claim: &core.Claim{Origin: core.OriginParser, Note: b.run.Label()},
-	})
+	}
+	if of != "" {
+		node.Attrs = map[string]any{AttrCodeInput: of}
+	}
+	g.Nodes = append(g.Nodes, node)
 	return id, true, nil
+}
+
+// repositoriesNamed are the nodes already standing for one repository,
+// whatever id they are wearing, in a fixed order so that a graph holding more
+// than one of them is read the same way twice.
+func repositoriesNamed(g *core.Graph, name string) []*core.Node {
+	var out []*core.Node
+	for i := range g.Nodes {
+		if g.Nodes[i].Type == NodeRepository && g.Nodes[i].Name == name {
+			out = append(out, &g.Nodes[i])
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
 }
 
 func edge(from, to, image string, b built) core.Edge {
