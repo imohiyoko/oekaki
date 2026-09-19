@@ -415,3 +415,108 @@ func TestPointingARepositoryAtAnElementDropsTheOldCodeMap(t *testing.T) {
 		t.Errorf("the replaced mapping is still on the repository: %v", of)
 	}
 }
+
+// qualifiedEstate is what a previous output looks like on the way back in:
+// everything wearing the scope it was read under, the repository node
+// included. The id `repository:acme/checkout` is not in it, and the repository
+// is still in it.
+func qualifiedEstate(t *testing.T) *core.Graph {
+	t.Helper()
+	const scope = "repo-1-out-json:repo-2-svc"
+	g := core.New()
+	g.Metadata = &core.Metadata{Inputs: []core.InputRef{{ID: scope, Path: "../svc", Kind: "repository"}}}
+	g.Nodes = []core.Node{
+		{ID: "repo-1-out-json:workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
+			Attrs: map[string]any{"image": "registry.example/checkout:1.4.0", "repository": "repo-1-out-json"}},
+		{ID: scope + ":file:main.go", Type: "code_file", Name: "main.go",
+			Attrs: map[string]any{"repository": scope}},
+		{ID: scope + ":package:net/http", Type: "code_package", Name: "net/http",
+			Attrs: map[string]any{"repository": scope}},
+		{ID: "repo-1-out-json:repository:acme/checkout", Type: "repository", Name: "acme/checkout",
+			Attrs: map[string]any{"repository": "repo-1-out-json", "code_input": scope}},
+	}
+	g.Edges = []core.Edge{{
+		From: scope + ":file:main.go", To: scope + ":package:net/http",
+		Kind: core.EdgeIACRef, Relation: "imports",
+	}}
+	g.Normalize()
+	return g
+}
+
+func repositoryNodes(g *core.Graph, name string) []string {
+	var out []string
+	for _, n := range g.Nodes {
+		if n.Type == "repository" && n.Name == name {
+			out = append(out, n.ID)
+		}
+	}
+	return out
+}
+
+// The repository a previous output carries is the same repository, wearing the
+// scope it was read under. Looking for it at the id this run would have given
+// it found nothing and invented a second box — two boxes for one repository,
+// disagreeing about whether it has code.
+func TestARepositoryThatCameBackQualifiedIsNotInventedAgain(t *testing.T) {
+	r := mustRun(t, "", "graph", graphFile(t, qualifiedEstate(t)),
+		"--builds", buildsFile(t, buildRecord), "--build-repo", "acme/checkout=repo-1-out-json:repo-2-svc")
+
+	out := graphOf(t, r.stdout)
+	ids := repositoryNodes(out, "acme/checkout")
+	if len(ids) != 1 {
+		t.Fatalf("%d boxes for one repository: %v", len(ids), ids)
+	}
+	if ids[0] != "repo-1-out-json:repository:acme/checkout" {
+		t.Errorf("the edge points at %q rather than at the repository already here", ids[0])
+	}
+	for _, e := range out.Edges {
+		if e.Relation == "built_from" && e.To != ids[0] {
+			t.Errorf("a built_from edge points at %s", e.To)
+		}
+	}
+}
+
+// The same replacement as before, against the id a previous output actually
+// uses. The mapping was accepted, the old answer stayed, and the workload kept
+// a door onto the code map of the mapping just replaced.
+func TestPointingAQualifiedRepositoryAtAnElementDropsTheOldCodeMap(t *testing.T) {
+	r := mustRun(t, "", "graph", graphFile(t, qualifiedEstate(t)),
+		"--builds", buildsFile(t, buildRecord),
+		"--build-repo", "acme/checkout=repo-1-out-json:repo-2-svc:file:main.go")
+
+	out := graphOf(t, r.stdout)
+	repo, ok := out.Node("repo-1-out-json:repository:acme/checkout")
+	if !ok {
+		return // dropped entirely is an honest outcome too
+	}
+	if of, found := repo.Attrs["code_input"]; found {
+		t.Errorf("the replaced mapping is still on the repository: %v", of)
+	}
+}
+
+// An input that parsed to nothing is still an input. Being told it is not one
+// sends the reader looking for a typo in an id the metadata lists.
+func TestAnInputThatHoldsNothingIsToldWhatIsActuallyWrong(t *testing.T) {
+	g := core.New()
+	g.Metadata = &core.Metadata{Inputs: []core.InputRef{
+		{ID: "repo-1-cluster", Path: "cluster.yaml", Kind: "kubernetes"},
+		{ID: "repo-2-empty", Path: "../empty", Kind: "repository"},
+	}}
+	g.Nodes = []core.Node{{
+		ID: "workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
+		Attrs: map[string]any{"image": "registry.example/checkout:1.4.0", "repository": "repo-1-cluster"},
+	}}
+	g.Normalize()
+
+	r := run(t, "", "graph", graphFile(t, g),
+		"--builds", buildsFile(t, buildRecord), "--build-repo", "acme/checkout=repo-2-empty")
+	if r.code == 0 {
+		t.Fatal("an input holding nothing was accepted")
+	}
+	if strings.Contains(r.stderr, "nothing here is") {
+		t.Errorf("a listed input was called not an input:\n%s", r.stderr)
+	}
+	if !strings.Contains(r.stderr, "no code was read") {
+		t.Errorf("the error does not say what is wrong:\n%s", r.stderr)
+	}
+}
