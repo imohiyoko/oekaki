@@ -299,14 +299,23 @@ func (e Enricher) target(g *core.Graph, b built) (string, bool, error) {
 		// that graph rather than of this one — and a mapping that passed every
 		// check and then changed nothing is the silent no-op the checks exist
 		// to prevent.
-		n := existing[0]
+		//
+		// Every one of them, the way the branch above clears every one of
+		// them. Combining two outputs leaves two boxes for one repository, and
+		// telling only the first where its code is leaves the second one
+		// answering the same question differently.
 		if of != "" {
-			if n.Attrs == nil {
-				n.Attrs = map[string]any{}
+			for _, n := range existing {
+				if n.Attrs == nil {
+					n.Attrs = map[string]any{}
+				}
+				n.Attrs[AttrCodeInput] = of
 			}
-			n.Attrs[AttrCodeInput] = of
 		}
-		return n.ID, false, nil
+		// The edge still points at one of them: a record says one thing built
+		// this, and drawing it at every box that shares the name would be
+		// adding evidence nobody wrote.
+		return existing[0].ID, false, nil
 	}
 
 	id := NodeRepository + ":" + b.repository

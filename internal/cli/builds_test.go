@@ -195,9 +195,16 @@ func TestBuildRepoCanNameAnInput(t *testing.T) {
 		Attrs: map[string]any{"image": "registry.example/checkout:1.4.0", "repository": "repo-2-checkout"},
 	}, {
 		// An input is named so that its code can be opened, so an input with
-		// code is what the case is about.
-		ID: "repo-2-checkout:file:main.go#Handle", Type: "code_function", Name: "Handle",
+		// code the map would draw is what the case is about.
+		ID: "repo-2-checkout:file:main.go", Type: "code_file", Name: "main.go",
 		Attrs: map[string]any{"repository": "repo-2-checkout"},
+	}, {
+		ID: "repo-2-checkout:package:net/http", Type: "code_package", Name: "net/http",
+		Attrs: map[string]any{"repository": "repo-2-checkout"},
+	}}
+	g.Edges = []core.Edge{{
+		From: "repo-2-checkout:file:main.go", To: "repo-2-checkout:package:net/http",
+		Kind: core.EdgeIACRef, Relation: "imports",
 	}}
 	g.Normalize()
 
@@ -258,7 +265,11 @@ func TestBuildRepoPlacesARepositoryThatIsAlreadyHere(t *testing.T) {
 			Attrs: map[string]any{"image": "registry.example/checkout:1.4.0", "repository": "repo-2-checkout"},
 		},
 		{
-			ID: "repo-2-checkout:file:main.go#Handle", Type: "code_function", Name: "Handle",
+			ID: "repo-2-checkout:file:main.go", Type: "code_file", Name: "main.go",
+			Attrs: map[string]any{"repository": "repo-2-checkout"},
+		},
+		{
+			ID: "repo-2-checkout:package:net/http", Type: "code_package", Name: "net/http",
 			Attrs: map[string]any{"repository": "repo-2-checkout"},
 		},
 		// Written by an earlier run, which knew a different estate.
@@ -267,6 +278,10 @@ func TestBuildRepoPlacesARepositoryThatIsAlreadyHere(t *testing.T) {
 			Attrs: map[string]any{"code_input": "repo-9-somewhere-else"},
 		},
 	}
+	g.Edges = []core.Edge{{
+		From: "repo-2-checkout:file:main.go", To: "repo-2-checkout:package:net/http",
+		Kind: core.EdgeIACRef, Relation: "imports",
+	}}
 	g.Normalize()
 
 	r := mustRun(t, "", "graph", graphFile(t, g),
@@ -299,7 +314,7 @@ func TestBuildRepoRefusesAnInputWithNoCode(t *testing.T) {
 	if r.code == 0 {
 		t.Fatal("an input with no code was accepted as a repository's code")
 	}
-	if !strings.Contains(r.stderr, "no code was read") {
+	if !strings.Contains(r.stderr, "no code map to draw") {
 		t.Errorf("the error does not say why:\n%s", r.stderr)
 	}
 }
@@ -380,7 +395,7 @@ func TestBuildRepoRefusesAnInputWhoseOnlyCodeTheMapWouldNotDraw(t *testing.T) {
 	if r.code == 0 {
 		t.Fatal("an input the map would draw nothing from was accepted")
 	}
-	if !strings.Contains(r.stderr, "no code was read") {
+	if !strings.Contains(r.stderr, "no code map to draw") {
 		t.Errorf("the error does not say why:\n%s", r.stderr)
 	}
 }
@@ -396,6 +411,8 @@ func TestPointingARepositoryAtAnElementDropsTheOldCodeMap(t *testing.T) {
 		{ID: "workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
 			Attrs: map[string]any{"image": "registry.example/checkout:1.4.0", "repository": "repo-2-svc"}},
 		{ID: "repo-2-svc:file:main.go", Type: "code_file", Name: "main.go",
+			Attrs: map[string]any{"repository": "repo-2-svc"}},
+		{ID: "repo-2-svc:package:net/http", Type: "code_package", Name: "net/http",
 			Attrs: map[string]any{"repository": "repo-2-svc"}},
 		// Written by the run that said the repository is the whole input.
 		{ID: "repository:acme/checkout", Type: "repository", Name: "acme/checkout",
@@ -516,7 +533,46 @@ func TestAnInputThatHoldsNothingIsToldWhatIsActuallyWrong(t *testing.T) {
 	if strings.Contains(r.stderr, "nothing here is") {
 		t.Errorf("a listed input was called not an input:\n%s", r.stderr)
 	}
-	if !strings.Contains(r.stderr, "no code was read") {
+	if !strings.Contains(r.stderr, "no code map to draw") {
 		t.Errorf("the error does not say what is wrong:\n%s", r.stderr)
+	}
+}
+
+// Combining two outputs leaves two boxes for one repository. Telling only the
+// first where its code is leaves the second answering the same question
+// differently — and the one that kept the old answer opens onto the code of a
+// mapping nobody made this time.
+func TestEveryBoxForOneRepositoryGetsTheSameAnswer(t *testing.T) {
+	g := core.New()
+	const scope = "repo-1-a-json:repo-2-svc"
+	g.Metadata = &core.Metadata{Inputs: []core.InputRef{{ID: scope, Path: "../svc", Kind: "repository"}}}
+	g.Nodes = []core.Node{
+		{ID: "repo-1-a-json:workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
+			Attrs: map[string]any{"image": "registry.example/checkout:1.4.0", "repository": "repo-1-a-json"}},
+		{ID: scope + ":file:main.go", Type: "code_file", Name: "main.go",
+			Attrs: map[string]any{"repository": scope}},
+		{ID: scope + ":package:net/http", Type: "code_package", Name: "net/http",
+			Attrs: map[string]any{"repository": scope}},
+		// Two boxes for one repository, from two outputs combined.
+		{ID: "repo-1-a-json:repository:acme/checkout", Type: "repository", Name: "acme/checkout",
+			Attrs: map[string]any{"repository": "repo-1-a-json", "code_input": "repo-9-stale"}},
+		{ID: "repo-2-b-json:repository:acme/checkout", Type: "repository", Name: "acme/checkout",
+			Attrs: map[string]any{"repository": "repo-2-b-json", "code_input": "repo-9-stale"}},
+	}
+	g.Edges = []core.Edge{{
+		From: scope + ":file:main.go", To: scope + ":package:net/http",
+		Kind: core.EdgeIACRef, Relation: "imports",
+	}}
+	g.Normalize()
+
+	r := mustRun(t, "", "graph", graphFile(t, g),
+		"--builds", buildsFile(t, buildRecord), "--build-repo", "acme/checkout="+scope)
+
+	out := graphOf(t, r.stdout)
+	for _, id := range repositoryNodes(out, "acme/checkout") {
+		n, _ := out.Node(id)
+		if of, _ := n.Attrs["code_input"].(string); of != scope {
+			t.Errorf("%s says its code is %q", id, of)
+		}
 	}
 }

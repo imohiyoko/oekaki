@@ -89,7 +89,7 @@ func applyBuilds(env Env, g *core.Graph, f buildFlags) error {
 			// and do nothing — which is the reading the checks around it
 			// refuse.
 			if len(views.CodeOf(g, id)) == 0 {
-				return fmt.Errorf("--build-repo %s: %q is here, but no code was read from it — a repository is named as an input so that its code can be opened", value, id)
+				return fmt.Errorf("--build-repo %s: %q is here, but there is no code map to draw from it — a repository is named as an input so that its code can be opened", value, id)
 			}
 		case element(g, id):
 		default:
@@ -122,11 +122,12 @@ func applyBuilds(env Env, g *core.Graph, f buildFlags) error {
 // repository is named.
 //
 // Everything the metadata lists, including the inputs a graph read as an input
-// brought along with it — those name documents the graph it came from was
-// built out of rather than anything here, and an input that parsed to no nodes
-// names nothing here either. Neither is refused as "not an input", because
-// both are one; the check above tells each of them the true thing instead,
-// which is that there is no code here to open.
+// brought along with it. Whether one of those names anything here depends on
+// how the graph was assembled — after a read-back its nodes are stamped with
+// it, and before one they are not — and an input that parsed to no nodes names
+// nothing here either way. None of them is refused as "not an input", because
+// every one of them is one; the check above tells each the true thing instead,
+// which is whether there is a code map to open.
 func inputIDs(g *core.Graph) map[string]bool {
 	out := map[string]bool{}
 	if g.Metadata == nil {
