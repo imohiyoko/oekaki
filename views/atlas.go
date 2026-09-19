@@ -330,6 +330,10 @@ type builder struct {
 	// match theirs, without regard to case, so a document that writes
 	// "Declares" does not lose every method it names.
 	declares map[string]map[string]bool
+
+	// code is what each named input holds, read out of the document once per
+	// input for the same reason.
+	code map[string][]string
 }
 
 // room reports whether another diagram may be added, and records the id so a
@@ -428,6 +432,20 @@ func (b *builder) level(path, parent, origin string) error {
 			return err
 		}
 	}
+	// The code maps ahead of the ordinary pages of this level. The loop below
+	// walks nodes in id order, and every function of a repository sorts ahead
+	// of the repository itself — so a repository big enough to spend the
+	// budget on its own function pages left the container that runs it opening
+	// onto nothing, which is the one descent this whole page exists to offer.
+	for _, n := range nodes {
+		open, ok := b.detailOpening(n.ID)
+		if !ok || open.Kind != KindCodemap {
+			continue
+		}
+		if err := b.codemap(n.ID, open); err != nil {
+			return err
+		}
+	}
 	for _, n := range nodes {
 		if err := b.detail(n.ID); err != nil {
 			return err
@@ -500,23 +518,48 @@ func (b *builder) repositoryScope(id string) (string, bool) {
 	return scope, true
 }
 
-// codeOf is the code read from one input: the functions, the files that import
+// codeOf is CodeOf, read once per scope.
+//
+// Once, for the same reason declares is: detailOpening asks it of every
+// repository node on every page it considers, and walking every edge and every
+// node each time turns an estate into a quadratic one.
+func (b *builder) codeOf(scope string) []string {
+	if out, ok := b.code[scope]; ok {
+		return out
+	}
+	out := CodeOf(b.in, scope)
+	if b.code == nil {
+		b.code = map[string][]string{}
+	}
+	b.code[scope] = out
+	return out
+}
+
+// CodeOf is the code read from one input: the functions, the files that import
 // something, and what they import.
 //
 // Every node of an input carries that input's id, which is what makes this a
 // selection rather than a guess. Files are kept only when they import — a file
 // is on this page to carry the line out to what it uses, and one that uses
 // nothing would be a box with nothing to say on a page about flow.
-func (b *builder) codeOf(scope string) []string {
+//
+// Exported because the command line has to answer the same question before it
+// accepts a mapping: an input this finds nothing in is an input whose box
+// cannot be opened. Two readings of "has code" that differ is how a mapping
+// passes every check and then draws nothing.
+func CodeOf(g *core.Graph, scope string) []string {
+	if scope == "" {
+		return nil
+	}
 	imports := map[string]bool{}
-	for _, e := range b.in.Edges {
+	for _, e := range g.Edges {
 		if strings.EqualFold(e.Relation, relImports) {
 			imports[e.From] = true
 		}
 	}
 
 	var out []string
-	for _, n := range b.in.Nodes {
+	for _, n := range g.Nodes {
 		if of, _ := n.Attrs["repository"].(string); of != scope {
 			continue
 		}

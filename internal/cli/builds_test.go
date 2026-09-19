@@ -358,3 +358,29 @@ func TestReadingAGraphBackInKeepsItsRepositoryPointingAtItsOwnCode(t *testing.T)
 		t.Error("the repository now points at the other input of this run")
 	}
 }
+
+// A file that imports nothing is not on the code map, so an input holding only
+// such files is an input the box cannot be opened onto. The check and the
+// drawing have to agree about that, or the mapping is accepted and then draws
+// nothing — the very outcome the check was added for.
+func TestBuildRepoRefusesAnInputWhoseOnlyCodeTheMapWouldNotDraw(t *testing.T) {
+	g := core.New()
+	g.Metadata = &core.Metadata{Inputs: []core.InputRef{{ID: "repo-1-docs", Path: "../docs", Kind: "repository"}}}
+	g.Nodes = []core.Node{
+		{ID: "workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
+			Attrs: map[string]any{"image": "registry.example/checkout:1.4.0", "repository": "repo-1-docs"}},
+		// A file, but one that imports nothing, so the map keeps no box for it.
+		{ID: "repo-1-docs:file:README.md", Type: "code_file", Name: "README.md",
+			Attrs: map[string]any{"repository": "repo-1-docs"}},
+	}
+	g.Normalize()
+
+	r := run(t, "", "graph", graphFile(t, g),
+		"--builds", buildsFile(t, buildRecord), "--build-repo", "acme/checkout=repo-1-docs")
+	if r.code == 0 {
+		t.Fatal("an input the map would draw nothing from was accepted")
+	}
+	if !strings.Contains(r.stderr, "no code was read") {
+		t.Errorf("the error does not say why:\n%s", r.stderr)
+	}
+}
