@@ -384,3 +384,34 @@ func TestBuildRepoRefusesAnInputWhoseOnlyCodeTheMapWouldNotDraw(t *testing.T) {
 		t.Errorf("the error does not say why:\n%s", r.stderr)
 	}
 }
+
+// Pointing the repository at an element instead is a replacement, not an
+// addition. The answer the earlier run wrote is the answer to a question
+// nobody asked any more, and leaving it standing put a second door on the
+// workload — opening onto the code map of the mapping just replaced.
+func TestPointingARepositoryAtAnElementDropsTheOldCodeMap(t *testing.T) {
+	g := core.New()
+	g.Metadata = &core.Metadata{Inputs: []core.InputRef{{ID: "repo-2-svc", Path: "../svc", Kind: "repository"}}}
+	g.Nodes = []core.Node{
+		{ID: "workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
+			Attrs: map[string]any{"image": "registry.example/checkout:1.4.0", "repository": "repo-2-svc"}},
+		{ID: "repo-2-svc:file:main.go", Type: "code_file", Name: "main.go",
+			Attrs: map[string]any{"repository": "repo-2-svc"}},
+		// Written by the run that said the repository is the whole input.
+		{ID: "repository:acme/checkout", Type: "repository", Name: "acme/checkout",
+			Attrs: map[string]any{"code_input": "repo-2-svc"}},
+	}
+	g.Normalize()
+
+	r := mustRun(t, "", "graph", graphFile(t, g),
+		"--builds", buildsFile(t, buildRecord), "--build-repo", "acme/checkout=repo-2-svc:file:main.go")
+
+	out := graphOf(t, r.stdout)
+	repo, ok := out.Node("repository:acme/checkout")
+	if !ok {
+		return // dropped entirely is an honest outcome too
+	}
+	if of, found := repo.Attrs["code_input"]; found {
+		t.Errorf("the replaced mapping is still on the repository: %v", of)
+	}
+}
