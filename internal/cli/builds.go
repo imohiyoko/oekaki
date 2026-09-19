@@ -8,6 +8,7 @@ import (
 	"github.com/imohiyoko/oekaki/collectors/builds"
 	"github.com/imohiyoko/oekaki/core"
 	buildsenricher "github.com/imohiyoko/oekaki/enrichers/builds"
+	"github.com/imohiyoko/oekaki/views"
 )
 
 type buildFlags struct {
@@ -61,7 +62,10 @@ func applyBuilds(env Env, g *core.Graph, f buildFlags) error {
 		docs = append(docs, doc)
 	}
 
-	withCode := inputsWithCode(g)
+	// Read once rather than per mapping, and asked of the drawing rather than
+	// answered again here: two readings of "this input has code" that differ
+	// is how a mapping passes every check and then draws nothing.
+	inputs := inputIDs(g)
 	repositories := map[string]string{}
 	for _, value := range f.repositories {
 		repository, id, found := strings.Cut(value, "=")
@@ -78,12 +82,13 @@ func applyBuilds(env Env, g *core.Graph, f buildFlags) error {
 		// a join somebody meant to make and did not, and letting it pass
 		// quietly leaves the record looking applied.
 		switch {
-		case input(g, id):
+		case inputs[id]:
 			// Naming an input has one effect: the repository's box opens as
-			// that input's code. An input holding no code has no code to
-			// open, so the mapping would be recorded, look applied, and do
-			// nothing — which is the reading the checks around it refuse.
-			if !withCode[id] {
+			// that input's code. An input the drawing finds nothing in has no
+			// code to open, so the mapping would be recorded, look applied,
+			// and do nothing — which is the reading the checks around it
+			// refuse.
+			if len(views.CodeOf(g, id)) == 0 {
 				return fmt.Errorf("--build-repo %s: %q is here, but no code was read from it — a repository is named as an input so that its code can be opened", value, id)
 			}
 		case element(g, id):
@@ -103,7 +108,7 @@ func applyBuilds(env Env, g *core.Graph, f buildFlags) error {
 		repositories[repository] = id
 	}
 
-	report, err := buildsenricher.Enricher{Documents: docs, Repositories: repositories, Inputs: inputIDs(g)}.Enrich(g)
+	report, err := buildsenricher.Enricher{Documents: docs, Repositories: repositories, Inputs: inputs}.Enrich(g)
 	if report != nil {
 		report.WriteText(env.Stderr)
 	}
@@ -111,30 +116,6 @@ func applyBuilds(env Env, g *core.Graph, f buildFlags) error {
 		return err
 	}
 	return g.Validate()
-}
-
-// inputsWithCode are the inputs something readable as a code map came out of.
-//
-// The same selection the drawing makes: functions, packages, and the files
-// that import. An input of pure infrastructure is a real input and still not
-// something a repository's box can be opened onto.
-func inputsWithCode(g *core.Graph) map[string]bool {
-	out := map[string]bool{}
-	for _, n := range g.Nodes {
-		switch n.Type {
-		case "code_function", "code_package", "code_file":
-			if of, _ := n.Attrs["repository"].(string); of != "" {
-				out[of] = true
-			}
-		}
-	}
-	return out
-}
-
-// input reports whether an id names one of the documents this graph was read
-// from, which is how a whole repository is named.
-func input(g *core.Graph, id string) bool {
-	return inputIDs(g)[id]
 }
 
 // inputIDs are the inputs whose nodes this graph actually holds.

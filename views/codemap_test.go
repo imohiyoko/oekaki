@@ -1,6 +1,7 @@
 package views
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/imohiyoko/oekaki/core"
@@ -143,11 +144,11 @@ func TestARepositoryNobodyPlacedKeepsItsOrdinaryPage(t *testing.T) {
 // A page that does not participate in the bound is not bounded. When the
 // budget runs out the map is not built, and the door to it goes with it.
 func TestTheCodeMapParticipatesInTheLimit(t *testing.T) {
-	a, err := BuildAtlas(estateWithCode(t, true), AtlasOptions{Limit: 2})
+	a, err := BuildAtlas(estateWithCode(t, true), AtlasOptions{Limit: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(a.Diagrams) > 2 {
+	if len(a.Diagrams) > 1 {
 		t.Fatalf("%d diagrams, over the limit", len(a.Diagrams))
 	}
 	if pageOf(a, "codemap:repository:acme/checkout") != nil {
@@ -287,5 +288,45 @@ func TestTheCodeMapReadsARelationHoweverItIsWritten(t *testing.T) {
 	}
 	if !held["repo-2-svc:file:handler/http.go"] {
 		t.Error("the file that imports is not on the map")
+	}
+}
+
+// The budget is spent in the order pages are built, and the ordinary
+// recursion walks nodes by id — where every function of a repository sorts
+// ahead of the repository itself. A repository big enough to fill the budget
+// with its own function pages left the container that runs it opening onto
+// nothing, which is the one descent this page exists to offer.
+func TestABigRepositoryDoesNotSpendTheBudgetOnItsOwnFunctions(t *testing.T) {
+	g := estateWithCode(t, true)
+	for i := 0; i < 500; i++ {
+		g.Nodes = append(g.Nodes, core.Node{
+			ID:    fmt.Sprintf("repo-2-svc:file:handler/http.go#f%03d", i),
+			Type:  "code_function",
+			Name:  fmt.Sprintf("f%03d", i),
+			Attrs: map[string]any{"repository": "repo-2-svc"},
+		})
+		g.Edges = append(g.Edges, core.Edge{
+			From: "repo-2-svc:file:handler/http.go",
+			To:   fmt.Sprintf("repo-2-svc:file:handler/http.go#f%03d", i),
+			Kind: core.EdgeIACRef, Relation: "contains",
+		})
+	}
+	g.Normalize()
+	if err := g.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := BuildAtlas(g, AtlasOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pageOf(a, "codemap:repository:acme/checkout") == nil {
+		t.Fatal("the code map lost its place to the pages of the code it maps")
+	}
+	// The door on the page the repository is placed on, which is the shortest
+	// way in. Whether the container's own page also survives a budget this
+	// tight is the ordinary question about the budget, and not this one.
+	if openingOf(pageOf(a, "level:"), "repository:acme/checkout") == nil {
+		t.Error("the repository opens onto nothing")
 	}
 }

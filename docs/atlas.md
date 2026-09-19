@@ -34,7 +34,7 @@ level:                          the estate
  └ detail:aws_ecs_task_definition.api
     └ codemap:repository:acme/checkout    what it runs, as code
        └ detail:…#Handle                  one function
-          └ class:…#Order                 one type it declares
+          └ detail:…#Order               one type it declares, as a class
 ```
 
 No line on that map crosses into the estate around it. Which function serves
