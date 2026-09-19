@@ -33,6 +33,13 @@ thousand of them is the unreadable single picture this whole file is about.
 Not types either: a declaration takes part in flow only through the functions
 that use it, and those are here.
 
+The line has to be one the map will actually draw: both of its ends on this
+page, and nobody having said it is not there. A call out of the repository is
+still a call, but it is not a line here, and a box kept for it would sit on the
+page with nothing attached to it — while a line somebody has suppressed is one
+a person went to the trouble of denying, and drawing a page out of those is the
+opposite of what the denial was for.
+
 ```
 level:                          the estate
  └ detail:aws_ecs_task_definition.api

@@ -576,3 +576,41 @@ func TestEveryBoxForOneRepositoryGetsTheSameAnswer(t *testing.T) {
 		}
 	}
 }
+
+// The estate has moved on to a tag no record covers, so nothing here matches
+// and no edge is drawn. The mapping still says what it says: this repository
+// is that element. Doing the replacement only where a record matched left the
+// workload's box open onto the code map of the mapping just replaced.
+func TestReplacingAMappingHoldsEvenWhenNoRecordMatches(t *testing.T) {
+	g := core.New()
+	g.Metadata = &core.Metadata{Inputs: []core.InputRef{{ID: "repo-2-svc", Path: "../svc", Kind: "repository"}}}
+	g.Nodes = []core.Node{
+		// Running 1.3.0; the record below is about 1.4.0.
+		{ID: "workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
+			Attrs: map[string]any{"image": "registry.example/checkout:1.3.0", "repository": "repo-2-svc"}},
+		{ID: "repo-2-svc:file:main.go", Type: "code_file", Name: "main.go",
+			Attrs: map[string]any{"repository": "repo-2-svc"}},
+		{ID: "repo-2-svc:package:net/http", Type: "code_package", Name: "net/http",
+			Attrs: map[string]any{"repository": "repo-2-svc"}},
+		{ID: "repository:acme/checkout", Type: "repository", Name: "acme/checkout",
+			Attrs: map[string]any{"code_input": "repo-2-svc"}},
+	}
+	g.Edges = []core.Edge{{
+		From: "repo-2-svc:file:main.go", To: "repo-2-svc:package:net/http",
+		Kind: core.EdgeIACRef, Relation: "imports",
+	}}
+	g.Normalize()
+
+	r := mustRun(t, "", "graph", graphFile(t, g),
+		"--builds", buildsFile(t, buildRecord),
+		"--build-repo", "acme/checkout=repo-2-svc:file:main.go")
+
+	out := graphOf(t, r.stdout)
+	repo, ok := out.Node("repository:acme/checkout")
+	if !ok {
+		return
+	}
+	if of, found := repo.Attrs["code_input"]; found {
+		t.Errorf("the replaced mapping is still on the repository: %v", of)
+	}
+}
