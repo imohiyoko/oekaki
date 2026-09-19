@@ -39,7 +39,7 @@ func applyBuilds(env Env, g *core.Graph, f buildFlags) error {
 	}
 	if len(f.files) == 0 {
 		if len(f.repositories) > 0 {
-			return fmt.Errorf("--build-repo says which element a repository is, but there are no --builds records to say what it built")
+			return fmt.Errorf("--build-repo says which part of this graph a repository is, but there are no --builds records to say what it built")
 		}
 		return nil
 	}
@@ -61,6 +61,7 @@ func applyBuilds(env Env, g *core.Graph, f buildFlags) error {
 		docs = append(docs, doc)
 	}
 
+	withCode := inputsWithCode(g)
 	repositories := map[string]string{}
 	for _, value := range f.repositories {
 		repository, id, found := strings.Cut(value, "=")
@@ -76,7 +77,17 @@ func applyBuilds(env Env, g *core.Graph, f buildFlags) error {
 		// The same refusal --api makes either way: an id that names nothing is
 		// a join somebody meant to make and did not, and letting it pass
 		// quietly leaves the record looking applied.
-		if !input(g, id) && !element(g, id) {
+		switch {
+		case input(g, id):
+			// Naming an input has one effect: the repository's box opens as
+			// that input's code. An input holding no code has no code to
+			// open, so the mapping would be recorded, look applied, and do
+			// nothing — which is the reading the checks around it refuse.
+			if !withCode[id] {
+				return fmt.Errorf("--build-repo %s: %q is here, but no code was read from it — a repository is named as an input so that its code can be opened", value, id)
+			}
+		case element(g, id):
+		default:
 			return fmt.Errorf("--build-repo %s: nothing here is %q — not an input, not a node, not a group", value, id)
 		}
 		// And the other half of the same sentence. A repository no record
@@ -100,6 +111,24 @@ func applyBuilds(env Env, g *core.Graph, f buildFlags) error {
 		return err
 	}
 	return g.Validate()
+}
+
+// inputsWithCode are the inputs something readable as a code map came out of.
+//
+// The same selection the drawing makes: functions, packages, and the files
+// that import. An input of pure infrastructure is a real input and still not
+// something a repository's box can be opened onto.
+func inputsWithCode(g *core.Graph) map[string]bool {
+	out := map[string]bool{}
+	for _, n := range g.Nodes {
+		switch n.Type {
+		case "code_function", "code_package", "code_file":
+			if of, _ := n.Attrs["repository"].(string); of != "" {
+				out[of] = true
+			}
+		}
+	}
+	return out
 }
 
 // input reports whether an id names one of the documents this graph was read

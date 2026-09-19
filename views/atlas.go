@@ -579,7 +579,7 @@ func (b *builder) codemap(id string, open Opening) error {
 	carry(b.in, g)
 	g.Normalize()
 	if err := g.Validate(); err != nil {
-		return err
+		return fmt.Errorf("code map %q: %w", id, err)
 	}
 
 	// Named after its subject, like every other page. Two repositories placed
@@ -598,10 +598,15 @@ func (b *builder) codemap(id string, open Opening) error {
 		Subtitle: open.Label,
 	}
 	// A box on this page opens the same way it opens anywhere else: a function
-	// its own page, a type its class diagram. The descent is what the page is
-	// for — a reader who arrived from a running container is on their way to
-	// something smaller — and a page whose boxes open nothing is a dead end at
-	// the exact point the trail was supposed to keep going.
+	// its own page, a package or a file its contents. The descent is what the
+	// page is for — a reader who arrived from a running container is on their
+	// way to something smaller — and a page whose boxes open nothing is a dead
+	// end at the exact point the trail was supposed to keep going.
+	//
+	// A type is not a box here, so no door on this page is a class diagram.
+	// This page is about flow, and a declaration takes part in flow only
+	// through the functions that use it; those are here, and their own pages
+	// are where a type is reached.
 	for _, member := range members {
 		if open, ok := b.detailOpening(member); ok {
 			d.Opens = append(d.Opens, open)
