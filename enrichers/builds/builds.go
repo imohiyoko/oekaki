@@ -268,6 +268,15 @@ func (e Enricher) target(g *core.Graph, b built) (string, bool, error) {
 	of := ""
 	if id, ok := e.Repositories[b.repository]; ok {
 		if !e.Inputs[id] {
+			// Pointed at an element instead. A repository node left over from
+			// an earlier run may still be carrying that run's answer, and it
+			// is now the answer to a question nobody asked: this run said the
+			// repository is that element. Leaving it standing put a second
+			// door on the workload, opening onto the code map of the mapping
+			// the operator had just replaced.
+			if n, ok := g.Node(NodeRepository + ":" + b.repository); ok && n.Type == NodeRepository {
+				delete(n.Attrs, AttrCodeInput)
+			}
 			return id, false, nil
 		}
 		of = id

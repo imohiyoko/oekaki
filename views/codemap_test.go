@@ -330,3 +330,87 @@ func TestABigRepositoryDoesNotSpendTheBudgetOnItsOwnFunctions(t *testing.T) {
 		t.Error("the repository opens onto nothing")
 	}
 }
+
+// A second repository on the same page. The budget is spent in the order pages
+// are built, so descending into the first repository's own code before the
+// second map is made is one repository saved at the cost of the next one.
+func TestTwoRepositoriesBothKeepTheirCodeMap(t *testing.T) {
+	g := core.New()
+	g.Nodes = []core.Node{
+		{ID: "task-a", Type: "aws_ecs_task_definition", Name: "a", Attrs: map[string]any{"image": "a:1"}},
+		{ID: "task-b", Type: "aws_ecs_task_definition", Name: "b", Attrs: map[string]any{"image": "b:1"}},
+		{ID: "repository:acme/aaa", Type: "repository", Name: "acme/aaa",
+			Attrs: map[string]any{"code_input": "repo-1-aaa"}},
+		{ID: "repository:acme/bbb", Type: "repository", Name: "acme/bbb",
+			Attrs: map[string]any{"code_input": "repo-2-bbb"}},
+	}
+	g.Edges = []core.Edge{
+		{From: "task-a", To: "repository:acme/aaa", Kind: core.EdgeObserved, Relation: "built_from"},
+		{From: "task-b", To: "repository:acme/bbb", Kind: core.EdgeObserved, Relation: "built_from"},
+	}
+	for _, scope := range []string{"repo-1-aaa", "repo-2-bbb"} {
+		file := scope + ":file:main.go"
+		g.Nodes = append(g.Nodes,
+			core.Node{ID: file, Type: "code_file", Name: "main.go", Attrs: map[string]any{"repository": scope}},
+			core.Node{ID: scope + ":package:net/http", Type: "code_package", Name: "net/http",
+				Attrs: map[string]any{"repository": scope}})
+		g.Edges = append(g.Edges, core.Edge{From: file, To: scope + ":package:net/http",
+			Kind: core.EdgeIACRef, Relation: "imports"})
+		for i := 0; i < 600; i++ {
+			fn := fmt.Sprintf("%s#f%03d", file, i)
+			g.Nodes = append(g.Nodes, core.Node{ID: fn, Type: "code_function",
+				Name: fmt.Sprintf("f%03d", i), Attrs: map[string]any{"repository": scope}})
+			g.Edges = append(g.Edges, core.Edge{From: file, To: fn, Kind: core.EdgeIACRef, Relation: "contains"})
+		}
+	}
+	g.Normalize()
+	if err := g.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := BuildAtlas(g, AtlasOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"codemap:repository:acme/aaa", "codemap:repository:acme/bbb"} {
+		if pageOf(a, want) == nil {
+			t.Errorf("%s was never built", want)
+		}
+	}
+	for _, repo := range []string{"repository:acme/aaa", "repository:acme/bbb"} {
+		if openingOf(pageOf(a, "level:"), repo) == nil {
+			t.Errorf("%s opens onto nothing", repo)
+		}
+	}
+}
+
+// A child level descends as far as it can before returning, so a big enough
+// one spent the budget before this level's own code maps were reached.
+func TestABigChildLevelDoesNotCostThisLevelItsCodeMap(t *testing.T) {
+	g := estateWithCode(t, true)
+	g.Axes = []core.Axis{{ID: "network", Label: "network"}}
+	g.Groups = []core.Group{{ID: "prod", Axis: "network", Label: "prod"}}
+	for i := 0; i < 600; i++ {
+		g.Nodes = append(g.Nodes, core.Node{
+			ID: fmt.Sprintf("prod/box-%03d", i), Type: "aws_instance",
+			Name:   fmt.Sprintf("box-%03d", i),
+			Groups: map[string]string{"network": "prod"},
+		})
+		g.Edges = append(g.Edges, core.Edge{
+			From: fmt.Sprintf("prod/box-%03d", i), To: "task",
+			Kind: core.EdgeIACRef, Relation: "references",
+		})
+	}
+	g.Normalize()
+	if err := g.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := BuildAtlas(g, AtlasOptions{Axis: "network"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pageOf(a, "codemap:repository:acme/checkout") == nil {
+		t.Fatal("a child level spent the budget before this level's code map was made")
+	}
+}

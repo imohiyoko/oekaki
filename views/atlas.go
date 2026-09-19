@@ -427,22 +427,37 @@ func (b *builder) level(path, parent, origin string) error {
 	}
 	b.out = append(b.out, d)
 
-	for _, child := range children {
-		if err := b.level(join(path, child), id, child); err != nil {
-			return err
-		}
-	}
-	// The code maps ahead of the ordinary pages of this level. The loop below
-	// walks nodes in id order, and every function of a repository sorts ahead
-	// of the repository itself — so a repository big enough to spend the
-	// budget on its own function pages left the container that runs it opening
-	// onto nothing, which is the one descent this whole page exists to offer.
+	// Every code map of this level, before anything else is descended into.
+	//
+	// Pages are built in the order this walks, and the budget is spent in that
+	// order. Both loops below spend it freely: nodes are walked in id order,
+	// where every function of a repository sorts ahead of the repository
+	// itself, and a child level descends as far as it can before returning. A
+	// repository big enough to fill the budget with the pages of its own code
+	// therefore left the container that runs it opening onto nothing — which
+	// is the one descent this page exists to offer.
+	//
+	// The page only, not the pages of its members: descending into the first
+	// repository's members is what used to exhaust the budget before the
+	// second repository was reached, and one repository saved at the cost of
+	// the next one is not the rule this is meant to be.
 	for _, n := range nodes {
+		// Only a repository opens onto a code map, and asking detailOpening
+		// means walking every edge in the graph — a cost every node of every
+		// level would otherwise pay for an answer its type already gives.
+		if n.Type != repositoryType {
+			continue
+		}
 		open, ok := b.detailOpening(n.ID)
 		if !ok || open.Kind != KindCodemap {
 			continue
 		}
-		if err := b.codemap(n.ID, open); err != nil {
+		if err := b.codemapPage(n.ID, open); err != nil {
+			return err
+		}
+	}
+	for _, child := range children {
+		if err := b.level(join(path, child), id, child); err != nil {
 			return err
 		}
 	}
@@ -586,6 +601,28 @@ func CodeOf(g *core.Graph, scope string) []string {
 // which API operation, and which import carries which outbound call, is
 // written down nowhere; see docs/code.md for what the reading refuses.
 func (b *builder) codemap(id string, open Opening) error {
+	if err := b.codemapPage(id, open); err != nil {
+		return err
+	}
+	scope, ok := b.repositoryScope(id)
+	if !ok {
+		return nil
+	}
+	for _, member := range b.codeOf(scope) {
+		if err := b.detail(member); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// codemapPage builds the map itself and nothing under it.
+//
+// Separate from the descent into its members because the two want opposite
+// things from the budget: every map of a level is made before any of them
+// spends what is left on the pages of its own code. One repository saved at
+// the cost of the next one is not the rule this is meant to be.
+func (b *builder) codemapPage(id string, open Opening) error {
 	scope, ok := b.repositoryScope(id)
 	if !ok {
 		return nil
@@ -656,12 +693,6 @@ func (b *builder) codemap(id string, open Opening) error {
 		}
 	}
 	b.out = append(b.out, d)
-
-	for _, member := range members {
-		if err := b.detail(member); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
