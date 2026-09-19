@@ -576,36 +576,55 @@ func CodeOf(g *core.Graph, scope string) []string {
 	if scope == "" {
 		return nil
 	}
-	imported, importing := map[string]bool{}, map[string]bool{}
-	calling := map[string]bool{}
-	for _, e := range g.Edges {
-		switch {
-		case strings.EqualFold(e.Relation, relImports):
-			importing[e.From] = true
-			imported[e.To] = true
-		case strings.EqualFold(e.Relation, relCalls):
-			calling[e.From] = true
-			calling[e.To] = true
-		}
-	}
-
-	var out []string
+	kind := map[string]string{}
 	for _, n := range g.Nodes {
 		if of, _ := n.Attrs["repository"].(string); of != scope {
 			continue
 		}
-		on := false
 		switch n.Type {
-		case codeFunction:
-			on = calling[n.ID]
-		case codePackage:
-			on = imported[n.ID]
-		case codeFile:
-			on = importing[n.ID]
+		case codeFunction, codePackage, codeFile:
+			kind[n.ID] = n.Type
 		}
-		if on {
-			out = append(out, n.ID)
+	}
+
+	on := map[string]bool{}
+	for _, e := range g.Edges {
+		// A suppressed edge is one somebody said is not there, and every other
+		// reading in this file skips it. Keeping it here put a box on the page
+		// for a line a person had denied — and let a repository whose code
+		// graph is denied in full answer "there is a code map to draw" at the
+		// command line.
+		if e.Suppressed {
+			continue
 		}
+		// Both ends, because the page keeps a line only when it has both. A
+		// call out of this repository to something that is not on the page
+		// used to put the function there and then drop the only line it had,
+		// leaving the box on a page whose whole rule is that there are none.
+		if kind[e.From] == "" || kind[e.To] == "" {
+			continue
+		}
+		switch {
+		case strings.EqualFold(e.Relation, relImports):
+			if kind[e.From] == codeFile {
+				on[e.From] = true
+			}
+			if kind[e.To] == codePackage {
+				on[e.To] = true
+			}
+		case strings.EqualFold(e.Relation, relCalls):
+			if kind[e.From] == codeFunction {
+				on[e.From] = true
+			}
+			if kind[e.To] == codeFunction {
+				on[e.To] = true
+			}
+		}
+	}
+
+	out := make([]string, 0, len(on))
+	for id := range on {
+		out = append(out, id)
 	}
 	sort.Strings(out)
 	return out
@@ -630,6 +649,13 @@ func (b *builder) codemap(id string, open Opening) error {
 	// graph. The pages are already there after the first pass; detail would
 	// decline each of them and charge the walk for saying so.
 	if b.descended[open.Diagram] {
+		return nil
+	}
+	// And not at all once the budget is gone. Every member would be asked
+	// whether it has an inside — a walk of every edge apiece — for pages none
+	// of which can be made, and the estate that spends the budget is exactly
+	// the one where there are most members to ask.
+	if len(b.out) >= b.limit {
 		return nil
 	}
 	scope, ok := b.repositoryScope(id)
@@ -678,6 +704,9 @@ func (b *builder) codemapPage(id string, open Opening) error {
 		present[member] = true
 	}
 	for _, e := range b.in.Edges {
+		if e.Suppressed {
+			continue
+		}
 		// Folded, the way every other relation in this file is read. A graph
 		// that writes `Imports` loses the lines here and the files with them,
 		// leaving a page of boxes and no flow, and saying nothing about it.

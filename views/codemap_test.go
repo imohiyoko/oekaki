@@ -465,3 +465,70 @@ func TestTheCodeMapDrawsOnlyWhatIsOnALine(t *testing.T) {
 		}
 	}
 }
+
+// A suppressed edge is one somebody said is not there. Drawing a page out of
+// denied lines answers "what does this container run" with the thing a person
+// went to the trouble of denying.
+func TestTheCodeMapDoesNotDrawWhatSomebodyDenied(t *testing.T) {
+	g := estateWithCode(t, true)
+	for i := range g.Edges {
+		switch g.Edges[i].Relation {
+		case "calls", "imports":
+			g.Edges[i].Suppressed = true
+			g.Edges[i].Claim = &core.Claim{Origin: core.OriginHuman, Note: "not real"}
+		}
+	}
+	g.Normalize()
+	if err := g.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	if code := CodeOf(g, "repo-2-svc"); len(code) != 0 {
+		t.Errorf("denied lines still count as code to draw: %v", code)
+	}
+	a, err := BuildAtlas(g, AtlasOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page := pageOf(a, "codemap:repository:acme/checkout"); page != nil {
+		t.Errorf("a code map was built out of %d denied lines", len(page.Graph.Edges))
+	}
+}
+
+// A call out of this repository to something that is not on the page put the
+// function on it and then dropped the only line it had — a box on a page whose
+// whole rule is that there are none.
+func TestACallLeavingTheRepositoryDoesNotPutABoxOnTheMap(t *testing.T) {
+	g := estateWithCode(t, true)
+	g.Nodes = append(g.Nodes, core.Node{
+		ID: "repo-2-svc:file:handler/http.go#Alone", Type: "code_function", Name: "Alone",
+		Attrs: map[string]any{"repository": "repo-2-svc"},
+	})
+	// Said by somebody about something this page does not hold.
+	g.Edges = append(g.Edges, core.Edge{
+		From: "repo-2-svc:file:handler/http.go#Alone", To: "task",
+		Kind: core.EdgeIACRef, Relation: "calls",
+	})
+	g.Normalize()
+	if err := g.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := BuildAtlas(g, AtlasOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := pageOf(a, "codemap:repository:acme/checkout")
+	if page == nil {
+		t.Fatal("there is no code map")
+	}
+	drawn := map[string]bool{}
+	for _, e := range page.Graph.Edges {
+		drawn[e.From], drawn[e.To] = true, true
+	}
+	for _, n := range page.Graph.Nodes {
+		if !drawn[n.ID] {
+			t.Errorf("%s is on the map, and on no line", n.ID)
+		}
+	}
+}

@@ -85,6 +85,21 @@ func (e Enricher) Enrich(g *core.Graph) (*enrichers.Report, error) {
 		})
 	}
 
+	// A mapping that points the repository at an element says the repository
+	// is that element, and says it whether or not anything here happens to be
+	// running an image these records name. Doing it inside the match meant a
+	// estate that had moved on to a tag no record covers kept the answer the
+	// last run wrote — and kept its box open onto the code map of the mapping
+	// the operator had just replaced.
+	for repository, id := range e.Repositories {
+		if e.Inputs[id] {
+			continue
+		}
+		for _, n := range repositoriesNamed(g, repository) {
+			delete(n.Attrs, AttrCodeInput)
+		}
+	}
+
 	matched := map[string]bool{}
 	for _, n := range g.Nodes {
 		image, ok := n.Attrs["image"].(string)
@@ -279,15 +294,9 @@ func (e Enricher) target(g *core.Graph, b built) (string, bool, error) {
 	of := ""
 	if id, ok := e.Repositories[b.repository]; ok {
 		if !e.Inputs[id] {
-			// Pointed at an element instead. A repository node left over from
-			// an earlier run may still be carrying that run's answer, and it
-			// is now the answer to a question nobody asked: this run said the
-			// repository is that element. Leaving it standing put a second
-			// door on the workload, opening onto the code map of the mapping
-			// the operator had just replaced.
-			for _, n := range existing {
-				delete(n.Attrs, AttrCodeInput)
-			}
+			// Pointed at an element instead. Whatever an earlier run wrote on
+			// the repository node was cleared before any of this, because it
+			// has to happen whether or not a record matched anything.
 			return id, false, nil
 		}
 		of = id
