@@ -108,13 +108,26 @@ func input(g *core.Graph, id string) bool {
 	return inputIDs(g)[id]
 }
 
+// inputIDs are the inputs whose nodes this graph actually holds.
+//
+// The metadata lists more than that: a graph read as an input brings its own
+// input list along, and those ids name documents the graph it came from was
+// built out of rather than anything here. Accepting one passed every check and
+// then matched no node — the silent no-op the checks above exist to prevent —
+// so an id has to be listed *and* be the scope some node was stamped with.
 func inputIDs(g *core.Graph) map[string]bool {
-	out := map[string]bool{}
 	if g.Metadata == nil {
-		return out
+		return map[string]bool{}
 	}
+	listed := map[string]bool{}
 	for _, in := range g.Metadata.Inputs {
-		out[in.ID] = true
+		listed[in.ID] = true
+	}
+	out := map[string]bool{}
+	for _, n := range g.Nodes {
+		if of, _ := n.Attrs["repository"].(string); listed[of] {
+			out[of] = true
+		}
 	}
 	return out
 }

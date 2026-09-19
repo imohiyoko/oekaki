@@ -129,9 +129,15 @@ and says it built this, and that much is known without anybody deciding where
 it sits in the estate.
 
 When a code graph is loaded as well, whoever knows the estate can say which
-**input** that repository is. The repository node then records it, and in an
-atlas the box opens as that repository's code map — the descent from a running
-container to one class, by clicking. See [atlas.md](atlas.md).
+**input** that repository is. The repository node then records it as
+`attrs.code_input`, and in an atlas the box opens as that repository's code map
+— the descent from a running container to one class, by clicking. See
+[atlas.md](atlas.md).
+
+Its own key, not `attrs.repository`: that one already says which input a node
+*came from*, which every node of a combined graph carries and which a
+repository node arriving inside a previous output carries too. One key holding
+two answers is decided by whichever was written last.
 
 ```console
 $ oekaki graph cluster.yaml --repo ../checkout \
@@ -145,7 +151,7 @@ it already draws:
 
 ```console
 $ oekaki graph cluster.yaml --repo ../checkout \
-    --builds builds.json --build-repo acme/checkout=repo-1-checkout:file:main.go
+    --builds builds.json --build-repo acme/checkout=repo-2-checkout:file:main.go
 ```
 
 An id that names nothing is an error rather than a silent drop — the same

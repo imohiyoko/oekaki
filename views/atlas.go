@@ -86,6 +86,12 @@ const (
 	// depend on the thing that produced its input.
 	repositoryType = "repository"
 
+	// attrCodeInput is the input a repository's code was read from, said by a
+	// build record's mapping. Not `repository`, which every node of a
+	// combined graph carries naming the input it came from — one key with two
+	// meanings is decided by whichever was written last.
+	attrCodeInput = "code_input"
+
 	relDeclares = "declares"
 	relCalls    = "calls"
 	relImports  = "imports"
@@ -478,12 +484,16 @@ func (b *builder) detailOpening(id string) (Opening, bool) {
 // repositoryScope is the input a repository node was said to be, when a build
 // record's mapping placed it. Absent means nobody said, and a repository
 // nobody placed has no code to open.
+//
+// The repository's own attribute, not the one every node carries naming the
+// input it came from. A repository node that arrived inside a previous output
+// wears both, and reading the wrong one opened that input's whole code.
 func (b *builder) repositoryScope(id string) (string, bool) {
 	n, ok := b.in.Node(id)
 	if !ok || n.Type != repositoryType {
 		return "", false
 	}
-	scope, ok := n.Attrs["repository"].(string)
+	scope, ok := n.Attrs[attrCodeInput].(string)
 	if !ok || scope == "" {
 		return "", false
 	}
@@ -500,7 +510,7 @@ func (b *builder) repositoryScope(id string) (string, bool) {
 func (b *builder) codeOf(scope string) []string {
 	imports := map[string]bool{}
 	for _, e := range b.in.Edges {
-		if e.Relation == relImports {
+		if strings.EqualFold(e.Relation, relImports) {
 			imports[e.From] = true
 		}
 	}
@@ -556,7 +566,10 @@ func (b *builder) codemap(id string, open Opening) error {
 		present[member] = true
 	}
 	for _, e := range b.in.Edges {
-		if e.Relation != relCalls && e.Relation != relImports {
+		// Folded, the way every other relation in this file is read. A graph
+		// that writes `Imports` loses the lines here and the files with them,
+		// leaving a page of boxes and no flow, and saying nothing about it.
+		if !strings.EqualFold(e.Relation, relCalls) && !strings.EqualFold(e.Relation, relImports) {
 			continue
 		}
 		if present[e.From] && present[e.To] {
@@ -569,11 +582,20 @@ func (b *builder) codemap(id string, open Opening) error {
 		return err
 	}
 
+	// Named after its subject, like every other page. Two repositories placed
+	// in one estate produced two pages both called コードマップ, which is a
+	// title only until there are two of them.
+	subject, _ := b.in.Node(id)
+	title := id
+	if subject != nil {
+		title = orDefault(subject.Name, subject.ID)
+	}
 	d := Diagram{
 		ID: open.Diagram, Kind: KindCodemap, Graph: g,
-		Parent: b.levelOf(id),
-		Origin: id,
-		Title:  open.Label,
+		Parent:   b.levelOf(id),
+		Origin:   id,
+		Title:    title,
+		Subtitle: open.Label,
 	}
 	// A box on this page opens the same way it opens anywhere else: a function
 	// its own page, a type its class diagram. The descent is what the page is

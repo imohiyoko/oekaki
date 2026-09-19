@@ -189,7 +189,10 @@ func TestBuildRepoCanNameAnInput(t *testing.T) {
 	g.Metadata = &core.Metadata{Inputs: []core.InputRef{{ID: "repo-2-checkout", Path: "../checkout", Kind: "repository"}}}
 	g.Nodes = []core.Node{{
 		ID: "workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
-		Attrs: map[string]any{"image": "registry.example/checkout:1.4.0"},
+		// Stamped with the input it came from, the way combining inputs
+		// stamps every node. An input that put nothing here is not something
+		// a mapping can point at.
+		Attrs: map[string]any{"image": "registry.example/checkout:1.4.0", "repository": "repo-2-checkout"},
 	}}
 	g.Normalize()
 
@@ -201,12 +204,71 @@ func TestBuildRepoCanNameAnInput(t *testing.T) {
 	if !ok {
 		t.Fatal("no repository node")
 	}
-	if repo.Attrs["repository"] != "repo-2-checkout" {
-		t.Errorf("the repository does not record which input it is: %v", repo.Attrs)
+	if repo.Attrs["code_input"] != "repo-2-checkout" {
+		t.Errorf("the repository does not record which input its code is: %v", repo.Attrs)
 	}
 	for _, e := range out.Edges {
 		if e.Relation == "built_from" && e.To != "repository:acme/checkout" {
 			t.Errorf("the edge points at %s rather than at the repository", e.To)
 		}
+	}
+}
+
+// A graph read as an input brings its own input list along. Those ids name
+// documents the graph it came from was built out of, and nothing here was ever
+// stamped with one — so a mapping naming one passes every check and then
+// matches nothing, which is the silent no-op the checks exist to prevent.
+func TestBuildRepoRefusesAnInputOfAnInput(t *testing.T) {
+	g := core.New()
+	g.Metadata = &core.Metadata{Inputs: []core.InputRef{
+		{ID: "repo-1-prev", Path: "previous.json", Kind: "repository"},
+		{ID: "repo-1-prev:repo-2-old", Path: "../old", Kind: "repository"},
+	}}
+	g.Nodes = []core.Node{{
+		ID: "workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
+		Attrs: map[string]any{"image": "registry.example/checkout:1.4.0", "repository": "repo-1-prev"},
+	}}
+	g.Normalize()
+
+	r := run(t, "", "graph", graphFile(t, g),
+		"--builds", buildsFile(t, buildRecord), "--build-repo", "acme/checkout=repo-1-prev:repo-2-old")
+	if r.code == 0 {
+		t.Fatal("an input of an input was accepted as a place to point at")
+	}
+	if !strings.Contains(r.stderr, "repo-1-prev:repo-2-old") {
+		t.Errorf("the error does not name the id:\n%s", r.stderr)
+	}
+}
+
+// A repository node that arrived with the graph is still the repository this
+// run was told about. Leaving the mapping off it kept whatever the earlier run
+// said — or nothing at all — and the code map was then drawn from the wrong
+// input, or never drawn.
+func TestBuildRepoPlacesARepositoryThatIsAlreadyHere(t *testing.T) {
+	g := core.New()
+	g.Metadata = &core.Metadata{Inputs: []core.InputRef{{ID: "repo-2-checkout", Path: "../checkout", Kind: "repository"}}}
+	g.Nodes = []core.Node{
+		{
+			ID: "workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
+			Attrs: map[string]any{"image": "registry.example/checkout:1.4.0", "repository": "repo-2-checkout"},
+		},
+		// Written by an earlier run, which knew a different estate.
+		{
+			ID: "repository:acme/checkout", Type: "repository", Name: "acme/checkout",
+			Attrs: map[string]any{"code_input": "repo-9-somewhere-else"},
+		},
+	}
+	g.Normalize()
+
+	r := mustRun(t, "", "graph", graphFile(t, g),
+		"--builds", buildsFile(t, buildRecord), "--build-repo", "acme/checkout=repo-2-checkout")
+
+	out := graphOf(t, r.stdout)
+	repo, ok := out.Node("repository:acme/checkout")
+	if !ok {
+		t.Fatal("no repository node")
+	}
+	if repo.Attrs["code_input"] != "repo-2-checkout" {
+		t.Errorf("what this run was told did not hold: %v", repo.Attrs)
 	}
 }

@@ -25,6 +25,14 @@ const Relation = "built_from"
 // NodeRepository is the type of a node standing for a repository.
 const NodeRepository = "repository"
 
+// AttrCodeInput is the input a repository's code was read from, on the
+// repository node, when somebody said which one it is.
+//
+// Deliberately not `repository`: that attribute is already how a combined
+// graph records which input each node came from, and two meanings on one key
+// means whichever was written last wins.
+const AttrCodeInput = "code_input"
+
 // Enricher applies build records to a graph.
 type Enricher struct {
 	Documents []*builds.Document
@@ -250,9 +258,13 @@ func lookup(byKey map[string]built, image string) (built, bool) {
 func (e Enricher) target(g *core.Graph, b built) (string, bool, error) {
 	// The input this repository is, when somebody said so. It goes on the node
 	// rather than on the edge because it is a fact about the repository and
-	// not about this build, and it is written in the vocabulary a combined
-	// graph already uses: every node of an input carries the same attribute
-	// naming it.
+	// not about this build.
+	//
+	// Under its own key rather than `repository`. That one already means
+	// something else — combining inputs stamps every node with the input it
+	// came from — so a repository node arriving inside a previous output had
+	// this answer overwritten with the input it was read from, and the code
+	// map then drew that whole input's code.
 	of := ""
 	if id, ok := e.Repositories[b.repository]; ok {
 		if !e.Inputs[id] {
@@ -274,6 +286,17 @@ func (e Enricher) target(g *core.Graph, b built) (string, bool, error) {
 				"%q is already here as %s %q: that and the repository the record names cannot be told apart",
 				id, n.Type, n.Name)
 		}
+		// What this run was told is what holds. The node may have arrived with
+		// an answer from the run that first wrote it, pointing at an input of
+		// that graph rather than of this one — and a mapping that passed every
+		// check and then changed nothing is the silent no-op the checks exist
+		// to prevent.
+		if of != "" {
+			if n.Attrs == nil {
+				n.Attrs = map[string]any{}
+			}
+			n.Attrs[AttrCodeInput] = of
+		}
 		return id, false, nil
 	}
 	node := core.Node{
@@ -281,7 +304,7 @@ func (e Enricher) target(g *core.Graph, b built) (string, bool, error) {
 		Claim: &core.Claim{Origin: core.OriginParser, Note: b.run.Label()},
 	}
 	if of != "" {
-		node.Attrs = map[string]any{"repository": of}
+		node.Attrs = map[string]any{AttrCodeInput: of}
 	}
 	g.Nodes = append(g.Nodes, node)
 	return id, true, nil
