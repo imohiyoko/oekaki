@@ -256,6 +256,17 @@ func lookup(byKey map[string]built, image string) (built, bool) {
 // target is the element the edge points at, and whether this invented it: the
 // one somebody wrote down, or a node for the repository itself.
 func (e Enricher) target(g *core.Graph, b built) (string, bool, error) {
+	// The repository this graph already holds, found by what it is rather than
+	// by the id this run would give it.
+	//
+	// A graph that ran this once is an input the next time, and everything in
+	// it arrives qualified with the scope it was read under — so the node is
+	// no longer at `repository:<name>`, while the repository is the same
+	// repository. Matching on the id alone missed it, and then invented a
+	// second box for the same thing: two boxes for one repository, disagreeing
+	// about whether it has code.
+	existing := repositoriesNamed(g, b.repository)
+
 	// The input this repository is, when somebody said so. It goes on the node
 	// rather than on the edge because it is a fact about the repository and
 	// not about this build.
@@ -274,7 +285,7 @@ func (e Enricher) target(g *core.Graph, b built) (string, bool, error) {
 			// repository is that element. Leaving it standing put a second
 			// door on the workload, opening onto the code map of the mapping
 			// the operator had just replaced.
-			if n, ok := g.Node(NodeRepository + ":" + b.repository); ok && n.Type == NodeRepository {
+			for _, n := range existing {
 				delete(n.Attrs, AttrCodeInput)
 			}
 			return id, false, nil
@@ -282,31 +293,31 @@ func (e Enricher) target(g *core.Graph, b built) (string, bool, error) {
 		of = id
 	}
 
-	id := NodeRepository + ":" + b.repository
-	if n, ok := g.Node(id); ok {
-		// Finding one already here is ordinary: a graph this ran on once is
-		// an input the next time, and the repository node it wrote then is
-		// the same repository now. Anything else wearing that id is a
-		// different thing with the same name, and pointing the edge at it
-		// would answer "what built this" with somebody else's box. Nothing
-		// downstream could tell, because the graph would still validate.
-		if n.Type != NodeRepository || n.Name != b.repository {
-			return "", false, fmt.Errorf(
-				"%q is already here as %s %q: that and the repository the record names cannot be told apart",
-				id, n.Type, n.Name)
-		}
+	if len(existing) > 0 {
 		// What this run was told is what holds. The node may have arrived with
 		// an answer from the run that first wrote it, pointing at an input of
 		// that graph rather than of this one — and a mapping that passed every
 		// check and then changed nothing is the silent no-op the checks exist
 		// to prevent.
+		n := existing[0]
 		if of != "" {
 			if n.Attrs == nil {
 				n.Attrs = map[string]any{}
 			}
 			n.Attrs[AttrCodeInput] = of
 		}
-		return id, false, nil
+		return n.ID, false, nil
+	}
+
+	id := NodeRepository + ":" + b.repository
+	if n, ok := g.Node(id); ok {
+		// Not a repository, then, and not this one: a different thing with the
+		// same name. Pointing the edge at it would answer "what built this"
+		// with somebody else's box, and nothing downstream could tell, because
+		// the graph would still validate.
+		return "", false, fmt.Errorf(
+			"%q is already here as %s %q: that and the repository the record names cannot be told apart",
+			id, n.Type, n.Name)
 	}
 	node := core.Node{
 		ID: id, Type: NodeRepository, Name: b.repository,
@@ -317,6 +328,20 @@ func (e Enricher) target(g *core.Graph, b built) (string, bool, error) {
 	}
 	g.Nodes = append(g.Nodes, node)
 	return id, true, nil
+}
+
+// repositoriesNamed are the nodes already standing for one repository,
+// whatever id they are wearing, in a fixed order so that a graph holding more
+// than one of them is read the same way twice.
+func repositoriesNamed(g *core.Graph, name string) []*core.Node {
+	var out []*core.Node
+	for i := range g.Nodes {
+		if g.Nodes[i].Type == NodeRepository && g.Nodes[i].Name == name {
+			out = append(out, &g.Nodes[i])
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
 }
 
 func edge(from, to, image string, b built) core.Edge {

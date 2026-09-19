@@ -118,26 +118,22 @@ func applyBuilds(env Env, g *core.Graph, f buildFlags) error {
 	return g.Validate()
 }
 
-// inputIDs are the inputs whose nodes this graph actually holds.
+// inputIDs are the documents this graph was read from, which is how a whole
+// repository is named.
 //
-// The metadata lists more than that: a graph read as an input brings its own
-// input list along, and those ids name documents the graph it came from was
-// built out of rather than anything here. Accepting one passed every check and
-// then matched no node — the silent no-op the checks above exist to prevent —
-// so an id has to be listed *and* be the scope some node was stamped with.
+// Everything the metadata lists, including the inputs a graph read as an input
+// brought along with it — those name documents the graph it came from was
+// built out of rather than anything here, and an input that parsed to no nodes
+// names nothing here either. Neither is refused as "not an input", because
+// both are one; the check above tells each of them the true thing instead,
+// which is that there is no code here to open.
 func inputIDs(g *core.Graph) map[string]bool {
-	if g.Metadata == nil {
-		return map[string]bool{}
-	}
-	listed := map[string]bool{}
-	for _, in := range g.Metadata.Inputs {
-		listed[in.ID] = true
-	}
 	out := map[string]bool{}
-	for _, n := range g.Nodes {
-		if of, _ := n.Attrs["repository"].(string); listed[of] {
-			out[of] = true
-		}
+	if g.Metadata == nil {
+		return out
+	}
+	for _, in := range g.Metadata.Inputs {
+		out[in.ID] = true
 	}
 	return out
 }
