@@ -25,9 +25,13 @@ its own page, and from that page a type opens as a class diagram — so the
 descent from a running container to one class is a sequence of clicks. See
 [builds.md](builds.md).
 
-The map holds functions, the packages they import, and the files that import
-something. Not types: a declaration takes part in flow only through the
-functions that use it, and those are here.
+Every box on the map is on a line: a function because it calls or is called, a
+file because it imports, a package because something reached it. A function
+nothing calls but which calls something is where a request comes in, so it
+stays; one that neither calls nor is called says nothing about flow, and a
+thousand of them is the unreadable single picture this whole file is about.
+Not types either: a declaration takes part in flow only through the functions
+that use it, and those are here.
 
 ```
 level:                          the estate

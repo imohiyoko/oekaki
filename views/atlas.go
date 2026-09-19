@@ -334,6 +334,9 @@ type builder struct {
 	// code is what each named input holds, read out of the document once per
 	// input for the same reason.
 	code map[string][]string
+
+	// descended records the code maps whose members have already been walked.
+	descended map[string]bool
 }
 
 // room reports whether another diagram may be added, and records the id so a
@@ -554,9 +557,16 @@ func (b *builder) codeOf(scope string) []string {
 // something, and what they import.
 //
 // Every node of an input carries that input's id, which is what makes this a
-// selection rather than a guess. Files are kept only when they import — a file
-// is on this page to carry the line out to what it uses, and one that uses
-// nothing would be a box with nothing to say on a page about flow.
+// selection rather than a guess.
+//
+// Every box here is on a line. A file is on the page to carry the line out to
+// what it uses, a package is there because something reached it, and a
+// function is there because it calls or is called — the one that calls nothing
+// and is called by nothing has nothing to say on a page about flow, and a
+// thousand of them is a page nobody can read, which is the complaint the atlas
+// exists to answer rather than to reproduce behind a container's box. A
+// function nothing calls but which calls something is where a request comes
+// in, so it stays.
 //
 // Exported because the command line has to answer the same question before it
 // accepts a mapping: an input this finds nothing in is an input whose box
@@ -566,10 +576,16 @@ func CodeOf(g *core.Graph, scope string) []string {
 	if scope == "" {
 		return nil
 	}
-	imports := map[string]bool{}
+	imported, importing := map[string]bool{}, map[string]bool{}
+	calling := map[string]bool{}
 	for _, e := range g.Edges {
-		if strings.EqualFold(e.Relation, relImports) {
-			imports[e.From] = true
+		switch {
+		case strings.EqualFold(e.Relation, relImports):
+			importing[e.From] = true
+			imported[e.To] = true
+		case strings.EqualFold(e.Relation, relCalls):
+			calling[e.From] = true
+			calling[e.To] = true
 		}
 	}
 
@@ -578,13 +594,17 @@ func CodeOf(g *core.Graph, scope string) []string {
 		if of, _ := n.Attrs["repository"].(string); of != scope {
 			continue
 		}
+		on := false
 		switch n.Type {
-		case codeFunction, codePackage:
-			out = append(out, n.ID)
+		case codeFunction:
+			on = calling[n.ID]
+		case codePackage:
+			on = imported[n.ID]
 		case codeFile:
-			if imports[n.ID] {
-				out = append(out, n.ID)
-			}
+			on = importing[n.ID]
+		}
+		if on {
+			out = append(out, n.ID)
 		}
 	}
 	sort.Strings(out)
@@ -604,10 +624,22 @@ func (b *builder) codemap(id string, open Opening) error {
 	if err := b.codemapPage(id, open); err != nil {
 		return err
 	}
+	// Once. This is reached from the level and again from the detail page of
+	// every workload the record joined to this repository, and every visit
+	// asked detailOpening of every member — which walks every edge in the
+	// graph. The pages are already there after the first pass; detail would
+	// decline each of them and charge the walk for saying so.
+	if b.descended[open.Diagram] {
+		return nil
+	}
 	scope, ok := b.repositoryScope(id)
 	if !ok {
 		return nil
 	}
+	if b.descended == nil {
+		b.descended = map[string]bool{}
+	}
+	b.descended[open.Diagram] = true
 	for _, member := range b.codeOf(scope) {
 		if err := b.detail(member); err != nil {
 			return err

@@ -2,6 +2,7 @@ package views
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/imohiyoko/oekaki/core"
@@ -202,6 +203,8 @@ func TestTheCodeMapReadsTheRepositorysOwnAnswerAndNotTheOneEveryNodeCarries(t *t
 			Attrs: map[string]any{"repository": "repo-2-svc"}},
 		{ID: "repo-2-svc:file/a.go#A", Type: "code_function", Name: "A",
 			Attrs: map[string]any{"repository": "repo-2-svc"}},
+		{ID: "repo-2-svc:file/a.go#B", Type: "code_function", Name: "B",
+			Attrs: map[string]any{"repository": "repo-2-svc"}},
 		{ID: "repo-2-svc:package:net/http", Type: "code_package", Name: "net/http",
 			Attrs: map[string]any{"repository": "repo-2-svc"}},
 		// The estate input's own code — the graph this repository node arrived
@@ -212,6 +215,7 @@ func TestTheCodeMapReadsTheRepositorysOwnAnswerAndNotTheOneEveryNodeCarries(t *t
 	g.Edges = []core.Edge{
 		{From: "task", To: "repository:acme/checkout", Kind: core.EdgeObserved, Relation: "built_from"},
 		{From: "repo-2-svc:file/a.go", To: "repo-2-svc:package:net/http", Kind: core.EdgeIACRef, Relation: "imports"},
+		{From: "repo-2-svc:file/a.go#A", To: "repo-2-svc:file/a.go#B", Kind: core.EdgeIACRef, Relation: "calls"},
 	}
 	g.Normalize()
 	if err := g.Validate(); err != nil {
@@ -412,5 +416,52 @@ func TestABigChildLevelDoesNotCostThisLevelItsCodeMap(t *testing.T) {
 	}
 	if pageOf(a, "codemap:repository:acme/checkout") == nil {
 		t.Fatal("a child level spent the budget before this level's code map was made")
+	}
+}
+
+// A box on this page is on a line. A function that calls nothing and is called
+// by nothing has nothing to say about flow, and a thousand of them behind a
+// container's box is the unreadable single picture the atlas exists to answer
+// rather than to reproduce.
+func TestTheCodeMapDrawsOnlyWhatIsOnALine(t *testing.T) {
+	g := estateWithCode(t, true)
+	for i := 0; i < 1200; i++ {
+		g.Nodes = append(g.Nodes, core.Node{
+			ID:    fmt.Sprintf("repo-2-svc:file:handler/http.go#alone%04d", i),
+			Type:  "code_function",
+			Name:  fmt.Sprintf("alone%04d", i),
+			Attrs: map[string]any{"repository": "repo-2-svc"},
+		})
+	}
+	g.Normalize()
+	if err := g.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := BuildAtlas(g, AtlasOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := pageOf(a, "codemap:repository:acme/checkout")
+	if page == nil {
+		t.Fatal("there is no code map")
+	}
+	for _, n := range page.Graph.Nodes {
+		if strings.HasPrefix(n.Name, "alone") {
+			t.Fatalf("%s is on the map, and on no line", n.ID)
+		}
+	}
+	// The one that is called is still here, and so is the one that calls it.
+	held := map[string]bool{}
+	for _, n := range page.Graph.Nodes {
+		held[n.ID] = true
+	}
+	for _, want := range []string{
+		"repo-2-svc:file:handler/http.go#Handle",
+		"repo-2-svc:file:handler/http.go#total",
+	} {
+		if !held[want] {
+			t.Errorf("%s calls or is called, and is not on the map", want)
+		}
 	}
 }
