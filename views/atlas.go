@@ -704,15 +704,20 @@ func (b *builder) codemapPage(id string, open Opening) error {
 		present[member] = true
 	}
 	for _, e := range b.in.Edges {
-		if e.Suppressed {
-			continue
-		}
 		// Folded, the way every other relation in this file is read. A graph
 		// that writes `Imports` loses the lines here and the files with them,
 		// leaving a page of boxes and no flow, and saying nothing about it.
 		if !strings.EqualFold(e.Relation, relCalls) && !strings.EqualFold(e.Relation, relImports) {
 			continue
 		}
+		// Suppressed lines are drawn, the way every other page draws them. A
+		// denial is a thing somebody said, and the reader decides whether to
+		// see it — dropping it here made --hide-suppressed a no-op on this
+		// page and left no way to learn that the call was denied at all.
+		//
+		// No box is ever here *because* of one: CodeOf leaves those lines out
+		// of the choosing, so a suppressed line only ever joins two boxes that
+		// a line nobody denied had already put on the page.
 		if present[e.From] && present[e.To] {
 			g.Edges = append(g.Edges, e)
 		}

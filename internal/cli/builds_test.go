@@ -614,3 +614,46 @@ func TestReplacingAMappingHoldsEvenWhenNoRecordMatches(t *testing.T) {
 		t.Errorf("the replaced mapping is still on the repository: %v", of)
 	}
 }
+
+// The estate has moved on to a tag no record covers, so nothing matches and no
+// edge is drawn. The mapping still says what it says. Writing the answer only
+// where a record matched left the repository pointing at the input the
+// operator had just stopped naming.
+func TestRepointingAMappingHoldsEvenWhenNoRecordMatches(t *testing.T) {
+	g := core.New()
+	g.Metadata = &core.Metadata{Inputs: []core.InputRef{
+		{ID: "repo-2-svc", Path: "../svc", Kind: "repository"},
+		{ID: "repo-3-other", Path: "../other", Kind: "repository"},
+	}}
+	g.Nodes = []core.Node{
+		// Running 1.3.0; the record below is about 1.4.0.
+		{ID: "workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
+			Attrs: map[string]any{"image": "registry.example/checkout:1.3.0", "repository": "repo-2-svc"}},
+		{ID: "repository:acme/checkout", Type: "repository", Name: "acme/checkout",
+			Attrs: map[string]any{"code_input": "repo-2-svc"}},
+	}
+	for _, scope := range []string{"repo-2-svc", "repo-3-other"} {
+		g.Nodes = append(g.Nodes,
+			core.Node{ID: scope + ":file:main.go", Type: "code_file", Name: "main.go",
+				Attrs: map[string]any{"repository": scope}},
+			core.Node{ID: scope + ":package:net/http", Type: "code_package", Name: "net/http",
+				Attrs: map[string]any{"repository": scope}})
+		g.Edges = append(g.Edges, core.Edge{
+			From: scope + ":file:main.go", To: scope + ":package:net/http",
+			Kind: core.EdgeIACRef, Relation: "imports",
+		})
+	}
+	g.Normalize()
+
+	r := mustRun(t, "", "graph", graphFile(t, g),
+		"--builds", buildsFile(t, buildRecord), "--build-repo", "acme/checkout=repo-3-other")
+
+	out := graphOf(t, r.stdout)
+	repo, ok := out.Node("repository:acme/checkout")
+	if !ok {
+		t.Fatal("no repository node")
+	}
+	if of, _ := repo.Attrs["code_input"].(string); of != "repo-3-other" {
+		t.Errorf("the repository still says its code is %q", of)
+	}
+}

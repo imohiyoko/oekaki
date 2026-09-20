@@ -532,3 +532,41 @@ func TestACallLeavingTheRepositoryDoesNotPutABoxOnTheMap(t *testing.T) {
 		}
 	}
 }
+
+// A denial is a thing somebody said, and every other page draws it and lets
+// --hide-suppressed decide. Dropping it here left no way to learn that the
+// call was denied. No box is here because of one — CodeOf leaves them out of
+// the choosing — so a denied line only ever joins two boxes already on the
+// page.
+func TestTheCodeMapDrawsADeniedLineBetweenBoxesThatAreAlreadyThere(t *testing.T) {
+	g := estateWithCode(t, true)
+	g.Edges = append(g.Edges, core.Edge{
+		From: "repo-2-svc:file:handler/http.go#total",
+		To:   "repo-2-svc:file:handler/http.go#Handle",
+		Kind: core.EdgeIACRef, Relation: "calls",
+		Suppressed: true,
+		Claim:      &core.Claim{Origin: core.OriginHuman, Note: "not real"},
+	})
+	g.Normalize()
+	if err := g.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := BuildAtlas(g, AtlasOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := pageOf(a, "codemap:repository:acme/checkout")
+	if page == nil {
+		t.Fatal("there is no code map")
+	}
+	denied := false
+	for _, e := range page.Graph.Edges {
+		if e.Suppressed {
+			denied = true
+		}
+	}
+	if !denied {
+		t.Error("the denied line is not on the page, so nothing can say it was denied")
+	}
+}

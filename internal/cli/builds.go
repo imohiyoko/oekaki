@@ -62,9 +62,6 @@ func applyBuilds(env Env, g *core.Graph, f buildFlags) error {
 		docs = append(docs, doc)
 	}
 
-	// Read once rather than per mapping, and asked of the drawing rather than
-	// answered again here: two readings of "this input has code" that differ
-	// is how a mapping passes every check and then draws nothing.
 	inputs := inputIDs(g)
 	repositories := map[string]string{}
 	for _, value := range f.repositories {
@@ -83,14 +80,9 @@ func applyBuilds(env Env, g *core.Graph, f buildFlags) error {
 		// quietly leaves the record looking applied.
 		switch {
 		case inputs[id]:
-			// Naming an input has one effect: the repository's box opens as
-			// that input's code. An input the drawing finds nothing in has no
-			// code to open, so the mapping would be recorded, look applied,
-			// and do nothing — which is the reading the checks around it
-			// refuse.
-			if len(views.CodeOf(g, id)) == 0 {
-				return fmt.Errorf("--build-repo %s: %q is here, but there is no code map to draw from it — a repository is named as an input so that its code can be opened", value, id)
-			}
+			// Whether that input has a code map to open is asked later, by
+			// checkCodeMaps, because a line can still be denied after this
+			// point.
 		case element(g, id):
 		default:
 			return fmt.Errorf("--build-repo %s: nothing here is %q — not an input, not a node, not a group", value, id)
@@ -116,6 +108,33 @@ func applyBuilds(env Env, g *core.Graph, f buildFlags) error {
 		return err
 	}
 	return g.Validate()
+}
+
+// checkCodeMaps asks, of each repository placed at an input, whether there is
+// still a code map to open there.
+//
+// After the overlays rather than beside the mapping, because that is the first
+// moment the answer is settled: an overlay may suppress the only line an input
+// had, and a check that ran before it passed a mapping whose box then opened
+// onto nothing. Asked of the drawing rather than answered again here, because
+// two readings of "this input has code" that differ is exactly how a mapping
+// passes every check and then draws nothing.
+func checkCodeMaps(g *core.Graph, f buildFlags) error {
+	if f.refuse || len(f.files) == 0 {
+		return nil
+	}
+	inputs := inputIDs(g)
+	for _, value := range f.repositories {
+		_, id, found := strings.Cut(value, "=")
+		id = strings.TrimSpace(id)
+		if !found || !inputs[id] {
+			continue
+		}
+		if len(views.CodeOf(g, id)) == 0 {
+			return fmt.Errorf("--build-repo %s: %q is here, but there is no code map to draw from it — a repository is named as an input so that its code can be opened", value, id)
+		}
+	}
+	return nil
 }
 
 // inputIDs are the documents this graph was read from, which is how a whole

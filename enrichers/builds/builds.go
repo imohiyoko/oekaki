@@ -85,18 +85,29 @@ func (e Enricher) Enrich(g *core.Graph) (*enrichers.Report, error) {
 		})
 	}
 
-	// A mapping that points the repository at an element says the repository
-	// is that element, and says it whether or not anything here happens to be
-	// running an image these records name. Doing it inside the match meant a
-	// estate that had moved on to a tag no record covers kept the answer the
-	// last run wrote — and kept its box open onto the code map of the mapping
-	// the operator had just replaced.
+	// What this run was told about a repository is written on it, whether or
+	// not anything here happens to be running an image these records name.
+	//
+	// Doing it where the join happens meant an estate that had moved on to a
+	// tag no record covers kept the answer the last run wrote: the mapping was
+	// accepted, the box stayed open, and what it opened onto was the input the
+	// operator had just stopped naming. A mapping is a sentence about a
+	// repository, not about what is running today.
+	//
+	// A repository this run says nothing about keeps what it was told before.
+	// Not repeating a flag is not a retraction, and throwing away somebody's
+	// answer because they did not say it twice is the same kind of quiet loss
+	// this is fixing.
 	for repository, id := range e.Repositories {
-		if e.Inputs[id] {
-			continue
-		}
 		for _, n := range repositoriesNamed(g, repository) {
-			delete(n.Attrs, AttrCodeInput)
+			if !e.Inputs[id] {
+				delete(n.Attrs, AttrCodeInput)
+				continue
+			}
+			if n.Attrs == nil {
+				n.Attrs = map[string]any{}
+			}
+			n.Attrs[AttrCodeInput] = id
 		}
 	}
 
@@ -303,27 +314,11 @@ func (e Enricher) target(g *core.Graph, b built) (string, bool, error) {
 	}
 
 	if len(existing) > 0 {
-		// What this run was told is what holds. The node may have arrived with
-		// an answer from the run that first wrote it, pointing at an input of
-		// that graph rather than of this one — and a mapping that passed every
-		// check and then changed nothing is the silent no-op the checks exist
-		// to prevent.
-		//
-		// Every one of them, the way the branch above clears every one of
-		// them. Combining two outputs leaves two boxes for one repository, and
-		// telling only the first where its code is leaves the second one
-		// answering the same question differently.
-		if of != "" {
-			for _, n := range existing {
-				if n.Attrs == nil {
-					n.Attrs = map[string]any{}
-				}
-				n.Attrs[AttrCodeInput] = of
-			}
-		}
-		// The edge still points at one of them: a record says one thing built
-		// this, and drawing it at every box that shares the name would be
-		// adding evidence nobody wrote.
+		// Already told, before any of this, and told to every box that stands
+		// for the repository rather than to the first one found. The edge
+		// still points at one of them: a record says one thing built this, and
+		// drawing it at every box that shares the name would be adding
+		// evidence nobody wrote.
 		return existing[0].ID, false, nil
 	}
 
