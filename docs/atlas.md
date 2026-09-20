@@ -21,8 +21,8 @@ A container descends into the code it runs. A build record joins a workload to
 the repository that built it, and when somebody has said which input that
 repository is, the box opens as a **code map**: the functions of that
 repository, what calls what, and what it imports. From there a function opens
-its own page, and from that page a type opens as a class diagram — so the
-descent from a running container to one class is a sequence of clicks. See
+its own page and a file opens what it declares, so the descent from a running
+container to one function — or to one class — is a sequence of clicks. See
 [builds.md](builds.md).
 
 Every box on the map is on a line: a function because it calls or is called, a
@@ -40,13 +40,28 @@ page with nothing attached to it — while a line somebody has suppressed is one
 a person went to the trouble of denying, and drawing a page out of those is the
 opposite of what the denial was for.
 
+These are clicks and not nesting, so they are written out rather than drawn as
+a tree like the one above:
+
 ```
-level:                          the estate
- └ detail:aws_ecs_task_definition.api
-    └ codemap:repository:acme/checkout    what it runs, as code
-       └ detail:…#Handle                  one function
-          └ detail:…#Order               one type it declares, as a class
+level:                                   the estate
+  click the task definition   ->  detail:aws_ecs_task_definition.api
+  click the repository        ->  codemap:repository:acme/checkout   what it runs, as code
+  click a function            ->  detail:…#HandleOrder               what it calls
+  click a file                ->  detail:…/http.go                   what it declares
+  click a type there          ->  detail:…#type:Order                drawn as a class
 ```
+
+The last two are one route and the one above them is another: a type is
+declared in a file, not in a function, so the class diagram is reached through
+the file rather than through the code that uses the type.
+
+The trail back up is not that sequence reversed. Every one of those pages
+belongs under the level its element sits in — `level:`, for code, which sits in
+no container — so the breadcrumbs go back there rather than to the page the
+reader came from. Deriving the same estate twice, or reaching the same element
+from two neighbours, would otherwise give one page two different trails, and
+the trail is the thing a reader who has descended four times is relying on.
 
 No line on that map crosses into the estate around it. Which function serves
 which API operation, and which import carries which outbound call, is written

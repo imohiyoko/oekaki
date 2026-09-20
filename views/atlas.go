@@ -423,9 +423,18 @@ func (b *builder) level(path, parent, origin string) error {
 			Label: orDefault(grp.Label, grp.ID),
 		})
 	}
+	// Kept as they are decided, because the code maps below need the same
+	// answers and asking again means walking every edge in the graph a second
+	// time for every node of every level.
+	var maps []Opening
 	for _, n := range nodes {
-		if open, ok := b.detailOpening(n.ID); ok {
-			d.Opens = append(d.Opens, open)
+		open, ok := b.detailOpening(n.ID)
+		if !ok {
+			continue
+		}
+		d.Opens = append(d.Opens, open)
+		if open.Kind == KindCodemap {
+			maps = append(maps, open)
 		}
 	}
 	b.out = append(b.out, d)
@@ -444,18 +453,8 @@ func (b *builder) level(path, parent, origin string) error {
 	// repository's members is what used to exhaust the budget before the
 	// second repository was reached, and one repository saved at the cost of
 	// the next one is not the rule this is meant to be.
-	for _, n := range nodes {
-		// Only a repository opens onto a code map, and asking detailOpening
-		// means walking every edge in the graph — a cost every node of every
-		// level would otherwise pay for an answer its type already gives.
-		if n.Type != repositoryType {
-			continue
-		}
-		open, ok := b.detailOpening(n.ID)
-		if !ok || open.Kind != KindCodemap {
-			continue
-		}
-		if err := b.codemapPage(n.ID, open); err != nil {
+	for _, open := range maps {
+		if err := b.codemapPage(open.Element, open); err != nil {
 			return err
 		}
 	}
@@ -486,7 +485,8 @@ func (b *builder) detailOpening(id string) (Opening, bool) {
 	//
 	// One element has one inside, and the viewer keeps one door per box, so
 	// this replaces the detail page rather than sitting beside it.
-	if scope, ok := b.repositoryScope(id); ok {
+	subject, _ := b.in.Node(id)
+	if scope, ok := codeInputOf(subject); ok {
 		if len(b.codeOf(scope)) > 0 {
 			return Opening{Element: id, Diagram: codemapID(id), Kind: KindCodemap, Label: "コードマップ"}, true
 		}
@@ -507,7 +507,7 @@ func (b *builder) detailOpening(id string) (Opening, bool) {
 	// a function that takes one, a file that contains it — has an empty class
 	// diagram, and a door into an empty room is the thing this guard exists to
 	// prevent.
-	if n, ok := b.in.Node(id); ok && n.Type == codeType {
+	if subject != nil && subject.Type == codeType {
 		declares, drawn := b.classOf(id, dedupe(sorted(append(append([]string{}, held...), touched...))))
 		if len(declares) == 0 && len(drawn) == 0 {
 			return Opening{}, false
@@ -525,8 +525,14 @@ func (b *builder) detailOpening(id string) (Opening, bool) {
 // input it came from. A repository node that arrived inside a previous output
 // wears both, and reading the wrong one opened that input's whole code.
 func (b *builder) repositoryScope(id string) (string, bool) {
-	n, ok := b.in.Node(id)
-	if !ok || n.Type != repositoryType {
+	n, _ := b.in.Node(id)
+	return codeInputOf(n)
+}
+
+// codeInputOf is repositoryScope of a node already in hand. Finding the node
+// is a walk of every node, and detailOpening needs the same one twice.
+func codeInputOf(n *core.Node) (string, bool) {
+	if n == nil || n.Type != repositoryType {
 		return "", false
 	}
 	scope, ok := n.Attrs[attrCodeInput].(string)
@@ -751,8 +757,9 @@ func (b *builder) codemapPage(id string, open Opening) error {
 	//
 	// A type is not a box here, so no door on this page is a class diagram.
 	// This page is about flow, and a declaration takes part in flow only
-	// through the functions that use it; those are here, and their own pages
-	// are where a type is reached.
+	// through the functions that use it. A type is declared in a file, so the
+	// class diagram is reached through the file's page rather than through the
+	// code that uses the type.
 	for _, member := range members {
 		if open, ok := b.detailOpening(member); ok {
 			d.Opens = append(d.Opens, open)
