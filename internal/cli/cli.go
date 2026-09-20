@@ -414,6 +414,9 @@ func runRender(ctx context.Context, env Env, args []string) error {
 	if err := applyOverlays(env, g, f.overlay); err != nil {
 		return err
 	}
+	if err := checkCodeMaps(g, f.builds); err != nil {
+		return err
+	}
 	if err := applyEvidenceInputs(env, g, f.observations, f.exposure, f.aiCandidates); err != nil {
 		return err
 	}
@@ -733,6 +736,9 @@ func runGraph(ctx context.Context, env Env, args []string) error {
 		return err
 	}
 	if err := applyOverlays(env, g, ov); err != nil {
+		return err
+	}
+	if err := checkCodeMaps(g, buildRecords); err != nil {
 		return err
 	}
 	if err := applyEvidenceInputs(env, g, observationsFiles, exposureFiles, aiCandidateFiles); err != nil {

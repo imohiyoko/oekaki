@@ -134,6 +134,12 @@ When a code graph is loaded as well, whoever knows the estate can say which
 — the descent from a running container to one class, by clicking. See
 [atlas.md](atlas.md).
 
+What this run is told is what the repository ends up saying, whether or not
+anything here happens to be running an image the records name — a mapping is a
+sentence about a repository, not about what is deployed today. A repository
+this run says nothing about keeps what it was told before: not repeating a flag
+is not a retraction.
+
 Its own key, not `attrs.repository`: that one already says which input a node
 *came from*, which every node of a combined graph carries and which a
 repository node arriving inside a previous output carries too. One key holding
