@@ -119,6 +119,13 @@ func applyBuilds(env Env, g *core.Graph, f buildFlags) error {
 // onto nothing. Asked of the drawing rather than answered again here, because
 // two readings of "this input has code" that differ is exactly how a mapping
 // passes every check and then draws nothing.
+//
+// Not the last word, though: `--view`, `--root`, `--depth` and folding come
+// later still and can leave the page with nothing on it. Those are a reader
+// narrowing what they want to look at, and refusing to write a graph because
+// one of this run's views is narrow would be answering a different question
+// from the one asked here, which is whether the estate holds the code the
+// mapping names.
 func checkCodeMaps(g *core.Graph, f buildFlags) error {
 	if f.refuse || len(f.files) == 0 {
 		return nil
@@ -151,8 +158,12 @@ func checkCodeMaps(g *core.Graph, f buildFlags) error {
 			}
 		}
 		if boxes > 0 && !landed {
-			return fmt.Errorf("--build-repo %s: %s is here as %d box%s, and none of them is inside %q — the mapping was read and changed nothing",
-				value, repository, boxes, plural(boxes), id)
+			was := "box"
+			if boxes > 1 {
+				was = "boxes"
+			}
+			return fmt.Errorf("--build-repo %s: %s is here as %d %s, and none of them is inside %q — the mapping was read and changed nothing",
+				value, repository, boxes, was, id)
 		}
 	}
 	return nil

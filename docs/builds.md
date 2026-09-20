@@ -148,10 +148,13 @@ have given one, because a box that takes another input's answer puts its own
 code out of reach of every page either way. Where there is only one box there
 is nothing to tell it apart from, and the mapping is written there.
 
-A mapping that reaches no box is an error rather than a line in the report: it
-was read, it was accepted, and it changed nothing. The edge goes to the box
-that speaks for the input the thing running it came from; pointing it anywhere
-else draws a workload built from two repositories.
+A mapping that reaches none of the boxes that are here is an error rather than
+a line in the report: it was read, it was accepted, and it changed nothing. A
+repository nothing here runs has no box at all, which is not that — it is the
+ordinary case of a record covering more than this estate, and the summary says
+so. The edge goes to the box that speaks for the input the thing running it
+came from; pointing it anywhere else draws a workload built from two
+repositories.
 
 Its own key, not `attrs.repository`: that one already says which input a node
 *came from*, which every node of a combined graph carries and which a
