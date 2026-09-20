@@ -83,7 +83,8 @@ than a drawing can carry. The answers, in the order they were built:
   and unfolding in place. [folding.md](folding.md)
 - **The atlas.** A bound set of diagrams with the ways between them written
   down, so a reader descends by clicking rather than by filtering. Levels,
-  detail, communication, sequence, and — for a code graph — class.
+  detail, communication, sequence, and — for a code graph — class and, behind
+  a container, the code map of the repository that built it.
   [atlas.md](atlas.md)
 - **Paths as entities.** A route is a thing the IR carries, with four findings
   said about it: unused, quiet, partial, unexpected. [paths.md](paths.md)

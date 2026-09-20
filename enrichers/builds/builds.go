@@ -13,6 +13,7 @@ package builds
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/imohiyoko/oekaki/collectors/builds"
 	"github.com/imohiyoko/oekaki/core"
@@ -114,11 +115,29 @@ func (e Enricher) Enrich(g *core.Graph) (*enrichers.Report, error) {
 	// Not repeating a flag is not a retraction, and throwing away somebody's
 	// answer because they did not say it twice is the same kind of quiet loss
 	// this is fixing.
+	//
+	// Written only where this run is entitled to speak. Combining two outputs
+	// leaves a box per input, each already carrying the right answer about the
+	// code inside its own input, and a mapping names one input — so writing it
+	// on every box that shares the name made the other boxes claim code that
+	// lives somewhere else, and put the code they did have out of reach of
+	// every page. An element mapping names no input at all, so it speaks only
+	// for the boxes this run made.
 	inputs := InputIDs(g)
 	for repository, id := range e.Repositories {
 		for _, n := range repositoriesNamed(g, repository) {
+			from, _ := n.Attrs["repository"].(string)
 			if !inputs[id] {
-				delete(n.Attrs, AttrCodeInput)
+				if from == "" {
+					delete(n.Attrs, AttrCodeInput)
+				}
+				continue
+			}
+			// A box that has no answer yet takes this one wherever it came
+			// from: there is nothing to lose. A box that already answers is
+			// answering about the code inside its own input, and only a
+			// mapping naming something inside that input is about it.
+			if _, answered := n.Attrs[AttrCodeInput]; answered && !within(id, from) {
 				continue
 			}
 			if n.Attrs == nil {
@@ -139,7 +158,7 @@ func (e Enricher) Enrich(g *core.Graph) (*enrichers.Report, error) {
 			continue
 		}
 		matched[b.image.Identity()] = true
-		to, invented, err := e.target(g, b)
+		to, invented, err := e.target(g, n, b)
 		if err != nil {
 			return r, err
 		}
@@ -282,6 +301,16 @@ func sorted(set map[string]bool) []string {
 	return out
 }
 
+// within reports whether an input id lies inside the input a node came from.
+//
+// An empty scope is a node this run made, or one that came in at the top
+// level: it is this run's to speak for, and every input is inside it. A node
+// that arrived from an input answers only for what is inside that input, which
+// after qualification is exactly the ids that scope prefixes.
+func within(id, scope string) bool {
+	return scope == "" || id == scope || strings.HasPrefix(id, scope+":")
+}
+
 // lookup finds the build behind what a node is running: the reference as
 // written, or the digest it is pinned to.
 func lookup(byKey map[string]built, image string) (built, bool) {
@@ -298,7 +327,7 @@ func lookup(byKey map[string]built, image string) (built, bool) {
 
 // target is the element the edge points at, and whether this invented it: the
 // one somebody wrote down, or a node for the repository itself.
-func (e Enricher) target(g *core.Graph, b built) (string, bool, error) {
+func (e Enricher) target(g *core.Graph, running core.Node, b built) (string, bool, error) {
 	inputs := InputIDs(g)
 	// The repository this graph already holds, found by what it is rather than
 	// by the id this run would give it.
@@ -309,7 +338,32 @@ func (e Enricher) target(g *core.Graph, b built) (string, bool, error) {
 	// repository. Matching on the id alone missed it, and then invented a
 	// second box for the same thing: two boxes for one repository, disagreeing
 	// about whether it has code.
+	// The one from the same input as the thing that is running it. Several
+	// inputs combined leave a box apiece, all of them the same repository and
+	// none of them the same box — and the first in id order is a box some
+	// other input's workloads were joined to, so pointing here draws a
+	// deployment built from two repositories.
+	from, _ := running.Attrs["repository"].(string)
 	existing := repositoriesNamed(g, b.repository)
+	var mine *core.Node
+	for _, n := range existing {
+		of, _ := n.Attrs["repository"].(string)
+		if of == from {
+			mine = n
+			break
+		}
+	}
+	if mine == nil {
+		// Nothing here came from the same input, so a box this run made is the
+		// next best thing: it is not another input's answer about its own
+		// subtree.
+		for _, n := range existing {
+			if of, _ := n.Attrs["repository"].(string); of == "" {
+				mine = n
+				break
+			}
+		}
+	}
 
 	// The input this repository is, when somebody said so. It goes on the node
 	// rather than on the edge because it is a fact about the repository and
@@ -331,13 +385,9 @@ func (e Enricher) target(g *core.Graph, b built) (string, bool, error) {
 		of = id
 	}
 
-	if len(existing) > 0 {
-		// Already told, before any of this, and told to every box that stands
-		// for the repository rather than to the first one found. The edge
-		// still points at one of them: a record says one thing built this, and
-		// drawing it at every box that shares the name would be adding
-		// evidence nobody wrote.
-		return existing[0].ID, false, nil
+	if mine != nil {
+		// Already told what its code is, before any of this.
+		return mine.ID, false, nil
 	}
 
 	id := NodeRepository + ":" + b.repository
