@@ -493,10 +493,10 @@ func TestARepositoryThatCameBackQualifiedIsNotInventedAgain(t *testing.T) {
 	}
 }
 
-// The same replacement as before, against the id a previous output actually
-// uses. The mapping was accepted, the old answer stayed, and the workload kept
-// a door onto the code map of the mapping just replaced.
-func TestPointingAQualifiedRepositoryAtAnElementDropsTheOldCodeMap(t *testing.T) {
+// A box that came in from another input is that input's answer about its own
+// subtree. An element mapping names no input at all, so it speaks only for the
+// boxes this run made, and leaves that one alone.
+func TestAnElementMappingLeavesAnotherInputsAnswerAlone(t *testing.T) {
 	r := mustRun(t, "", "graph", graphFile(t, qualifiedEstate(t)),
 		"--builds", buildsFile(t, buildRecord),
 		"--build-repo", "acme/checkout=repo-1-out-json:repo-2-svc:file:main.go")
@@ -504,10 +504,10 @@ func TestPointingAQualifiedRepositoryAtAnElementDropsTheOldCodeMap(t *testing.T)
 	out := graphOf(t, r.stdout)
 	repo, ok := out.Node("repo-1-out-json:repository:acme/checkout")
 	if !ok {
-		return // dropped entirely is an honest outcome too
+		t.Fatal("the repository that came in with the input is gone")
 	}
-	if of, found := repo.Attrs["code_input"]; found {
-		t.Errorf("the replaced mapping is still on the repository: %v", of)
+	if of, _ := repo.Attrs["code_input"].(string); of != "repo-1-out-json:repo-2-svc" {
+		t.Errorf("another input's answer about its own code was changed to %q", of)
 	}
 }
 
@@ -538,41 +538,60 @@ func TestAnInputThatHoldsNothingIsToldWhatIsActuallyWrong(t *testing.T) {
 	}
 }
 
-// Combining two outputs leaves two boxes for one repository. Telling only the
-// first where its code is leaves the second answering the same question
-// differently — and the one that kept the old answer opens onto the code of a
-// mapping nobody made this time.
-func TestEveryBoxForOneRepositoryGetsTheSameAnswer(t *testing.T) {
+// Combining two outputs leaves a box per input, each already answering about
+// the code inside its own input. A mapping names one input, so writing it on
+// every box that shares the name makes the others claim code that lives
+// somewhere else — and puts the code they did have out of reach of every page.
+func TestAMappingDoesNotClobberAnotherInputsAnswer(t *testing.T) {
+	const a, b = "repo-1-a-json:repo-2-svc", "repo-2-b-json:repo-3-svc"
 	g := core.New()
-	const scope = "repo-1-a-json:repo-2-svc"
-	g.Metadata = &core.Metadata{Inputs: []core.InputRef{{ID: scope, Path: "../svc", Kind: "repository"}}}
+	g.Metadata = &core.Metadata{Inputs: []core.InputRef{
+		{ID: a, Path: "../svc", Kind: "repository"},
+		{ID: b, Path: "../svc", Kind: "repository"},
+	}}
 	g.Nodes = []core.Node{
 		{ID: "repo-1-a-json:workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
 			Attrs: map[string]any{"image": "registry.example/checkout:1.4.0", "repository": "repo-1-a-json"}},
-		{ID: scope + ":file:main.go", Type: "code_file", Name: "main.go",
-			Attrs: map[string]any{"repository": scope}},
-		{ID: scope + ":package:net/http", Type: "code_package", Name: "net/http",
-			Attrs: map[string]any{"repository": scope}},
-		// Two boxes for one repository, from two outputs combined.
 		{ID: "repo-1-a-json:repository:acme/checkout", Type: "repository", Name: "acme/checkout",
-			Attrs: map[string]any{"repository": "repo-1-a-json", "code_input": "repo-9-stale"}},
+			Attrs: map[string]any{"repository": "repo-1-a-json", "code_input": a}},
 		{ID: "repo-2-b-json:repository:acme/checkout", Type: "repository", Name: "acme/checkout",
-			Attrs: map[string]any{"repository": "repo-2-b-json", "code_input": "repo-9-stale"}},
+			Attrs: map[string]any{"repository": "repo-2-b-json", "code_input": b}},
 	}
-	g.Edges = []core.Edge{{
-		From: scope + ":file:main.go", To: scope + ":package:net/http",
-		Kind: core.EdgeIACRef, Relation: "imports",
-	}}
+	for _, scope := range []string{a, b} {
+		g.Nodes = append(g.Nodes,
+			core.Node{ID: scope + ":file:main.go", Type: "code_file", Name: "main.go",
+				Attrs: map[string]any{"repository": scope}},
+			core.Node{ID: scope + ":package:net/http", Type: "code_package", Name: "net/http",
+				Attrs: map[string]any{"repository": scope}})
+		g.Edges = append(g.Edges, core.Edge{
+			From: scope + ":file:main.go", To: scope + ":package:net/http",
+			Kind: core.EdgeIACRef, Relation: "imports",
+		})
+	}
 	g.Normalize()
 
 	r := mustRun(t, "", "graph", graphFile(t, g),
-		"--builds", buildsFile(t, buildRecord), "--build-repo", "acme/checkout="+scope)
+		"--builds", buildsFile(t, buildRecord), "--build-repo", "acme/checkout="+a)
 
 	out := graphOf(t, r.stdout)
-	for _, id := range repositoryNodes(out, "acme/checkout") {
-		n, _ := out.Node(id)
-		if of, _ := n.Attrs["code_input"].(string); of != scope {
-			t.Errorf("%s says its code is %q", id, of)
+	for id, want := range map[string]string{
+		"repo-1-a-json:repository:acme/checkout": a,
+		"repo-2-b-json:repository:acme/checkout": b,
+	} {
+		n, ok := out.Node(id)
+		if !ok {
+			t.Errorf("%s is gone", id)
+			continue
+		}
+		if of, _ := n.Attrs["code_input"].(string); of != want {
+			t.Errorf("%s says its code is %q, want %q", id, of, want)
+		}
+	}
+	// And the join points at the box from the same input as the workload,
+	// rather than at whichever box sorts first.
+	for _, e := range out.Edges {
+		if e.Relation == "built_from" && e.To != "repo-1-a-json:repository:acme/checkout" {
+			t.Errorf("the deployment is drawn as built from %s as well", e.To)
 		}
 	}
 }

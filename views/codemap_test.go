@@ -599,3 +599,48 @@ func TestDenyingTheJoinDoesNotTakeTheCodeMapWithIt(t *testing.T) {
 		t.Error("the repository opens onto nothing")
 	}
 }
+
+// A line joins two kinds of box: a file to a package, a function to a
+// function. An end that would not be chosen takes the line with it, so an end
+// chosen for that line would sit on the page with nothing attached — which is
+// the one thing this page's rule forbids. Not something this project's own
+// readers emit; a graph is a document, and somebody else may write one.
+func TestAnEndOfTheWrongKindPutsNoBoxOnTheMap(t *testing.T) {
+	g := estateWithCode(t, true)
+	g.Nodes = append(g.Nodes, core.Node{
+		ID: "repo-2-svc:file:odd.go", Type: "code_file", Name: "odd.go",
+		Attrs: map[string]any{"repository": "repo-2-svc"},
+	})
+	g.Nodes = append(g.Nodes, core.Node{
+		ID: "repo-2-svc:file:handler/http.go#Lonely", Type: "code_function", Name: "Lonely",
+		Attrs: map[string]any{"repository": "repo-2-svc"},
+	})
+	// A file importing a function rather than a package, and that function on
+	// no other line.
+	g.Edges = append(g.Edges, core.Edge{
+		From: "repo-2-svc:file:odd.go", To: "repo-2-svc:file:handler/http.go#Lonely",
+		Kind: core.EdgeIACRef, Relation: "imports",
+	})
+	g.Normalize()
+	if err := g.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := BuildAtlas(g, AtlasOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := pageOf(a, "codemap:repository:acme/checkout")
+	if page == nil {
+		t.Fatal("there is no code map")
+	}
+	drawn := map[string]bool{}
+	for _, e := range page.Graph.Edges {
+		drawn[e.From], drawn[e.To] = true, true
+	}
+	for _, n := range page.Graph.Nodes {
+		if !drawn[n.ID] {
+			t.Errorf("%s is on the map, and on no line", n.ID)
+		}
+	}
+}

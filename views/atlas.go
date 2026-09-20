@@ -611,27 +611,21 @@ func CodeOf(g *core.Graph, scope string) []string {
 		if e.Suppressed {
 			continue
 		}
-		// Both ends, because the page keeps a line only when it has both. A
-		// call out of this repository to something that is not on the page
-		// used to put the function there and then drop the only line it had,
-		// leaving the box on a page whose whole rule is that there are none.
-		if kind[e.From] == "" || kind[e.To] == "" {
-			continue
-		}
+		// Both ends, and both of the kind the line joins. The page keeps a
+		// line only when both of its ends are on it, so an end that would not
+		// be chosen takes the line with it — and the other end, chosen for a
+		// line that is no longer there, sits on a page whose whole rule is
+		// that every box is on one. A file importing something that is not a
+		// package is not this project's own reading, but a graph is a document
+		// and somebody else may write one.
 		switch {
 		case strings.EqualFold(e.Relation, relImports):
-			if kind[e.From] == codeFile {
-				on[e.From] = true
-			}
-			if kind[e.To] == codePackage {
-				on[e.To] = true
+			if kind[e.From] == codeFile && kind[e.To] == codePackage {
+				on[e.From], on[e.To] = true, true
 			}
 		case strings.EqualFold(e.Relation, relCalls):
-			if kind[e.From] == codeFunction {
-				on[e.From] = true
-			}
-			if kind[e.To] == codeFunction {
-				on[e.To] = true
+			if kind[e.From] == codeFunction && kind[e.To] == codeFunction {
+				on[e.From], on[e.To] = true, true
 			}
 		}
 	}
