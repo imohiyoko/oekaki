@@ -141,12 +141,17 @@ this run says nothing about keeps what it was told before: not repeating a flag
 is not a retraction.
 
 Combining several outputs leaves a box per input, all of them the same
-repository and none of them the same box, each already answering about the code
-inside its own input. A mapping names one input, so it is written on the boxes
-it is about — the ones this run made, and the one whose input holds what the
-mapping names — and the others keep their own answer. The edge goes to the box
-from the same input as the thing that is running it; pointing it anywhere else
-draws a workload built from two repositories.
+repository and none of them the same box, each answering about the code inside
+its own input. A mapping names one input, so it is written on the box that
+input is inside of, and the others keep their own answer — whether or not they
+have given one, because a box that takes another input's answer puts its own
+code out of reach of every page either way. Where there is only one box there
+is nothing to tell it apart from, and the mapping is written there.
+
+A mapping that reaches no box is an error rather than a line in the report: it
+was read, it was accepted, and it changed nothing. The edge goes to the box
+that speaks for the input the thing running it came from; pointing it anywhere
+else draws a workload built from two repositories.
 
 Its own key, not `attrs.repository`: that one already says which input a node
 *came from*, which every node of a combined graph carries and which a

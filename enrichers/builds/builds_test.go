@@ -381,3 +381,82 @@ func TestNamingAnInputWorksWithoutBeingToldWhatTheInputsAre(t *testing.T) {
 		t.Errorf("the repository does not record which input its code is: %v", n.Attrs)
 	}
 }
+
+// Reading a combined output back in. The box this enricher invented had no
+// input attribute, so it is stamped with the outer scope alone while the
+// workload beside it keeps a nested one — and demanding the two be equal
+// missed the box that was right there and invented a bare one next to it.
+func TestACombinedOutputReadBackDoesNotDoubleTheRepository(t *testing.T) {
+	g := core.New()
+	g.Metadata = &core.Metadata{Inputs: []core.InputRef{
+		{ID: "repo-1-step1-json", Path: "step1.json", Kind: "graph"},
+		{ID: "repo-1-step1-json:repo-2-checkout", Path: "../checkout", Kind: "repository"},
+	}}
+	g.Nodes = []core.Node{
+		{ID: "repo-1-step1-json:workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
+			Attrs: map[string]any{
+				"image":      "registry.example/checkout:1.4.0",
+				"repository": "repo-1-step1-json:repo-2-checkout",
+			}},
+		// Invented by the earlier run, so it wore no input attribute then and
+		// wears the outer scope now.
+		{ID: "repo-1-step1-json:repository:acme/checkout", Type: "repository", Name: "acme/checkout",
+			Attrs: map[string]any{
+				"repository": "repo-1-step1-json",
+				"code_input": "repo-1-step1-json:repo-2-checkout",
+			}},
+	}
+	g.Normalize()
+
+	if _, err := (Enricher{Documents: []*builds.Document{record(t, oneBuild)}}).Enrich(g); err != nil {
+		t.Fatal(err)
+	}
+
+	var boxes []string
+	for _, n := range g.Nodes {
+		if n.Type == NodeRepository && n.Name == "acme/checkout" {
+			boxes = append(boxes, n.ID)
+		}
+	}
+	if len(boxes) != 1 {
+		t.Fatalf("%d boxes for one repository: %v", len(boxes), boxes)
+	}
+	if g.Edges[0].To != "repo-1-step1-json:repository:acme/checkout" {
+		t.Errorf("the edge points at %s rather than at the box already here", g.Edges[0].To)
+	}
+}
+
+// A box of input B taking A's answer puts B's own code out of reach of every
+// page, and it does that just as thoroughly when B had said nothing yet.
+func TestAnUnansweredBoxOfAnotherInputIsNotGivenThisOnesCode(t *testing.T) {
+	g := graphRunning("registry.example/checkout:1.4.0")
+	g.Metadata = &core.Metadata{Inputs: []core.InputRef{
+		{ID: "repo-1-outa-json:repo-2-svca", Path: "../a", Kind: "repository"},
+		{ID: "repo-2-outb-json:repo-3-svcb", Path: "../b", Kind: "repository"},
+	}}
+	g.Nodes = append(g.Nodes,
+		core.Node{ID: "repo-1-outa-json:repository:acme/checkout", Type: NodeRepository, Name: "acme/checkout",
+			Attrs: map[string]any{"repository": "repo-1-outa-json"}},
+		core.Node{ID: "repo-2-outb-json:repository:acme/checkout", Type: NodeRepository, Name: "acme/checkout",
+			Attrs: map[string]any{"repository": "repo-2-outb-json"}})
+	g.Normalize()
+
+	if _, err := (Enricher{
+		Documents:    []*builds.Document{record(t, oneBuild)},
+		Repositories: map[string]string{"acme/checkout": "repo-1-outa-json:repo-2-svca"},
+	}).Enrich(g); err != nil {
+		t.Fatal(err)
+	}
+
+	b, ok := g.Node("repo-2-outb-json:repository:acme/checkout")
+	if !ok {
+		t.Fatal("the other input's box is gone")
+	}
+	if of, found := b.Attrs[AttrCodeInput]; found {
+		t.Errorf("the other input's box was given %v", of)
+	}
+	a, _ := g.Node("repo-1-outa-json:repository:acme/checkout")
+	if of, _ := a.Attrs[AttrCodeInput].(string); of != "repo-1-outa-json:repo-2-svca" {
+		t.Errorf("the box the mapping is about says %q", of)
+	}
+}

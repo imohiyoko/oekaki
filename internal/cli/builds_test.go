@@ -676,3 +676,47 @@ func TestRepointingAMappingHoldsEvenWhenNoRecordMatches(t *testing.T) {
 		t.Errorf("the repository still says its code is %q", of)
 	}
 }
+
+// A mapping naming an input outside the one a box came from is not about that
+// box, and is not written there — which is right, and silent. The run said the
+// mapping was applied while the box went on opening onto what it opened onto
+// before.
+func TestAMappingThatReachesNoBoxIsRefusedRatherThanReported(t *testing.T) {
+	const old, other = "repo-1-prev-json:repo-9-old", "repo-2-checkout"
+	g := core.New()
+	g.Metadata = &core.Metadata{Inputs: []core.InputRef{
+		{ID: old, Path: "../old", Kind: "repository"},
+		{ID: other, Path: "../checkout", Kind: "repository"},
+	}}
+	g.Nodes = []core.Node{
+		{ID: "repo-1-prev-json:workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
+			Attrs: map[string]any{"image": "registry.example/checkout:1.4.0", "repository": old}},
+		{ID: "repo-1-prev-json:repository:acme/checkout", Type: "repository", Name: "acme/checkout",
+			Attrs: map[string]any{"repository": "repo-1-prev-json", "code_input": old}},
+		// A second box, so the mapping has something to be told apart from —
+		// and neither of them came from the input it names.
+		{ID: "repo-3-third-json:repository:acme/checkout", Type: "repository", Name: "acme/checkout",
+			Attrs: map[string]any{"repository": "repo-3-third-json"}},
+	}
+	for _, scope := range []string{old, other} {
+		g.Nodes = append(g.Nodes,
+			core.Node{ID: scope + ":file:main.go", Type: "code_file", Name: "main.go",
+				Attrs: map[string]any{"repository": scope}},
+			core.Node{ID: scope + ":package:net/http", Type: "code_package", Name: "net/http",
+				Attrs: map[string]any{"repository": scope}})
+		g.Edges = append(g.Edges, core.Edge{
+			From: scope + ":file:main.go", To: scope + ":package:net/http",
+			Kind: core.EdgeIACRef, Relation: "imports",
+		})
+	}
+	g.Normalize()
+
+	r := run(t, "", "graph", graphFile(t, g),
+		"--builds", buildsFile(t, buildRecord), "--build-repo", "acme/checkout="+other)
+	if r.code == 0 {
+		t.Fatal("a mapping that reached no box was accepted and reported as applied")
+	}
+	if !strings.Contains(r.stderr, "changed nothing") {
+		t.Errorf("the error does not say what happened:\n%s", r.stderr)
+	}
+}

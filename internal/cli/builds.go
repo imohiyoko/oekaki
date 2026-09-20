@@ -125,13 +125,34 @@ func checkCodeMaps(g *core.Graph, f buildFlags) error {
 	}
 	inputs := buildsenricher.InputIDs(g)
 	for _, value := range f.repositories {
-		_, id, found := strings.Cut(value, "=")
-		id = strings.TrimSpace(id)
+		repository, id, found := strings.Cut(value, "=")
+		repository, id = strings.TrimSpace(repository), strings.TrimSpace(id)
 		if !found || !inputs[id] {
 			continue
 		}
 		if len(views.CodeOf(g, id)) == 0 {
 			return fmt.Errorf("--build-repo %s: %q is here, but there is no code map to draw from it — a repository is named as an input so that its code can be opened", value, id)
+		}
+		// And that it reached the repository. A box answers about the code
+		// inside the input it came from, so a mapping naming an input outside
+		// that one is not about it and is not written there — which is right,
+		// and silent: the run said the mapping was applied while the box went
+		// on opening onto whatever it opened onto before. A repository nothing
+		// here runs has no box at all, and that is the ordinary case the
+		// report already speaks about.
+		landed, boxes := false, 0
+		for _, n := range g.Nodes {
+			if n.Type != buildsenricher.NodeRepository || n.Name != repository {
+				continue
+			}
+			boxes++
+			if of, _ := n.Attrs[buildsenricher.AttrCodeInput].(string); of == id {
+				landed = true
+			}
+		}
+		if boxes > 0 && !landed {
+			return fmt.Errorf("--build-repo %s: %s is here as %d box%s, and none of them is inside %q — the mapping was read and changed nothing",
+				value, repository, boxes, plural(boxes), id)
 		}
 	}
 	return nil

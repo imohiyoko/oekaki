@@ -125,7 +125,8 @@ func (e Enricher) Enrich(g *core.Graph) (*enrichers.Report, error) {
 	// for the boxes this run made.
 	inputs := InputIDs(g)
 	for repository, id := range e.Repositories {
-		for _, n := range repositoriesNamed(g, repository) {
+		boxes := repositoriesNamed(g, repository)
+		for _, n := range boxes {
 			from, _ := n.Attrs["repository"].(string)
 			if !inputs[id] {
 				if from == "" {
@@ -133,11 +134,16 @@ func (e Enricher) Enrich(g *core.Graph) (*enrichers.Report, error) {
 				}
 				continue
 			}
-			// A box that has no answer yet takes this one wherever it came
-			// from: there is nothing to lose. A box that already answers is
-			// answering about the code inside its own input, and only a
-			// mapping naming something inside that input is about it.
-			if _, answered := n.Attrs[AttrCodeInput]; answered && !within(id, from) {
+			// A box answers about the code inside its own input, so only a
+			// mapping naming something inside that input is about it. Whether
+			// it has answered yet makes no difference: a box of input B taking
+			// A's answer puts B's own code out of reach of every page, and it
+			// does that just as thoroughly when B had said nothing.
+			//
+			// Unless it is the only box there is, in which case there is
+			// nothing to tell it apart from — the ordinary case of reading a
+			// previous output back beside the repository it was missing.
+			if len(boxes) > 1 && !within(id, from) {
 				continue
 			}
 			if n.Attrs == nil {
@@ -338,30 +344,33 @@ func (e Enricher) target(g *core.Graph, running core.Node, b built) (string, boo
 	// repository. Matching on the id alone missed it, and then invented a
 	// second box for the same thing: two boxes for one repository, disagreeing
 	// about whether it has code.
-	// The one from the same input as the thing that is running it. Several
-	// inputs combined leave a box apiece, all of them the same repository and
-	// none of them the same box — and the first in id order is a box some
-	// other input's workloads were joined to, so pointing here draws a
-	// deployment built from two repositories.
+	// The box that speaks for the input the thing running it came from.
+	// Several inputs combined leave a box apiece, all of them the same
+	// repository and none of them the same box — and the first in id order is
+	// a box some other input's workloads were joined to, so pointing here
+	// draws a deployment built from two repositories.
+	//
+	// Speaks for, not equals. A box this enricher invented had no input
+	// attribute, so reading that output back stamps it with the outer scope
+	// alone while the workload beside it keeps a nested one. Demanding the two
+	// be equal missed the box that was right there and invented a bare one
+	// next to it, which is the doubling this matching was added to stop. The
+	// most specific box that covers the workload wins; a box this run made
+	// covers everything, and is the last resort rather than the first.
 	from, _ := running.Attrs["repository"].(string)
 	existing := repositoriesNamed(g, b.repository)
 	var mine *core.Node
 	for _, n := range existing {
 		of, _ := n.Attrs["repository"].(string)
-		if of == from {
-			mine = n
-			break
+		if !within(from, of) {
+			continue
 		}
-	}
-	if mine == nil {
-		// Nothing here came from the same input, so a box this run made is the
-		// next best thing: it is not another input's answer about its own
-		// subtree.
-		for _, n := range existing {
-			if of, _ := n.Attrs["repository"].(string); of == "" {
-				mine = n
-				break
-			}
+		if mine == nil {
+			mine = n
+			continue
+		}
+		if was, _ := mine.Attrs["repository"].(string); len(of) > len(was) {
+			mine = n
 		}
 	}
 
