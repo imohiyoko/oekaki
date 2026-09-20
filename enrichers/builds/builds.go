@@ -126,6 +126,15 @@ func (e Enricher) Enrich(g *core.Graph) (*enrichers.Report, error) {
 	inputs := InputIDs(g)
 	for repository, id := range e.Repositories {
 		boxes := repositoriesNamed(g, repository)
+		// Whether any box is the one the mapping is about. A box answers about
+		// the code inside its own input, so a mapping naming something inside
+		// that input is about it and a mapping naming anything else is not.
+		owned := false
+		for _, n := range boxes {
+			if from, _ := n.Attrs["repository"].(string); within(id, from) {
+				owned = true
+			}
+		}
 		for _, n := range boxes {
 			from, _ := n.Attrs["repository"].(string)
 			if !inputs[id] {
@@ -134,22 +143,30 @@ func (e Enricher) Enrich(g *core.Graph) (*enrichers.Report, error) {
 				}
 				continue
 			}
-			// A box answers about the code inside its own input, so only a
-			// mapping naming something inside that input is about it. Whether
-			// it has answered yet makes no difference: a box of input B taking
-			// A's answer puts B's own code out of reach of every page, and it
-			// does that just as thoroughly when B had said nothing.
-			//
-			// Unless it is the only box there is, in which case there is
-			// nothing to tell it apart from — the ordinary case of reading a
-			// previous output back beside the repository it was missing.
-			if len(boxes) > 1 && !within(id, from) {
+			if within(id, from) {
+				set(n, id)
 				continue
 			}
-			if n.Attrs == nil {
-				n.Attrs = map[string]any{}
+			// Not about this box. It may still be the only place the mapping
+			// could mean: reading a previous output back beside the repository
+			// that output was missing leaves one box, from that output, with
+			// nothing said about its code and no box of its own for the fresh
+			// input. One box, nothing on it, and nothing else the mapping
+			// could be about — a question with one answer.
+			//
+			// Anything less than all three and the mapping is left alone. An
+			// answer already there is this box's own, about the code inside
+			// its own input; a second box means there is something to tell
+			// this one apart from. Writing anyway is how a box comes to claim
+			// code that lives somewhere else, which puts the code it did have
+			// out of reach of every page.
+			if owned || len(boxes) > 1 {
+				continue
 			}
-			n.Attrs[AttrCodeInput] = id
+			if _, answered := n.Attrs[AttrCodeInput]; answered {
+				continue
+			}
+			set(n, id)
 		}
 	}
 
@@ -307,6 +324,13 @@ func sorted(set map[string]bool) []string {
 	return out
 }
 
+func set(n *core.Node, id string) {
+	if n.Attrs == nil {
+		n.Attrs = map[string]any{}
+	}
+	n.Attrs[AttrCodeInput] = id
+}
+
 // within reports whether an input id lies inside the input a node came from.
 //
 // An empty scope is a node this run made, or one that came in at the top
@@ -401,6 +425,14 @@ func (e Enricher) target(g *core.Graph, running core.Node, b built) (string, boo
 
 	id := NodeRepository + ":" + b.repository
 	if n, ok := g.Node(id); ok {
+		// It is this repository after all — wearing the bare id while saying
+		// it came from an input that does not cover this workload, which no
+		// run of this writes but a graph somebody hands in may. Preferring it
+		// would have been wrong; refusing it is worse, and refusing it with
+		// "cannot be told apart" is not even true of it.
+		if n.Type == NodeRepository && n.Name == b.repository {
+			return id, false, nil
+		}
 		// Not a repository, then, and not this one: a different thing with the
 		// same name. Pointing the edge at it would answer "what built this"
 		// with somebody else's box, and nothing downstream could tell, because

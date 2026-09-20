@@ -460,3 +460,57 @@ func TestAnUnansweredBoxOfAnotherInputIsNotGivenThisOnesCode(t *testing.T) {
 		t.Errorf("the box the mapping is about says %q", of)
 	}
 }
+
+// One box, from another input, already answering about its own code. There is
+// nothing here for a mapping naming some other input to be about, and writing
+// anyway puts that box's code out of reach of every page. The count of boxes
+// is not the question — this one is alone and still not the answer.
+func TestTheOnlyBoxIsStillNotOverwrittenWhenItHasItsOwnAnswer(t *testing.T) {
+	const its = "repo-1-a-json:repo-2-svc"
+	g := graphRunning("registry.example/checkout:1.4.0")
+	g.Metadata = &core.Metadata{Inputs: []core.InputRef{
+		{ID: its, Path: "../svc", Kind: "repository"},
+		{ID: "repo-2-checkout", Path: "../checkout", Kind: "repository"},
+	}}
+	g.Nodes = append(g.Nodes, core.Node{
+		ID: "repo-1-a-json:repository:acme/checkout", Type: NodeRepository, Name: "acme/checkout",
+		Attrs: map[string]any{"repository": its, "code_input": its},
+	})
+	g.Normalize()
+
+	if _, err := (Enricher{
+		Documents:    []*builds.Document{record(t, oneBuild)},
+		Repositories: map[string]string{"acme/checkout": "repo-2-checkout"},
+	}).Enrich(g); err != nil {
+		t.Fatal(err)
+	}
+
+	n, _ := g.Node("repo-1-a-json:repository:acme/checkout")
+	if of, _ := n.Attrs[AttrCodeInput].(string); of != its {
+		t.Errorf("the box's own answer was replaced with %q", of)
+	}
+}
+
+// A graph somebody hands in may carry the bare id while saying it came from an
+// input that covers nothing here. Preferring that box would be wrong;
+// refusing the whole run over it is worse, and saying it cannot be told apart
+// from the repository the record names is not true of it.
+func TestABareRepositoryFromSomeOtherInputIsUsedRatherThanRefused(t *testing.T) {
+	g := graphRunning("registry.example/checkout:1.4.0")
+	g.Nodes = append(g.Nodes, core.Node{
+		ID: "repository:acme/checkout", Type: NodeRepository, Name: "acme/checkout",
+		Attrs: map[string]any{"repository": "repo-9-elsewhere"},
+	})
+	g.Normalize()
+
+	r, err := (Enricher{Documents: []*builds.Document{record(t, oneBuild)}}).Enrich(g)
+	if err != nil {
+		t.Fatalf("a repository already here was refused: %v", err)
+	}
+	if r.Applied != 1 {
+		t.Fatalf("applied %d", r.Applied)
+	}
+	if g.Edges[0].To != "repository:acme/checkout" {
+		t.Errorf("the edge points at %s", g.Edges[0].To)
+	}
+}
