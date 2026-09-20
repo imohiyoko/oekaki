@@ -570,3 +570,32 @@ func TestTheCodeMapDrawsADeniedLineBetweenBoxesThatAreAlreadyThere(t *testing.T)
 		t.Error("the denied line is not on the page, so nothing can say it was denied")
 	}
 }
+
+// Denying the build record that joined a workload to this repository is what
+// suppressing one is for. It leaves the repository with no neighbour, and the
+// guard about neighbours used to take the code map with it — while the command
+// line, which asks a different question, went on saying there was a map here.
+func TestDenyingTheJoinDoesNotTakeTheCodeMapWithIt(t *testing.T) {
+	g := estateWithCode(t, true)
+	for i := range g.Edges {
+		if g.Edges[i].Relation == "built_from" {
+			g.Edges[i].Suppressed = true
+			g.Edges[i].Claim = &core.Claim{Origin: core.OriginHuman, Note: "wrong repository"}
+		}
+	}
+	g.Normalize()
+	if err := g.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := BuildAtlas(g, AtlasOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pageOf(a, "codemap:repository:acme/checkout") == nil {
+		t.Fatal("the code map went with the denied join")
+	}
+	if openingOf(pageOf(a, "level:"), "repository:acme/checkout") == nil {
+		t.Error("the repository opens onto nothing")
+	}
+}

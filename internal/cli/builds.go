@@ -62,7 +62,7 @@ func applyBuilds(env Env, g *core.Graph, f buildFlags) error {
 		docs = append(docs, doc)
 	}
 
-	inputs := inputIDs(g)
+	inputs := buildsenricher.InputIDs(g)
 	repositories := map[string]string{}
 	for _, value := range f.repositories {
 		repository, id, found := strings.Cut(value, "=")
@@ -100,7 +100,7 @@ func applyBuilds(env Env, g *core.Graph, f buildFlags) error {
 		repositories[repository] = id
 	}
 
-	report, err := buildsenricher.Enricher{Documents: docs, Repositories: repositories, Inputs: inputs}.Enrich(g)
+	report, err := buildsenricher.Enricher{Documents: docs, Repositories: repositories}.Enrich(g)
 	if report != nil {
 		report.WriteText(env.Stderr)
 	}
@@ -123,7 +123,7 @@ func checkCodeMaps(g *core.Graph, f buildFlags) error {
 	if f.refuse || len(f.files) == 0 {
 		return nil
 	}
-	inputs := inputIDs(g)
+	inputs := buildsenricher.InputIDs(g)
 	for _, value := range f.repositories {
 		_, id, found := strings.Cut(value, "=")
 		id = strings.TrimSpace(id)
@@ -135,25 +135,4 @@ func checkCodeMaps(g *core.Graph, f buildFlags) error {
 		}
 	}
 	return nil
-}
-
-// inputIDs are the documents this graph was read from, which is how a whole
-// repository is named.
-//
-// Everything the metadata lists, including the inputs a graph read as an input
-// brought along with it. Whether one of those names anything here depends on
-// how the graph was assembled — after a read-back its nodes are stamped with
-// it, and before one they are not — and an input that parsed to no nodes names
-// nothing here either way. None of them is refused as "not an input", because
-// every one of them is one; the check above tells each the true thing instead,
-// which is whether there is a code map to open.
-func inputIDs(g *core.Graph) map[string]bool {
-	out := map[string]bool{}
-	if g.Metadata == nil {
-		return out
-	}
-	for _, in := range g.Metadata.Inputs {
-		out[in.ID] = true
-	}
-	return out
 }

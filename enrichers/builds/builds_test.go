@@ -351,3 +351,33 @@ func TestOneTagRebuiltAtANewDigestIsStillReportedMissing(t *testing.T) {
 		t.Fatalf("unmatched = %+v; the digest running here is not the one that tag now means", r.Unmatched)
 	}
 }
+
+// Which ids name a whole repository is read from the graph rather than handed
+// in. It used to be a field with no unset state, so a caller who left it out
+// got every mapping read as an element: the edge pointed at an id no node
+// wears, and what the last run recorded was erased.
+func TestNamingAnInputWorksWithoutBeingToldWhatTheInputsAre(t *testing.T) {
+	g := graphRunning("registry.example/checkout:1.4.0")
+	g.Metadata = &core.Metadata{Inputs: []core.InputRef{{ID: "repo-2-svc", Path: "../svc", Kind: "repository"}}}
+
+	r, err := Enricher{
+		Documents:    []*builds.Document{record(t, oneBuild)},
+		Repositories: map[string]string{"acme/checkout": "repo-2-svc"},
+	}.Enrich(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Applied != 1 {
+		t.Fatalf("applied %d", r.Applied)
+	}
+	if g.Edges[0].To != "repository:acme/checkout" {
+		t.Errorf("the edge points at %s rather than at a node for the repository", g.Edges[0].To)
+	}
+	n, ok := g.Node("repository:acme/checkout")
+	if !ok {
+		t.Fatal("no repository node")
+	}
+	if of, _ := n.Attrs[AttrCodeInput].(string); of != "repo-2-svc" {
+		t.Errorf("the repository does not record which input its code is: %v", n.Attrs)
+	}
+}

@@ -475,21 +475,29 @@ func (b *builder) level(path, parent, origin string) error {
 // to call the page behind it. A node nothing touches has none: the detail
 // page would repeat the box the reader already clicked.
 func (b *builder) detailOpening(id string) (Opening, bool) {
-	held, touched, called := b.around(id)
-	if len(held) == 0 && len(touched) == 0 {
-		return Opening{}, false
-	}
 	// A repository somebody has placed opens its code rather than its
 	// neighbours. The reader who got here clicked a container asking what it
 	// runs, and the list of workloads that share the image is not that answer.
 	//
 	// One element has one inside, and the viewer keeps one door per box, so
 	// this replaces the detail page rather than sitting beside it.
+	//
+	// Asked before the neighbours, because it does not depend on them. The
+	// guard below is about a detail page having nothing on it that the box
+	// already said; a code map is somewhere else entirely, and denying the
+	// build record that joined this repository to a workload — which is what
+	// suppressing one is for — left the repository holding code nobody could
+	// reach, while the command line went on saying there was a map to open.
 	subject, _ := b.in.Node(id)
 	if scope, ok := codeInputOf(subject); ok {
 		if len(b.codeOf(scope)) > 0 {
 			return Opening{Element: id, Diagram: codemapID(id), Kind: KindCodemap, Label: "コードマップ"}, true
 		}
+	}
+
+	held, touched, called := b.around(id)
+	if len(held) == 0 && len(touched) == 0 {
+		return Opening{}, false
 	}
 
 	kind := KindDetail
