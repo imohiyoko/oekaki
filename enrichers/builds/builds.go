@@ -51,10 +51,26 @@ type Enricher struct {
 	// hear about before the run starts — the command line checks it, and a
 	// graph left pointing at a box that is not there fails validation.
 	Repositories map[string]string
+}
 
-	// Inputs are the ids of the documents this graph was read from, so a
-	// mapping that names one can be told from a mapping that names an element.
-	Inputs map[string]bool
+// InputIDs are the ids of the documents a graph was read from, which is how a
+// mapping that names a whole repository is told from one that names an element.
+//
+// Read from the graph rather than handed in. It used to be a field, and a
+// field of this shape has no unset state: a caller who forgot it turned every
+// mapping into an element mapping, pointed the edge at an id no node wears,
+// and erased what the last run had recorded — three wrong answers from one
+// omission, none of which look like an omission. The graph already carries
+// this, so nobody has to remember to say it.
+func InputIDs(g *core.Graph) map[string]bool {
+	out := map[string]bool{}
+	if g == nil || g.Metadata == nil {
+		return out
+	}
+	for _, in := range g.Metadata.Inputs {
+		out[in.ID] = true
+	}
+	return out
 }
 
 func (Enricher) Name() string { return "builds" }
@@ -98,9 +114,10 @@ func (e Enricher) Enrich(g *core.Graph) (*enrichers.Report, error) {
 	// Not repeating a flag is not a retraction, and throwing away somebody's
 	// answer because they did not say it twice is the same kind of quiet loss
 	// this is fixing.
+	inputs := InputIDs(g)
 	for repository, id := range e.Repositories {
 		for _, n := range repositoriesNamed(g, repository) {
-			if !e.Inputs[id] {
+			if !inputs[id] {
 				delete(n.Attrs, AttrCodeInput)
 				continue
 			}
@@ -282,6 +299,7 @@ func lookup(byKey map[string]built, image string) (built, bool) {
 // target is the element the edge points at, and whether this invented it: the
 // one somebody wrote down, or a node for the repository itself.
 func (e Enricher) target(g *core.Graph, b built) (string, bool, error) {
+	inputs := InputIDs(g)
 	// The repository this graph already holds, found by what it is rather than
 	// by the id this run would give it.
 	//
@@ -304,7 +322,7 @@ func (e Enricher) target(g *core.Graph, b built) (string, bool, error) {
 	// map then drew that whole input's code.
 	of := ""
 	if id, ok := e.Repositories[b.repository]; ok {
-		if !e.Inputs[id] {
+		if !inputs[id] {
 			// Pointed at an element instead. Whatever an earlier run wrote on
 			// the repository node was cleared before any of this, because it
 			// has to happen whether or not a record matched anything.
