@@ -493,10 +493,12 @@ func TestARepositoryThatCameBackQualifiedIsNotInventedAgain(t *testing.T) {
 	}
 }
 
-// A box that came in from another input is that input's answer about its own
-// subtree. An element mapping names no input at all, so it speaks only for the
-// boxes this run made, and leaves that one alone.
-func TestAnElementMappingLeavesAnotherInputsAnswerAlone(t *testing.T) {
+// A box that came in from a previous output is open onto the code that output
+// found. Pointing the same repository at an element says it has no code map,
+// and that is a sentence about this box: the element is inside the input the
+// box came from. Leaving the old answer standing kept the atlas opening the
+// input the operator had just stopped naming.
+func TestPointingAtAnElementClosesTheBoxItIsInside(t *testing.T) {
 	r := mustRun(t, "", "graph", graphFile(t, qualifiedEstate(t)),
 		"--builds", buildsFile(t, buildRecord),
 		"--build-repo", "acme/checkout=repo-1-out-json:repo-2-svc:file:main.go")
@@ -506,8 +508,8 @@ func TestAnElementMappingLeavesAnotherInputsAnswerAlone(t *testing.T) {
 	if !ok {
 		t.Fatal("the repository that came in with the input is gone")
 	}
-	if of, _ := repo.Attrs["code_input"].(string); of != "repo-1-out-json:repo-2-svc" {
-		t.Errorf("another input's answer about its own code was changed to %q", of)
+	if of, found := repo.Attrs["code_input"]; found {
+		t.Errorf("the box is still open onto %v", of)
 	}
 }
 
