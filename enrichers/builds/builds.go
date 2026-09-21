@@ -121,8 +121,8 @@ func (e Enricher) Enrich(g *core.Graph) (*enrichers.Report, error) {
 	// code inside its own input, and a mapping names one input — so writing it
 	// on every box that shares the name made the other boxes claim code that
 	// lives somewhere else, and put the code they did have out of reach of
-	// every page. An element mapping names no input at all, so it speaks only
-	// for the boxes this run made.
+	// every page. A mapping pointed at an element names somewhere too: an
+	// element inside an input is a sentence about that input's box.
 	inputs := InputIDs(g)
 	for repository, id := range e.Repositories {
 		boxes := repositoriesNamed(g, repository)
@@ -138,7 +138,16 @@ func (e Enricher) Enrich(g *core.Graph) (*enrichers.Report, error) {
 		for _, n := range boxes {
 			from, _ := n.Attrs["repository"].(string)
 			if !inputs[id] {
-				if from == "" {
+				// Pointed at an element rather than an input: no code map, so
+				// the answer an earlier run wrote is retracted. On the boxes
+				// this mapping is about, which is the same set that would have
+				// been written had it named an input. Clearing only the boxes
+				// with nothing to say where they came from left the answer
+				// standing on every box read back out of a previous output —
+				// exactly the boxes an earlier run had written it on — and the
+				// atlas went on opening the input the operator had stopped
+				// naming.
+				if within(id, from) {
 					delete(n.Attrs, AttrCodeInput)
 				}
 				continue
@@ -410,9 +419,10 @@ func (e Enricher) target(g *core.Graph, running core.Node, b built) (string, boo
 	of := ""
 	if id, ok := e.Repositories[b.repository]; ok {
 		if !inputs[id] {
-			// Pointed at an element instead. Whatever an earlier run wrote on
-			// the repository node was cleared before any of this, because it
-			// has to happen whether or not a record matched anything.
+			// Pointed at an element instead. Whatever an earlier run wrote
+			// on the boxes this mapping is about was cleared before any of
+			// this, because it has to happen whether or not a record matched
+			// anything.
 			return id, false, nil
 		}
 		of = id
@@ -444,6 +454,20 @@ func (e Enricher) target(g *core.Graph, running core.Node, b built) (string, boo
 	node := core.Node{
 		ID: id, Type: NodeRepository, Name: b.repository,
 		Claim: &core.Claim{Origin: core.OriginParser, Note: b.run.Label()},
+	}
+	// The mapping goes on this box only when it is not already about one that
+	// is here. A box read back out of a previous output carries the answer
+	// about the code inside its own input; when this run then meets a workload
+	// that box does not cover and makes a second one, stamping the same answer
+	// on both drew the same code map twice — two doors, two identical rooms,
+	// and the limit paying for both.
+	if of != "" {
+		for _, n := range existing {
+			if was, _ := n.Attrs["repository"].(string); within(of, was) {
+				of = ""
+				break
+			}
+		}
 	}
 	if of != "" {
 		node.Attrs = map[string]any{AttrCodeInput: of}

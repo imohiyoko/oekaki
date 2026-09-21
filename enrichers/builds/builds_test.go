@@ -514,3 +514,114 @@ func TestABareRepositoryFromSomeOtherInputIsUsedRatherThanRefused(t *testing.T) 
 		t.Errorf("the edge points at %s", g.Edges[0].To)
 	}
 }
+
+// A mapping pointed at an element says this repository has no code map here,
+// and the answer an earlier run wrote has to go. Every box that came out of
+// that run wears the input it was read from, so clearing only the boxes with
+// nothing to say about where they came from cleared none of them: the box
+// stayed open onto the input the operator had just stopped naming.
+func TestPointingAtAnElementRetractsWhatAnEarlierRunWrote(t *testing.T) {
+	const out = "repo-1-prev-json"
+	g := graphRunning("registry.example/checkout:1.4.0")
+	g.Metadata = &core.Metadata{Inputs: []core.InputRef{
+		{ID: out, Path: "prev.json", Kind: "graph"},
+		{ID: out + ":repo-2-checkout", Path: "../checkout", Kind: "repository"},
+	}}
+	g.Nodes = append(g.Nodes,
+		core.Node{ID: out + ":repository:acme/checkout", Type: NodeRepository, Name: "acme/checkout",
+			Attrs: map[string]any{"repository": out, "code_input": out + ":repo-2-checkout"}},
+		core.Node{ID: out + ":file:main.go", Type: "code_file", Name: "main.go",
+			Attrs: map[string]any{"repository": out}})
+	g.Normalize()
+
+	if _, err := (Enricher{
+		Documents:    []*builds.Document{record(t, oneBuild)},
+		Repositories: map[string]string{"acme/checkout": out + ":file:main.go"},
+	}).Enrich(g); err != nil {
+		t.Fatal(err)
+	}
+
+	n, _ := g.Node(out + ":repository:acme/checkout")
+	if of, found := n.Attrs[AttrCodeInput]; found {
+		t.Errorf("the box is still open onto %v", of)
+	}
+}
+
+// One mapping, one box it is about. Meeting a workload that box does not
+// cover makes a second box — and stamping the mapping on that one too drew
+// the same code map twice: two doors onto one room, both paid for out of the
+// same limit, and nothing downstream able to tell them apart.
+func TestASecondBoxDoesNotTakeTheAnswerTheFirstOneIsAbout(t *testing.T) {
+	const out = "repo-1-out2-json"
+	const code = out + ":repo-2-checkout"
+	g := core.New()
+	g.Metadata = &core.Metadata{Inputs: []core.InputRef{
+		{ID: out, Path: "out2.json", Kind: "graph"},
+		{ID: code, Path: "../checkout", Kind: "repository"},
+		{ID: "repo-2-cluster-yaml", Path: "cluster.yaml", Kind: "kubernetes"},
+	}}
+	g.Nodes = []core.Node{
+		{ID: "repo-2-cluster-yaml:workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
+			Attrs: map[string]any{
+				"image":      "registry.example/checkout:1.4.0",
+				"repository": "repo-2-cluster-yaml",
+			}},
+		{ID: out + ":repository:acme/checkout", Type: NodeRepository, Name: "acme/checkout",
+			Attrs: map[string]any{"repository": out}},
+	}
+	g.Normalize()
+
+	if _, err := (Enricher{
+		Documents:    []*builds.Document{record(t, oneBuild)},
+		Repositories: map[string]string{"acme/checkout": code},
+	}).Enrich(g); err != nil {
+		t.Fatal(err)
+	}
+
+	var open []string
+	for _, n := range g.Nodes {
+		if n.Type != NodeRepository || n.Name != "acme/checkout" {
+			continue
+		}
+		if of, _ := n.Attrs[AttrCodeInput].(string); of == code {
+			open = append(open, n.ID)
+		}
+	}
+	if len(open) != 1 {
+		t.Fatalf("%d boxes open onto %s: %v", len(open), code, open)
+	}
+	if open[0] != out+":repository:acme/checkout" {
+		t.Errorf("the answer landed on %s rather than on the box it is about", open[0])
+	}
+}
+
+// The same sentence, about somewhere else. An element of another input is not
+// this box's own subtree, so the mapping is not about this box and its answer
+// about its own code stands.
+func TestAnElementOfAnotherInputLeavesThisBoxAlone(t *testing.T) {
+	const mine = "repo-1-a-json"
+	g := graphRunning("registry.example/checkout:1.4.0")
+	g.Metadata = &core.Metadata{Inputs: []core.InputRef{
+		{ID: mine, Path: "a.json", Kind: "graph"},
+		{ID: mine + ":repo-2-svc", Path: "../svc", Kind: "repository"},
+		{ID: "repo-2-b-json", Path: "b.json", Kind: "graph"},
+	}}
+	g.Nodes = append(g.Nodes,
+		core.Node{ID: mine + ":repository:acme/checkout", Type: NodeRepository, Name: "acme/checkout",
+			Attrs: map[string]any{"repository": mine, "code_input": mine + ":repo-2-svc"}},
+		core.Node{ID: "repo-2-b-json:file:main.go", Type: "code_file", Name: "main.go",
+			Attrs: map[string]any{"repository": "repo-2-b-json"}})
+	g.Normalize()
+
+	if _, err := (Enricher{
+		Documents:    []*builds.Document{record(t, oneBuild)},
+		Repositories: map[string]string{"acme/checkout": "repo-2-b-json:file:main.go"},
+	}).Enrich(g); err != nil {
+		t.Fatal(err)
+	}
+
+	n, _ := g.Node(mine + ":repository:acme/checkout")
+	if of, _ := n.Attrs[AttrCodeInput].(string); of != mine+":repo-2-svc" {
+		t.Errorf("this box's answer about its own code became %q", of)
+	}
+}

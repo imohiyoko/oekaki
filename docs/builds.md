@@ -176,6 +176,10 @@ $ oekaki graph cluster.yaml --repo ../checkout \
     --builds builds.json --build-repo acme/checkout=repo-2-checkout:file:main.go
 ```
 
+An element is not a code map, so saying one is a retraction: a box the mapping
+is about — the box the element is inside of — stops opening onto whatever an
+earlier run said its code was. The boxes it is not about keep theirs.
+
 An id that names nothing is an error rather than a silent drop — the same
 refusal [`--api`](api.md) makes from the other side. So is a repository no
 record mentions: that mapping would never be consulted, the run would join to
