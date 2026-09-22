@@ -644,3 +644,70 @@ func TestAnEndOfTheWrongKindPutsNoBoxOnTheMap(t *testing.T) {
 		}
 	}
 }
+
+// Code carries no group on an estate's axis, and a node with no group on the
+// axis is drawn at the root of it — so the front page of the estate was the
+// repository's every file, function and type, laid out beside the two things
+// the estate is made of. The complaint the atlas answers, reproduced by the
+// atlas, and paid for out of the same budget the rest of the estate needed.
+func TestTheEstateIsNotTheRepositorysCode(t *testing.T) {
+	a, err := BuildAtlas(estateWithCode(t, true), AtlasOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := pageOf(a, "level:")
+	if root == nil {
+		t.Fatal("there is no root level")
+	}
+	var drawn []string
+	for _, n := range root.Graph.Nodes {
+		drawn = append(drawn, n.ID)
+		if strings.HasPrefix(n.ID, "repo-2-svc:") {
+			t.Errorf("%s is drawn on the estate's front page", n.ID)
+		}
+	}
+	if len(drawn) != 2 {
+		t.Errorf("the estate is %v", drawn)
+	}
+
+	// And still reachable, through the box that opens it.
+	somewhere := map[string]bool{}
+	for _, d := range a.Diagrams {
+		for _, n := range d.Graph.Nodes {
+			somewhere[n.ID] = true
+		}
+	}
+	for _, id := range []string{
+		"repo-2-svc:file:handler/http.go",
+		"repo-2-svc:file:handler/http.go#Handle",
+		"repo-2-svc:file:handler/http.go#total",
+		"repo-2-svc:package:net/http",
+	} {
+		if !somewhere[id] {
+			t.Errorf("%s is drawn nowhere at all", id)
+		}
+	}
+}
+
+// Nobody said which input this repository's code is, so there is no page for
+// it to be drawn on instead. Taking it off the level as well would be taking
+// it out of the atlas.
+func TestCodeWithNoMapStaysWhereItWas(t *testing.T) {
+	a, err := BuildAtlas(estateWithCode(t, false), AtlasOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := pageOf(a, "level:")
+	if root == nil {
+		t.Fatal("there is no root level")
+	}
+	found := false
+	for _, n := range root.Graph.Nodes {
+		if n.ID == "repo-2-svc:file:handler/http.go" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("the code is on no level and behind no box")
+	}
+}

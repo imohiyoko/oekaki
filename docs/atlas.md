@@ -25,6 +25,14 @@ its own page and a file opens what it declares, so the descent from a running
 container to one function — or to one class — is a sequence of clicks. See
 [builds.md](builds.md).
 
+Behind the box, and not also in front of it. Source carries no position on an
+estate's axis — a function is not in a namespace, a subscription or a VPC — and
+a level page draws what the axis places nowhere at its root, which put every
+file and function of a repository on the estate's front page next to the two or
+three things the estate is made of. Code a box opens is drawn behind that box:
+the front page stays the estate, and the budget stays with it. Code no box
+opens is still drawn on the level, because there would be nowhere else for it.
+
 Every box on the map is on a line: a function because it calls or is called, a
 file because it imports, a package because something reached it. A function
 nothing calls but which calls something is where a request comes in, so it

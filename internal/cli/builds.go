@@ -111,7 +111,11 @@ func applyBuilds(env Env, g *core.Graph, f buildFlags) error {
 }
 
 // checkCodeMaps asks, of each repository placed at an input, whether there is
-// still a code map to open there.
+// still a code map to open there. Asked where the answer can be drawn: by
+// `graph`, whose output carries the mapping to whoever renders it, and by a
+// render that is building an atlas. Every other drawing shows the join and not
+// what the box opens onto, and refusing one of those would be refusing to draw
+// something over a page nobody asked for.
 //
 // After the overlays rather than beside the mapping, because that is the first
 // moment the answer is settled: an overlay may suppress the only line an input
