@@ -148,6 +148,14 @@ have given one, because a box that takes another input's answer puts its own
 code out of reach of every page either way. Where there is only one box there
 is nothing to tell it apart from, and the mapping is written there.
 
+Run the same command on its own output and the repository comes back wearing
+the scope it was read under, carrying what the first run said its code was,
+while the code read this time is a fresh input with an id of its own. The flag
+said again is heard: one box, nothing to tell it apart from, and a sentence
+said out loud now. Left off, the box keeps the first run's answer — not
+repeating a flag is not a retraction — and the code read this time is behind no
+box, drawn on the level with everything else that nobody placed.
+
 A mapping that reaches none of the boxes that are here is an error rather than
 a line in the report: it was read, it was accepted, and it changed nothing. A
 repository nothing here runs has no box at all, which is not that — it is the

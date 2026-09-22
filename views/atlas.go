@@ -340,11 +340,50 @@ type builder struct {
 
 	// opened is the code some box on this axis already opens, read once.
 	opened map[string]bool
+
+	// nodes is the document's nodes by id. A graph is a list, so looking one
+	// up walks it, and every page asks about a node per edge it considers —
+	// a cost that is invisible on an estate and quadratic on a repository.
+	nodes map[string]*core.Node
+
+	// incident is the edges at each node, by index into the document's own
+	// list so that the edge is read from there and never copied stale.
+	incident map[string][]int
 }
 
-// inACodeMap is the code this atlas already gives a page of its own: every
-// node of an input a repository box opens, whether the map draws it or a page
-// the map leads to does.
+// touching is the index of every edge with this node at either end.
+//
+// A page asks what one element is next to, and asking it of the whole document
+// is a walk of every edge — fine for a page and not for a page per member of a
+// code map, where the same walk happens once for every function a repository
+// has. The index is built once and read by every page after it.
+func (b *builder) touching(id string) []int {
+	if b.incident == nil {
+		b.incident = make(map[string][]int, len(b.in.Nodes))
+		for i, e := range b.in.Edges {
+			b.incident[e.From] = append(b.incident[e.From], i)
+			if e.To != e.From {
+				b.incident[e.To] = append(b.incident[e.To], i)
+			}
+		}
+	}
+	return b.incident[id]
+}
+
+// node is the document's node with this id.
+func (b *builder) node(id string) (*core.Node, bool) {
+	if b.nodes == nil {
+		b.nodes = make(map[string]*core.Node, len(b.in.Nodes))
+		for i := range b.in.Nodes {
+			b.nodes[b.in.Nodes[i].ID] = &b.in.Nodes[i]
+		}
+	}
+	n, ok := b.nodes[id]
+	return n, ok
+}
+
+// inACodeMap is the code this atlas already gives a page of its own: the boxes
+// on a map some repository opens, and what those boxes hold.
 //
 // Source carries no group on an estate's axis, and a node with no group on the
 // axis is drawn at the root of it — "nowhere on this axis" and "at the top of
@@ -353,9 +392,11 @@ type builder struct {
 // complaint the atlas exists to answer rather than to reproduce, and it does
 // it while spending the budget the rest of the estate needed.
 //
-// Drawn behind the box instead, where somebody asked for it. Nothing is lost
-// by leaving it off: every one of those nodes is reachable through the map, on
-// its own page or as a member listed on one.
+// Drawn behind the box instead, where somebody asked for it. Only what is
+// actually behind it, though: a map draws the boxes on a line and no others,
+// so a file that imports nothing is on no map, and taking it and what it
+// declares off the level as well would take them out of the atlas altogether.
+// Being inside an input a box opens is not the same as being drawn there.
 func (b *builder) inACodeMap() map[string]bool {
 	if b.opened != nil {
 		return b.opened
@@ -364,24 +405,34 @@ func (b *builder) inACodeMap() map[string]bool {
 	scopes := map[string]bool{}
 	for i := range b.in.Nodes {
 		scope, ok := codeInputOf(&b.in.Nodes[i])
-		if !ok || scopes[scope] || len(b.codeOf(scope)) == 0 {
+		if !ok || scopes[scope] {
 			continue
 		}
 		scopes[scope] = true
+		for _, member := range b.codeOf(scope) {
+			b.opened[member] = true
+		}
 	}
-	if len(scopes) == 0 {
+	if len(b.opened) == 0 {
 		return b.opened
 	}
-	for i := range b.in.Nodes {
-		n := &b.in.Nodes[i]
-		switch n.Type {
-		case codeFile, codePackage, codeFunction, codeType:
-		default:
+	// And what those boxes hold. A file on the map opens what it declares, so
+	// its functions and its types are behind the box too — one step, because
+	// that is how far the map leads on its own.
+	held := map[string]bool{}
+	for _, e := range b.in.Edges {
+		if e.Suppressed || e.From == e.To {
 			continue
 		}
-		if of, _ := n.Attrs["repository"].(string); scopes[of] {
-			b.opened[n.ID] = true
+		switch {
+		case b.opened[e.From] && holdsFrom(e, e.From):
+			held[e.To] = true
+		case b.opened[e.To] && holdsFrom(e, e.To):
+			held[e.From] = true
 		}
+	}
+	for id := range held {
+		b.opened[id] = true
 	}
 	return b.opened
 }
@@ -465,8 +516,16 @@ func (b *builder) level(path, parent, origin string) error {
 	if path == "" {
 		// A line to something that is not drawn here is not drawn here
 		// either. It is on the map, between the two boxes it joins.
+		//
+		// Only for what this page was going to draw as itself. A node the
+		// axis put inside a container is represented here by that container,
+		// and dropping it dropped every line the container had: an atlas on
+		// the source axis lost the lines between its top-level directories
+		// the moment any box opened a code map.
 		for id := range opened {
-			delete(at, id)
+			if at[id] == id {
+				delete(at, id)
+			}
 		}
 	}
 	g.Edges = liftEdges(b.in.Edges, at)
@@ -556,7 +615,7 @@ func (b *builder) detailOpening(id string) (Opening, bool) {
 	// build record that joined this repository to a workload — which is what
 	// suppressing one is for — left the repository holding code nobody could
 	// reach, while the command line went on saying there was a map to open.
-	subject, _ := b.in.Node(id)
+	subject, _ := b.node(id)
 	if scope, ok := codeInputOf(subject); ok {
 		if len(b.codeOf(scope)) > 0 {
 			return Opening{Element: id, Diagram: codemapID(id), Kind: KindCodemap, Label: "コードマップ"}, true
@@ -601,7 +660,7 @@ func (b *builder) detailOpening(id string) (Opening, bool) {
 // input it came from. A repository node that arrived inside a previous output
 // wears both, and reading the wrong one opened that input's whole code.
 func (b *builder) repositoryScope(id string) (string, bool) {
-	n, _ := b.in.Node(id)
+	n, _ := b.node(id)
 	return codeInputOf(n)
 }
 
@@ -770,7 +829,7 @@ func (b *builder) codemapPage(id string, open Opening) error {
 	g.Metadata = b.in.Metadata
 	present := map[string]bool{}
 	for _, member := range members {
-		n, ok := b.in.Node(member)
+		n, ok := b.node(member)
 		if !ok {
 			continue
 		}
@@ -807,7 +866,7 @@ func (b *builder) codemapPage(id string, open Opening) error {
 	// Named after its subject, like every other page. Two repositories placed
 	// in one estate produced two pages both called コードマップ, which is a
 	// title only until there are two of them.
-	subject, _ := b.in.Node(id)
+	subject, _ := b.node(id)
 	title := id
 	if subject != nil {
 		title = orDefault(subject.Name, subject.ID)
@@ -830,6 +889,12 @@ func (b *builder) codemapPage(id string, open Opening) error {
 	// through the functions that use it. A type is declared in a file, so the
 	// class diagram is reached through the file's page rather than through the
 	// code that uses the type.
+	//
+	// Asked of every member, however many there are. Stopping early was tried
+	// and was wrong: the descent walks the members too, so the pages past the
+	// cut were built and then had no door — reachable from nothing, which is
+	// worse than the question is expensive. The question is what got cheaper
+	// instead; see around.
 	for _, member := range members {
 		if open, ok := b.detailOpening(member); ok {
 			d.Opens = append(d.Opens, open)
@@ -849,7 +914,7 @@ func (b *builder) codemapPage(id string, open Opening) error {
 // trails back up, and the trail is the one thing a reader who has descended
 // four times is relying on.
 func (b *builder) levelOf(id string) string {
-	n, ok := b.in.Node(id)
+	n, ok := b.node(id)
 	if !ok {
 		return levelID("")
 	}
@@ -868,7 +933,7 @@ func (b *builder) detail(id string) error {
 	if !b.room(open.Diagram) {
 		return nil
 	}
-	subject, ok := b.in.Node(id)
+	subject, ok := b.node(id)
 	if !ok {
 		return nil
 	}
@@ -904,7 +969,7 @@ func (b *builder) detail(id string) error {
 	}
 
 	for _, other := range members {
-		n, ok := b.in.Node(other)
+		n, ok := b.node(other)
 		if !ok {
 			continue
 		}
@@ -987,12 +1052,12 @@ func (b *builder) readDeclarations() {
 // classOf splits what is around a type into what it declares and what it is
 // drawn beside: the member list in the box, and the other types on the page.
 func (b *builder) classOf(id string, around []string) (declares, drawn []string) {
-	centre, ok := b.in.Node(id)
+	centre, ok := b.node(id)
 	if !ok {
 		return nil, nil
 	}
 	for _, other := range around {
-		n, ok := b.in.Node(other)
+		n, ok := b.node(other)
 		if !ok {
 			continue
 		}
@@ -1067,10 +1132,10 @@ func (b *builder) recorded(id string) []core.Edge {
 	steps := make([]core.Edge, 0, len(best.Nodes)-1)
 	for i := 1; i < len(best.Nodes); i++ {
 		from, to := best.Nodes[i-1], best.Nodes[i]
-		if _, ok := b.in.Node(from); !ok {
+		if _, ok := b.node(from); !ok {
 			return nil
 		}
-		if _, ok := b.in.Node(to); !ok {
+		if _, ok := b.node(to); !ok {
 			return nil
 		}
 		steps = append(steps, b.messageFor(from, to, best))
@@ -1122,7 +1187,7 @@ func (b *builder) sequence(id, parent string) error {
 	if !b.room(sid) {
 		return nil
 	}
-	subject, ok := b.in.Node(id)
+	subject, ok := b.node(id)
 	if !ok {
 		return nil
 	}
@@ -1134,7 +1199,7 @@ func (b *builder) sequence(id, parent string) error {
 		participants = append(participants, s.From, s.To)
 	}
 	for _, p := range dedupeStable(participants) {
-		n, ok := b.in.Node(p)
+		n, ok := b.node(p)
 		if !ok {
 			continue
 		}
@@ -1210,7 +1275,7 @@ func (b *builder) callChain(root string) []core.Edge {
 			// the projected graph is validated, that is not a wrong picture
 			// but no picture at all: the error travels all the way out and
 			// the render produces nothing.
-			if _, ok := b.in.Node(e.To); !ok {
+			if _, ok := b.node(e.To); !ok {
 				continue
 			}
 			// One call, however many kinds of evidence found it. A
@@ -1269,7 +1334,8 @@ func better(a, b core.Edge) bool {
 func (b *builder) around(id string) (held, touched []string, calls int) {
 	heldSet := map[string]bool{}
 	touchedSet := map[string]bool{}
-	for _, e := range b.in.Edges {
+	for _, i := range b.touching(id) {
+		e := b.in.Edges[i]
 		if e.Suppressed {
 			continue
 		}
@@ -1282,7 +1348,7 @@ func (b *builder) around(id string) (held, touched []string, calls int) {
 		default:
 			continue
 		}
-		if _, ok := b.in.Node(other); !ok {
+		if _, ok := b.node(other); !ok {
 			continue
 		}
 		if other == id {

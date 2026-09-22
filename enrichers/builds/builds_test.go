@@ -461,11 +461,17 @@ func TestAnUnansweredBoxOfAnotherInputIsNotGivenThisOnesCode(t *testing.T) {
 	}
 }
 
-// One box, from another input, already answering about its own code. There is
-// nothing here for a mapping naming some other input to be about, and writing
-// anyway puts that box's code out of reach of every page. The count of boxes
-// is not the question — this one is alone and still not the answer.
-func TestTheOnlyBoxIsStillNotOverwrittenWhenItHasItsOwnAnswer(t *testing.T) {
+// One box, carrying what an earlier run said its code was, and this run saying
+// something else. This run is heard: it is a sentence said out loud now, about
+// a repository with one box in this estate, and there is nothing here to tell
+// that box apart from.
+//
+// This test used to assert the opposite — that an answer already there was
+// never replaced. That protection is what `owned` and the count of boxes are
+// for, and both of them still hold; refusing the single box as well meant the
+// documented command failed when it was run on its own output, where the box
+// comes back qualified and the code read this time does not.
+func TestTheOnlyBoxTakesThisRunsWord(t *testing.T) {
 	const its = "repo-1-a-json:repo-2-svc"
 	g := graphRunning("registry.example/checkout:1.4.0")
 	g.Metadata = &core.Metadata{Inputs: []core.InputRef{
@@ -486,8 +492,8 @@ func TestTheOnlyBoxIsStillNotOverwrittenWhenItHasItsOwnAnswer(t *testing.T) {
 	}
 
 	n, _ := g.Node("repo-1-a-json:repository:acme/checkout")
-	if of, _ := n.Attrs[AttrCodeInput].(string); of != its {
-		t.Errorf("the box's own answer was replaced with %q", of)
+	if of, _ := n.Attrs[AttrCodeInput].(string); of != "repo-2-checkout" {
+		t.Errorf("what this run said was not heard: the box says %q", of)
 	}
 }
 

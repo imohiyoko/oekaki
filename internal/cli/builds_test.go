@@ -749,3 +749,51 @@ func TestADrawingWithNoAtlasIsNotRefusedOverACodeMap(t *testing.T) {
 		t.Errorf("the error does not say why:\n%s", r.stderr)
 	}
 }
+
+// The documented command, run on its own output. The repository comes back
+// qualified with the scope it was read under and carrying what the first run
+// said its code was; the code read this time is a fresh input with an id of
+// its own. Refusing to hear the same flag a second time left the run with a
+// box whose answer named the first run's copy, and stopped it altogether.
+func TestTheSameCommandOnItsOwnOutputIsHeard(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "checkout")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	const source = "import json\n\ndef handle():\n  return total()\n\ndef total():\n  return json\n"
+	if err := os.WriteFile(filepath.Join(dir, "main.py"), []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	g := core.New()
+	g.Nodes = []core.Node{{
+		ID: "workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
+		Attrs: map[string]any{"image": "registry.example/checkout:1.4.0"},
+	}}
+	g.Normalize()
+
+	records := buildsFile(t, buildRecord)
+	flags := []string{"--repo", dir, "--builds", records, "--build-repo", "acme/checkout=repo-2-checkout"}
+
+	first := mustRun(t, "", append([]string{"graph", graphFile(t, g)}, flags...)...).stdout
+	out1 := filepath.Join(t.TempDir(), "out1.json")
+	if err := os.WriteFile(out1, []byte(first), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	again := mustRun(t, "", append([]string{"graph", out1}, flags...)...).stdout
+
+	out := graphOf(t, again)
+	var boxes []*core.Node
+	for i := range out.Nodes {
+		if out.Nodes[i].Type == "repository" && out.Nodes[i].Name == "acme/checkout" {
+			boxes = append(boxes, &out.Nodes[i])
+		}
+	}
+	if len(boxes) != 1 {
+		t.Fatalf("%d boxes for one repository", len(boxes))
+	}
+	if of, _ := boxes[0].Attrs["code_input"].(string); of != "repo-2-checkout" {
+		t.Errorf("the box opens %q rather than the code this run read", of)
+	}
+}
