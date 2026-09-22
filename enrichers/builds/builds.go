@@ -163,16 +163,20 @@ func (e Enricher) Enrich(g *core.Graph) (*enrichers.Report, error) {
 			// input. One box, nothing on it, and nothing else the mapping
 			// could be about — a question with one answer.
 			//
-			// Anything less than all three and the mapping is left alone. An
-			// answer already there is this box's own, about the code inside
-			// its own input; a second box means there is something to tell
-			// this one apart from. Writing anyway is how a box comes to claim
-			// code that lives somewhere else, which puts the code it did have
-			// out of reach of every page.
+			// Either of those and the mapping is left alone: a second box
+			// means there is something to tell this one apart from, and a box
+			// the mapping is about means this one is not it. Writing anyway is
+			// how a box comes to claim code that lives somewhere else, which
+			// puts the code it did have out of reach of every page.
+			//
+			// An answer already on the only box is not one of those. It was
+			// written by an earlier run, and this run says something else,
+			// out loud, about a repository with one box in this estate — the
+			// ordinary shape of running the same command on its own output,
+			// where the box comes back qualified and the freshly read code
+			// does not. Refusing to hear it made the documented command fail
+			// on the second run, and a wrapper passes these flags every time.
 			if owned || len(boxes) > 1 {
-				continue
-			}
-			if _, answered := n.Attrs[AttrCodeInput]; answered {
 				continue
 			}
 			set(n, id)
@@ -190,7 +194,7 @@ func (e Enricher) Enrich(g *core.Graph) (*enrichers.Report, error) {
 			continue
 		}
 		matched[b.image.Identity()] = true
-		to, invented, err := e.target(g, n, b)
+		to, invented, err := e.target(g, inputs, n, b)
 		if err != nil {
 			return r, err
 		}
@@ -366,8 +370,7 @@ func lookup(byKey map[string]built, image string) (built, bool) {
 
 // target is the element the edge points at, and whether this invented it: the
 // one somebody wrote down, or a node for the repository itself.
-func (e Enricher) target(g *core.Graph, running core.Node, b built) (string, bool, error) {
-	inputs := InputIDs(g)
+func (e Enricher) target(g *core.Graph, inputs map[string]bool, running core.Node, b built) (string, bool, error) {
 	// The repository this graph already holds, found by what it is rather than
 	// by the id this run would give it.
 	//

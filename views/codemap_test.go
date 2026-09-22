@@ -711,3 +711,92 @@ func TestCodeWithNoMapStaysWhereItWas(t *testing.T) {
 		t.Error("the code is on no level and behind no box")
 	}
 }
+
+// The lines of a level page are not the code map's business. A node the axis
+// put inside a container is drawn here as that container, and dropping it from
+// the representatives dropped every line the container had — so an atlas on
+// the source axis lost the lines between its top-level directories as soon as
+// any box opened a code map.
+func TestOpeningACodeMapDoesNotTakeTheLevelsLinesWithIt(t *testing.T) {
+	g := estateWithCode(t, true)
+	g.Axes = []core.Axis{{ID: "source", Label: "Source"}}
+	g.Groups = []core.Group{
+		{ID: "dir:handler", Type: "directory", Label: "handler", Axis: "source"},
+		{ID: "dir:store", Type: "directory", Label: "store", Axis: "source"},
+	}
+	g.Nodes = append(g.Nodes,
+		core.Node{ID: "repo-2-svc:file:store/db.go", Type: "code_file", Name: "store/db.go",
+			Attrs: map[string]any{"repository": "repo-2-svc"}, Groups: map[string]string{"source": "dir:store"}},
+		core.Node{ID: "repo-2-svc:package:database/sql", Type: "code_package", Name: "database/sql",
+			Attrs: map[string]any{"repository": "repo-2-svc"}, Groups: map[string]string{"source": "dir:store"}})
+	for i := range g.Nodes {
+		if strings.HasPrefix(g.Nodes[i].ID, "repo-2-svc:file:handler/") {
+			g.Nodes[i].Groups = map[string]string{"source": "dir:handler"}
+		}
+	}
+	g.Edges = append(g.Edges,
+		core.Edge{From: "repo-2-svc:file:store/db.go", To: "repo-2-svc:package:database/sql",
+			Kind: core.EdgeIACRef, Relation: "imports"},
+		core.Edge{From: "repo-2-svc:file:handler/http.go", To: "repo-2-svc:file:store/db.go",
+			Kind: core.EdgeIACRef, Relation: "calls"})
+	g.Normalize()
+	if err := g.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := BuildAtlas(g, AtlasOptions{Axis: "source"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := pageOf(a, "level:")
+	if root == nil {
+		t.Fatal("there is no root level")
+	}
+	found := false
+	for _, e := range root.Graph.Edges {
+		if e.From == "dir:handler" && e.To == "dir:store" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the line between the directories is gone: %+v", root.Graph.Edges)
+	}
+}
+
+// A map draws the boxes on a line and no others, so a file that imports
+// nothing is on no map. Taking it off the level as well — and what it declares
+// with it — left it in the atlas's nowhere: on no page at all.
+func TestAFileOnNoLineIsStillDrawnSomewhere(t *testing.T) {
+	g := estateWithCode(t, true)
+	g.Nodes = append(g.Nodes,
+		core.Node{ID: "repo-2-svc:file:model/order.go", Type: "code_file", Name: "model/order.go",
+			Attrs: map[string]any{"repository": "repo-2-svc"}},
+		core.Node{ID: "repo-2-svc:file:model/order.go#Order", Type: "code_type", Name: "Order",
+			Attrs: map[string]any{"repository": "repo-2-svc"}})
+	g.Edges = append(g.Edges, core.Edge{
+		From: "repo-2-svc:file:model/order.go", To: "repo-2-svc:file:model/order.go#Order",
+		Kind: core.EdgeIACRef, Relation: "declares"})
+	g.Normalize()
+	if err := g.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := BuildAtlas(g, AtlasOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	somewhere := map[string]bool{}
+	for _, d := range a.Diagrams {
+		for _, n := range d.Graph.Nodes {
+			somewhere[n.ID] = true
+		}
+	}
+	for _, id := range []string{
+		"repo-2-svc:file:model/order.go",
+		"repo-2-svc:file:model/order.go#Order",
+	} {
+		if !somewhere[id] {
+			t.Errorf("%s is on no page at all", id)
+		}
+	}
+}
