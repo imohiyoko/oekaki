@@ -414,8 +414,16 @@ func runRender(ctx context.Context, env Env, args []string) error {
 	if err := applyOverlays(env, g, f.overlay); err != nil {
 		return err
 	}
-	if err := checkCodeMaps(g, f.builds); err != nil {
-		return err
+	// Only when this run can open a box. The mapping still joins the workload
+	// to its repository in every format; what it also says — that the box
+	// opens onto this input's code — is drawn by an atlas and by nothing else,
+	// so refusing a single drawing over it stops output that was never going
+	// to show it. A denied code graph is a person saying those lines are not
+	// there, and it left the SVG unwritten.
+	if f.atlas && format == "html" {
+		if err := checkCodeMaps(g, f.builds); err != nil {
+			return err
+		}
 	}
 	if err := applyEvidenceInputs(env, g, f.observations, f.exposure, f.aiCandidates); err != nil {
 		return err

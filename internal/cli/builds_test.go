@@ -226,29 +226,26 @@ func TestBuildRepoCanNameAnInput(t *testing.T) {
 	}
 }
 
-// A graph read as an input brings its own input list along. Those ids name
-// documents the graph it came from was built out of, and nothing here was ever
-// stamped with one — so a mapping naming one passes every check and then
-// matches nothing, which is the silent no-op the checks exist to prevent.
-func TestBuildRepoRefusesAnInputOfAnInput(t *testing.T) {
-	g := core.New()
-	g.Metadata = &core.Metadata{Inputs: []core.InputRef{
-		{ID: "repo-1-prev", Path: "previous.json", Kind: "repository"},
-		{ID: "repo-1-prev:repo-2-old", Path: "../old", Kind: "repository"},
-	}}
-	g.Nodes = []core.Node{{
-		ID: "workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
-		Attrs: map[string]any{"image": "registry.example/checkout:1.4.0", "repository": "repo-1-prev"},
-	}}
-	g.Normalize()
+// A graph read as an input brings its own input list along, and reading it back
+// qualifies every id with the scope it was read under — the nodes that came
+// out of that repository included. So an input of an input is a real input,
+// with real code inside it, and naming one is the ordinary way to say where a
+// repository's code is once an output has been read back.
+//
+// This was a test that the same mapping was refused. It passed on a fixture
+// holding no code at all, which is a different refusal, and it would have gone
+// on passing if nested inputs really did stop working.
+func TestBuildRepoAcceptsAnInputOfAnInput(t *testing.T) {
+	r := mustRun(t, "", "graph", graphFile(t, qualifiedEstate(t)),
+		"--builds", buildsFile(t, buildRecord),
+		"--build-repo", "acme/checkout=repo-1-out-json:repo-2-svc")
 
-	r := run(t, "", "graph", graphFile(t, g),
-		"--builds", buildsFile(t, buildRecord), "--build-repo", "acme/checkout=repo-1-prev:repo-2-old")
-	if r.code == 0 {
-		t.Fatal("an input of an input was accepted as a place to point at")
+	repo, ok := graphOf(t, r.stdout).Node("repo-1-out-json:repository:acme/checkout")
+	if !ok {
+		t.Fatal("the repository that came in with the input is gone")
 	}
-	if !strings.Contains(r.stderr, "repo-1-prev:repo-2-old") {
-		t.Errorf("the error does not name the id:\n%s", r.stderr)
+	if of, _ := repo.Attrs["code_input"].(string); of != "repo-1-out-json:repo-2-svc" {
+		t.Errorf("the input of an input landed as %q", of)
 	}
 }
 
@@ -720,5 +717,35 @@ func TestAMappingThatReachesNoBoxIsRefusedRatherThanReported(t *testing.T) {
 	}
 	if !strings.Contains(r.stderr, "changed nothing") {
 		t.Errorf("the error does not say what happened:\n%s", r.stderr)
+	}
+}
+
+// The same mapping, in a run that draws no atlas. What a box opens onto is
+// drawn by an atlas and by nothing else, so a single drawing that could never
+// have shown it is refused over nothing — and the code lines that answer the
+// question can be denied by an overlay, which is a person saying those lines
+// are not there rather than a mistake to stop the run over.
+func TestADrawingWithNoAtlasIsNotRefusedOverACodeMap(t *testing.T) {
+	g := core.New()
+	g.Metadata = &core.Metadata{Inputs: []core.InputRef{{ID: "repo-1-cluster", Path: "cluster.yaml", Kind: "kubernetes"}}}
+	g.Nodes = []core.Node{{
+		ID: "workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
+		Attrs: map[string]any{"image": "registry.example/checkout:1.4.0", "repository": "repo-1-cluster"},
+	}}
+	g.Normalize()
+	path := graphFile(t, g)
+	records := buildsFile(t, buildRecord)
+
+	mustRun(t, "", "render", path, "-f", "svg",
+		"--builds", records, "--build-repo", "acme/checkout=repo-1-cluster")
+
+	// The page that would have drawn it still asks.
+	r := run(t, "", "render", path, "-f", "html", "--atlas",
+		"--builds", records, "--build-repo", "acme/checkout=repo-1-cluster")
+	if r.code == 0 {
+		t.Fatal("the atlas drew a box opening onto an input with no code")
+	}
+	if !strings.Contains(r.stderr, "no code map to draw") {
+		t.Errorf("the error does not say why:\n%s", r.stderr)
 	}
 }

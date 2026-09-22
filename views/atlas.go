@@ -337,6 +337,53 @@ type builder struct {
 
 	// descended records the code maps whose members have already been walked.
 	descended map[string]bool
+
+	// opened is the code some box on this axis already opens, read once.
+	opened map[string]bool
+}
+
+// inACodeMap is the code this atlas already gives a page of its own: every
+// node of an input a repository box opens, whether the map draws it or a page
+// the map leads to does.
+//
+// Source carries no group on an estate's axis, and a node with no group on the
+// axis is drawn at the root of it — "nowhere on this axis" and "at the top of
+// this axis" are one thing to a level page. A repository of any size then
+// arrives as a mat of boxes on the front page of the estate, which is the
+// complaint the atlas exists to answer rather than to reproduce, and it does
+// it while spending the budget the rest of the estate needed.
+//
+// Drawn behind the box instead, where somebody asked for it. Nothing is lost
+// by leaving it off: every one of those nodes is reachable through the map, on
+// its own page or as a member listed on one.
+func (b *builder) inACodeMap() map[string]bool {
+	if b.opened != nil {
+		return b.opened
+	}
+	b.opened = map[string]bool{}
+	scopes := map[string]bool{}
+	for i := range b.in.Nodes {
+		scope, ok := codeInputOf(&b.in.Nodes[i])
+		if !ok || scopes[scope] || len(b.codeOf(scope)) == 0 {
+			continue
+		}
+		scopes[scope] = true
+	}
+	if len(scopes) == 0 {
+		return b.opened
+	}
+	for i := range b.in.Nodes {
+		n := &b.in.Nodes[i]
+		switch n.Type {
+		case codeFile, codePackage, codeFunction, codeType:
+		default:
+			continue
+		}
+		if of, _ := n.Attrs["repository"].(string); scopes[of] {
+			b.opened[n.ID] = true
+		}
+	}
+	return b.opened
 }
 
 // room reports whether another diagram may be added, and records the id so a
@@ -365,6 +412,20 @@ func (b *builder) level(path, parent, origin string) error {
 
 	children := b.childGroups(path)
 	nodes := b.in.NodesIn(b.axis, path)
+
+	// Only here, and only for a node this axis places nowhere else: deeper
+	// levels are somewhere a node was put, and an atlas drawn on the source
+	// axis is the code's own structure, where these pages are the point.
+	opened := b.inACodeMap()
+	if path == "" && len(opened) > 0 {
+		kept := make([]*core.Node, 0, len(nodes))
+		for _, n := range nodes {
+			if !opened[n.ID] {
+				kept = append(kept, n)
+			}
+		}
+		nodes = kept
+	}
 
 	g := core.New()
 	g.Metadata = b.in.Metadata
@@ -401,6 +462,13 @@ func (b *builder) level(path, parent, origin string) error {
 	// "this namespace talks to that one" without drawing either one's
 	// contents.
 	at := b.representatives(path, children)
+	if path == "" {
+		// A line to something that is not drawn here is not drawn here
+		// either. It is on the map, between the two boxes it joins.
+		for id := range opened {
+			delete(at, id)
+		}
+	}
 	g.Edges = liftEdges(b.in.Edges, at)
 	carry(b.in, g)
 
