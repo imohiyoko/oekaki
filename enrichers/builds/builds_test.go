@@ -631,3 +631,51 @@ func TestAnElementOfAnotherInputLeavesThisBoxAlone(t *testing.T) {
 		t.Errorf("this box's answer about its own code became %q", of)
 	}
 }
+
+// Two boxes, one answer between them. The single-box fallback writes the
+// mapping on a box whose own input does not cover it, and the box this run
+// then makes for a workload that box does not cover asked a different
+// question — whether the mapping is about some box already here — and got
+// "no", because being about a box and being written on one had come apart.
+// Two doors, two identical rooms, and the limit paying for both.
+func TestTheMappingIsStampedOnOneBoxEvenWhenTheFirstOneWasNotItsOwn(t *testing.T) {
+	const code = "repo-3-checkout"
+	g := core.New()
+	g.Metadata = &core.Metadata{Inputs: []core.InputRef{
+		{ID: "repo-1-old-json", Path: "old.json", Kind: "graph"},
+		{ID: "repo-2-cluster2-yaml", Path: "cluster2.yaml", Kind: "kubernetes"},
+		{ID: code, Path: "../checkout", Kind: "repository"},
+	}}
+	g.Nodes = []core.Node{
+		{ID: "repo-1-old-json:workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
+			Attrs: map[string]any{
+				"image":      "registry.example/checkout:1.4.0",
+				"repository": "repo-1-old-json",
+			}},
+		{ID: "repo-2-cluster2-yaml:workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
+			Attrs: map[string]any{
+				"image":      "registry.example/checkout:1.4.0",
+				"repository": "repo-2-cluster2-yaml",
+			}},
+		{ID: "repo-1-old-json:repository:acme/checkout", Type: NodeRepository, Name: "acme/checkout",
+			Attrs: map[string]any{"repository": "repo-1-old-json"}},
+	}
+	g.Normalize()
+
+	if _, err := (Enricher{
+		Documents:    []*builds.Document{record(t, oneBuild)},
+		Repositories: map[string]string{"acme/checkout": code},
+	}).Enrich(g); err != nil {
+		t.Fatal(err)
+	}
+
+	var open []string
+	for _, n := range g.Nodes {
+		if of, _ := n.Attrs[AttrCodeInput].(string); of == code {
+			open = append(open, n.ID)
+		}
+	}
+	if len(open) != 1 {
+		t.Fatalf("%d boxes open onto %s: %v", len(open), code, open)
+	}
+}
