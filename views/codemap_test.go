@@ -14,14 +14,19 @@ import (
 func estateWithCode(t *testing.T, placed bool) *core.Graph {
 	t.Helper()
 	// Every node of a combined graph carries the input it came from, this one
-	// included. Which input the repository's *code* is, is a different
-	// question with a different answer, and only somebody's mapping says it.
+	// included. Which input is the repository's *code* is a different question
+	// with a different answer, and it is the input that says it.
 	repo := core.Node{ID: "repository:acme/checkout", Type: "repository", Name: "acme/checkout",
 		Attrs: map[string]any{"repository": "repo-1-estate"}}
-	if placed {
-		repo.Attrs["code_input"] = "repo-2-svc"
-	}
 	g := core.New()
+	svc := core.InputRef{ID: "repo-2-svc", Path: "../svc", Kind: "repository"}
+	if placed {
+		svc.Repository = "acme/checkout"
+	}
+	g.Metadata = &core.Metadata{Inputs: []core.InputRef{
+		{ID: "repo-1-estate", Path: "estate.json", Kind: "graph"},
+		svc,
+	}}
 	g.Nodes = []core.Node{
 		{ID: "task", Type: "aws_ecs_task_definition", Name: "api", Attrs: map[string]any{"image": "img:1"}},
 		repo,
@@ -137,7 +142,7 @@ func TestARepositoryNobodyPlacedKeepsItsOrdinaryPage(t *testing.T) {
 	if door.Kind == KindCodemap {
 		t.Fatal("a repository nobody placed opened a code map")
 	}
-	if pageOf(a, "codemap:repo-2-svc") != nil {
+	if pageOf(a, "codemap:acme/checkout") != nil {
 		t.Error("a code map was built for a repository with no input")
 	}
 }
@@ -152,7 +157,7 @@ func TestTheCodeMapParticipatesInTheLimit(t *testing.T) {
 	if len(a.Diagrams) > 1 {
 		t.Fatalf("%d diagrams, over the limit", len(a.Diagrams))
 	}
-	if pageOf(a, "codemap:repo-2-svc") != nil {
+	if pageOf(a, "codemap:acme/checkout") != nil {
 		t.Fatal("the code map ignored the limit")
 	}
 	// The door is on the page the reader is actually on. Asking it of
@@ -171,7 +176,7 @@ func TestTheCodeMapsBoxesOpenTheWayTheyDoAnywhereElse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page := pageOf(a, "codemap:repo-2-svc")
+	page := pageOf(a, "codemap:acme/checkout")
 	if page == nil {
 		t.Fatal("there is no code map")
 	}
@@ -197,11 +202,15 @@ func TestTheCodeMapsBoxesOpenTheWayTheyDoAnywhereElse(t *testing.T) {
 // arrives inside a previous output.
 func TestTheCodeMapReadsTheRepositorysOwnAnswerAndNotTheOneEveryNodeCarries(t *testing.T) {
 	g := core.New()
+	g.Metadata = &core.Metadata{Inputs: []core.InputRef{
+		{ID: "repo-1-estate", Path: "estate.json", Kind: "graph"},
+		{ID: "repo-2-svc", Path: "../svc", Kind: "repository", Repository: "acme/checkout"},
+	}}
 	g.Nodes = []core.Node{
 		{ID: "task", Type: "aws_ecs_task_definition", Name: "api",
 			Attrs: map[string]any{"image": "img:1", "repository": "repo-1-estate"}},
 		{ID: "repository:acme/checkout", Type: "repository", Name: "acme/checkout",
-			Attrs: map[string]any{"repository": "repo-1-estate", "code_input": "repo-2-svc"}},
+			Attrs: map[string]any{"repository": "repo-1-estate"}},
 		{ID: "repo-2-svc:file/a.go", Type: "code_file", Name: "a.go",
 			Attrs: map[string]any{"repository": "repo-2-svc"}},
 		{ID: "repo-2-svc:file/a.go#A", Type: "code_function", Name: "A",
@@ -229,7 +238,7 @@ func TestTheCodeMapReadsTheRepositorysOwnAnswerAndNotTheOneEveryNodeCarries(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	page := pageOf(a, "codemap:repo-2-svc")
+	page := pageOf(a, "codemap:acme/checkout")
 	if page == nil {
 		t.Fatal("there is no code map")
 	}
@@ -254,7 +263,7 @@ func TestTheCodeMapIsNamedAfterItsRepository(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page := pageOf(a, "codemap:repo-2-svc")
+	page := pageOf(a, "codemap:acme/checkout")
 	if page == nil {
 		t.Fatal("there is no code map")
 	}
@@ -282,7 +291,7 @@ func TestTheCodeMapReadsARelationHoweverItIsWritten(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page := pageOf(a, "codemap:repo-2-svc")
+	page := pageOf(a, "codemap:acme/checkout")
 	if page == nil {
 		t.Fatal("there is no code map")
 	}
@@ -327,7 +336,7 @@ func TestABigRepositoryDoesNotSpendTheBudgetOnItsOwnFunctions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pageOf(a, "codemap:repo-2-svc") == nil {
+	if pageOf(a, "codemap:acme/checkout") == nil {
 		t.Fatal("the code map lost its place to the pages of the code it maps")
 	}
 	// The door on the page the repository is placed on, which is the shortest
@@ -343,13 +352,15 @@ func TestABigRepositoryDoesNotSpendTheBudgetOnItsOwnFunctions(t *testing.T) {
 // second map is made is one repository saved at the cost of the next one.
 func TestTwoRepositoriesBothKeepTheirCodeMap(t *testing.T) {
 	g := core.New()
+	g.Metadata = &core.Metadata{Inputs: []core.InputRef{
+		{ID: "repo-1-aaa", Path: "../aaa", Kind: "repository", Repository: "acme/aaa"},
+		{ID: "repo-2-bbb", Path: "../bbb", Kind: "repository", Repository: "acme/bbb"},
+	}}
 	g.Nodes = []core.Node{
 		{ID: "task-a", Type: "aws_ecs_task_definition", Name: "a", Attrs: map[string]any{"image": "a:1"}},
 		{ID: "task-b", Type: "aws_ecs_task_definition", Name: "b", Attrs: map[string]any{"image": "b:1"}},
-		{ID: "repository:acme/aaa", Type: "repository", Name: "acme/aaa",
-			Attrs: map[string]any{"code_input": "repo-1-aaa"}},
-		{ID: "repository:acme/bbb", Type: "repository", Name: "acme/bbb",
-			Attrs: map[string]any{"code_input": "repo-2-bbb"}},
+		{ID: "repository:acme/aaa", Type: "repository", Name: "acme/aaa"},
+		{ID: "repository:acme/bbb", Type: "repository", Name: "acme/bbb"},
 	}
 	g.Edges = []core.Edge{
 		{From: "task-a", To: "repository:acme/aaa", Kind: core.EdgeObserved, Relation: "built_from"},
@@ -379,7 +390,7 @@ func TestTwoRepositoriesBothKeepTheirCodeMap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"codemap:repo-1-aaa", "codemap:repo-2-bbb"} {
+	for _, want := range []string{"codemap:acme/aaa", "codemap:acme/bbb"} {
 		if pageOf(a, want) == nil {
 			t.Errorf("%s was never built", want)
 		}
@@ -417,7 +428,7 @@ func TestABigChildLevelDoesNotCostThisLevelItsCodeMap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pageOf(a, "codemap:repo-2-svc") == nil {
+	if pageOf(a, "codemap:acme/checkout") == nil {
 		t.Fatal("a child level spent the budget before this level's code map was made")
 	}
 }
@@ -445,7 +456,7 @@ func TestTheCodeMapDrawsOnlyWhatIsOnALine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page := pageOf(a, "codemap:repo-2-svc")
+	page := pageOf(a, "codemap:acme/checkout")
 	if page == nil {
 		t.Fatal("there is no code map")
 	}
@@ -493,7 +504,7 @@ func TestTheCodeMapDoesNotDrawWhatSomebodyDenied(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if page := pageOf(a, "codemap:repo-2-svc"); page != nil {
+	if page := pageOf(a, "codemap:acme/checkout"); page != nil {
 		t.Errorf("a code map was built out of %d denied lines", len(page.Graph.Edges))
 	}
 }
@@ -521,7 +532,7 @@ func TestACallLeavingTheRepositoryDoesNotPutABoxOnTheMap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page := pageOf(a, "codemap:repo-2-svc")
+	page := pageOf(a, "codemap:acme/checkout")
 	if page == nil {
 		t.Fatal("there is no code map")
 	}
@@ -559,7 +570,7 @@ func TestTheCodeMapDrawsADeniedLineBetweenBoxesThatAreAlreadyThere(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	page := pageOf(a, "codemap:repo-2-svc")
+	page := pageOf(a, "codemap:acme/checkout")
 	if page == nil {
 		t.Fatal("there is no code map")
 	}
@@ -595,7 +606,7 @@ func TestDenyingTheJoinDoesNotTakeTheCodeMapWithIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pageOf(a, "codemap:repo-2-svc") == nil {
+	if pageOf(a, "codemap:acme/checkout") == nil {
 		t.Fatal("the code map went with the denied join")
 	}
 	if openingOf(pageOf(a, "level:"), "repository:acme/checkout") == nil {
@@ -633,7 +644,7 @@ func TestAnEndOfTheWrongKindPutsNoBoxOnTheMap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page := pageOf(a, "codemap:repo-2-svc")
+	page := pageOf(a, "codemap:acme/checkout")
 	if page == nil {
 		t.Fatal("there is no code map")
 	}
@@ -842,7 +853,7 @@ func TestTwoBoxesForOneRepositoryAreTwoDoorsIntoOneRoom(t *testing.T) {
 			t.Errorf("%s opens onto nothing", box)
 			continue
 		}
-		if open.Diagram != "codemap:repo-2-svc" {
+		if open.Diagram != "codemap:acme/checkout" {
 			t.Errorf("%s opens %s", box, open.Diagram)
 		}
 	}
@@ -1131,20 +1142,15 @@ func TestABoxIsOnlyLiftedWhenAMapDrawsIt(t *testing.T) {
 	}
 }
 
-// A monorepo: two repositories built out of one input, so both boxes open the
-// one code map. Naming the page after whichever box reached it first meant
-// clicking the other one arrived at a page named after its neighbour, and the
-// trail back up led to a level that box is not on.
-func TestOneRoomWithTwoNamesIsNamedAfterNeither(t *testing.T) {
+// An input is one repository's code, so a second repository standing next to
+// it has no map of its own — and the page is named after the repository it
+// draws rather than after whichever box the reader came through.
+func TestARepositoryNobodySaidAnythingAboutHasNoMap(t *testing.T) {
 	g := estateWithCode(t, true)
-	g.Axes = []core.Axis{{ID: "containment", Label: "Cluster"}}
-	g.Groups = []core.Group{{ID: "ns:other", Type: "namespace", Label: "other", Axis: "containment"}}
 	g.Nodes = append(g.Nodes,
 		core.Node{ID: "task-b", Type: "aws_ecs_task_definition", Name: "b",
-			Attrs: map[string]any{"image": "img:2"}, Groups: map[string]string{"containment": "ns:other"}},
-		core.Node{ID: "repository:acme/worker", Type: "repository", Name: "acme/worker",
-			Attrs:  map[string]any{"code_input": "repo-2-svc"},
-			Groups: map[string]string{"containment": "ns:other"}})
+			Attrs: map[string]any{"image": "img:2"}},
+		core.Node{ID: "repository:acme/worker", Type: "repository", Name: "acme/worker"})
 	g.Edges = append(g.Edges, core.Edge{From: "task-b", To: "repository:acme/worker",
 		Kind: core.EdgeObserved, Relation: "built_from"})
 	g.Normalize()
@@ -1156,14 +1162,80 @@ func TestOneRoomWithTwoNamesIsNamedAfterNeither(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page := pageOf(a, "codemap:repo-2-svc")
+	if pageOf(a, "codemap:acme/worker") != nil {
+		t.Error("a repository nobody placed opened a code map")
+	}
+	page := pageOf(a, "codemap:acme/checkout")
+	if page == nil {
+		t.Fatal("the repository somebody did place has no code map")
+	}
+	if page.Title != "acme/checkout" {
+		t.Errorf("the page is called %q", page.Title)
+	}
+	if open := openingOf(pageOf(a, "level:"), "repository:acme/worker"); open != nil && open.Kind == KindCodemap {
+		t.Error("the unplaced repository has a door onto somebody else's code")
+	}
+}
+
+// The estate's axis is the estate's. A graph that has read a repository has
+// the code's axis too, and it sorted first — so an atlas nobody gave an axis
+// to drew the repository's directories as the estate's front page.
+func TestTheDefaultAxisIsNotTheCodesOwn(t *testing.T) {
+	g := estateWithCode(t, true)
+	g.Axes = []core.Axis{{ID: "source", Label: "Source"}, {ID: "tier", Label: "Tier"}}
+	g.Groups = []core.Group{{ID: "tier:web", Type: "tier", Label: "web", Axis: "tier"}}
+	for i := range g.Nodes {
+		if g.Nodes[i].ID == "task" {
+			g.Nodes[i].Groups = map[string]string{"tier": "tier:web"}
+		}
+	}
+	g.Normalize()
+	if err := g.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := BuildAtlas(g, AtlasOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pageOf(a, "level:tier:web") == nil {
+		t.Errorf("the atlas was drawn on the code's axis: %v", pageIDs(a))
+	}
+}
+
+// A line the choosing refused is a line the page must not draw: CodeOf picks
+// the boxes by the kinds a relation joins, so drawing a `calls` between a file
+// and a package is the page contradicting the rule it was built by.
+func TestTheMapDrawsOnlyTheLinesItsOwnRuleAccepts(t *testing.T) {
+	g := estateWithCode(t, true)
+	g.Edges = append(g.Edges, core.Edge{
+		From: "repo-2-svc:file:handler/http.go", To: "repo-2-svc:file:handler/http.go#Handle",
+		Kind: core.EdgeIACRef, Relation: "calls",
+	})
+	g.Normalize()
+	if err := g.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := BuildAtlas(g, AtlasOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := pageOf(a, "codemap:acme/checkout")
 	if page == nil {
 		t.Fatal("there is no code map")
 	}
-	if page.Title == "acme/checkout" || page.Title == "acme/worker" {
-		t.Errorf("the shared page is named after one of them: %q", page.Title)
+	for _, e := range page.Graph.Edges {
+		if e.From == "repo-2-svc:file:handler/http.go" && e.Relation == "calls" {
+			t.Errorf("a file calls something on the map: %+v", e)
+		}
 	}
-	if page.Parent != "level:" {
-		t.Errorf("the trail back up goes to %q, which only one of them is on", page.Parent)
+}
+
+func pageIDs(a *Atlas) []string {
+	var out []string
+	for _, d := range a.Diagrams {
+		out = append(out, d.ID)
 	}
+	return out
 }

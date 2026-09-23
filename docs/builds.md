@@ -129,45 +129,26 @@ and says it built this, and that much is known without anybody deciding where
 it sits in the estate.
 
 When a code graph is loaded as well, whoever knows the estate can say which
-**input** that repository is. The repository node then records it as
-`attrs.code_input`, and in an atlas the box opens as that repository's code map
-— the descent from a running container to one class, by clicking. See
-[atlas.md](atlas.md).
+**input** that repository is. The graph records it on that input, as
+`metadata.inputs[].repository`, and in an atlas every box for that repository
+opens as its code map — the descent from a running container to one class, by
+clicking. See [atlas.md](atlas.md).
 
-What this run is told is what the repository ends up saying, whether or not
-anything here happens to be running an image the records name — a mapping is a
-sentence about a repository, not about what is deployed today. A repository
-this run says nothing about keeps what it was told before: not repeating a flag
-is not a retraction.
+On the input, because that is what the sentence is about: the code in this
+input is that repository's. The repository itself may be here as one box, as a
+box per input it was read beside, or as no box at all — a record can cover more
+than this estate — and none of that changes where its code is. Recording it on
+a box instead made the answer depend on which box, and a repository name is not
+a unique key: every reading of it then needed a rule for which box was meant,
+and each rule was a new way to be wrong.
 
-Combining several outputs leaves a box per input, all of them the same
-repository and none of them the same box, each answering about the code inside
-its own input. A mapping names one input, so it is written on the box that
-input is inside of, and the others keep their own answer — whether or not they
-have given one, because a box that takes another input's answer puts its own
-code out of reach of every page either way. Where there is only one box there
-is nothing to tell it apart from, and the mapping is written there.
-
-Run the same command on its own output and the repository comes back wearing
-the scope it was read under, carrying what the first run said its code was,
-while the code read this time is a fresh input with an id of its own. The flag
-said again is heard: one box, nothing to tell it apart from, and a sentence
-said out loud now. Left off, the box keeps the first run's answer — not
-repeating a flag is not a retraction — and the code read this time is behind no
-box, drawn on the level with everything else that nobody placed.
-
-A mapping that reaches none of the boxes that are here is an error rather than
-a line in the report: it was read, it was accepted, and it changed nothing. A
-repository nothing here runs has no box at all, which is not that — it is the
-ordinary case of a record covering more than this estate, and the summary says
-so. The edge goes to the box that speaks for the input the thing running it
-came from; pointing it anywhere else draws a workload built from two
-repositories.
-
-Its own key, not `attrs.repository`: that one already says which input a node
-*came from*, which every node of a combined graph carries and which a
-repository node arriving inside a previous output carries too. One key holding
-two answers is decided by whichever was written last.
+What this run is told is what the graph ends up saying, whether or not anything
+here happens to be running an image the records name — a mapping is a sentence
+about a repository, not about what is deployed today. A repository this run
+says nothing about keeps what it was told before: not repeating a flag is not a
+retraction. Naming an input is a replacement, though: whatever input said it
+was this repository's code stops saying so, because a repository's code is one
+place at a time.
 
 ```console
 $ oekaki graph cluster.yaml --repo ../checkout \
@@ -184,9 +165,9 @@ $ oekaki graph cluster.yaml --repo ../checkout \
     --builds builds.json --build-repo acme/checkout=repo-2-checkout:file:main.go
 ```
 
-An element is not a code map, so saying one is a retraction: a box the mapping
-is about — the box the element is inside of — stops opening onto whatever an
-earlier run said its code was. The boxes it is not about keep theirs.
+An element is not a code map, so saying one is a retraction: the input that
+said it was this repository's code stops saying it, and the box opens onto
+nothing again. The edge still points where the flag says.
 
 An id that names nothing is an error rather than a silent drop — the same
 refusal [`--api`](api.md) makes from the other side. So is a repository no

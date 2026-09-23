@@ -21,7 +21,6 @@ import (
 	tracecollector "github.com/imohiyoko/oekaki/collectors/traces"
 	"github.com/imohiyoko/oekaki/core"
 	"github.com/imohiyoko/oekaki/enrichers/ai"
-	buildsenricher "github.com/imohiyoko/oekaki/enrichers/builds"
 	"github.com/imohiyoko/oekaki/enrichers/exposure"
 	loginventoryenricher "github.com/imohiyoko/oekaki/enrichers/loginventory"
 	"github.com/imohiyoko/oekaki/enrichers/observations"
@@ -465,7 +464,7 @@ func runRender(ctx context.Context, env Env, args []string) error {
 	// the file, and the run said it was applied. A picture is asked earlier,
 	// and about the estate rather than about one view of it, because a drawing
 	// is not carried anywhere.
-	if carriesGraph(format, f.externalAssets) {
+	if carriesGraph(format) {
 		if err := checkCodeMaps(g, placed); err != nil {
 			return err
 		}
@@ -1486,38 +1485,25 @@ func repositoryScope(path string, index int) string {
 	return fmt.Sprintf("repo-%d-%s", index+1, name)
 }
 
-// qualifyInputAttrs rewrites the attributes that name an input.
-//
-// `repository` is which input this came from, and `code_input` is which input
-// a repository's code is. Both are ids in the same namespace as
-// `metadata.inputs[].id`, which is qualified a few lines below — so these are
-// qualified the same way, and for the same reason every other id here is: a
-// graph read as an input is a graph whose ids are now inside this one.
-//
-// Leaving `code_input` alone was worse than losing it. Its old value is a
-// position in the run that wrote it — `repo-2-…` — and the next run has a
-// `repo-2-…` of its own, so the untouched id quietly came to mean somebody
-// else's repository, and the code map drew that repository's code under this
-// one's name.
 // carriesGraph reports whether a run writes the document itself rather than a
 // picture of it.
 //
-// The property rather than a list of formats: `--external-assets` writes the
-// graph beside the page as its own file, which is the same handing-on as
-// `-f json` and was not in the list.
-func carriesGraph(format string, externalAssets bool) bool {
-	return format == "json" || (format == "html" && externalAssets)
+// The property rather than a list of formats. An interactive page carries the
+// whole document inside it — that is what makes it interactive — and writes it
+// beside the page instead when asked to; listing the formats that hand a
+// document on had only `-f json` in it, and then only `--external-assets`.
+func carriesGraph(format string) bool {
+	return format == "json" || format == "html"
 }
 
+// qualifyInputAttrs rewrites what a node says about which input it came from,
+// so that it says it in this run's namespace.
+//
+// The answer is where it is now, and where it is now is inside this scope —
+// but the graph it arrived in had inputs of its own, and that is still true of
+// it. Which input is a repository's *code* is not here: that is a fact about
+// the input, and `metadata.inputs[].id` is qualified a few lines below.
 func qualifyInputAttrs(attrs map[string]any, scope string) {
-	for _, key := range []string{buildsenricher.AttrCodeInput} {
-		if was, ok := attrs[key].(string); ok && was != "" {
-			attrs[key] = scope + ":" + was
-		}
-	}
-	// Which input this came from is answered by where it is now, and where it
-	// is now is inside this scope — but the graph it arrived in had inputs of
-	// its own, and that is still true of it.
 	if was, ok := attrs["repository"].(string); ok && was != "" {
 		attrs["repository"] = scope + ":" + was
 		return

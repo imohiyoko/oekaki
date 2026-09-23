@@ -44,6 +44,10 @@
               "id": { "type": "string", "minLength": 1 },
               "path": { "type": "string", "minLength": 1 },
               "kind": { "type": "string" },
+              "repository": {
+                "description": "The repository whose code this input is, when a build mapping said so. A fact about the input: the repository may be here as one box, as a box per input, or as none.",
+                "type": "string"
+              },
               "source_version": {
                 "description": "Version of the source tool for this individual input, when inputs were combined from independently produced graphs.",
                 "type": "string"

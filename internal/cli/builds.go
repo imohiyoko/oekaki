@@ -65,6 +65,7 @@ func applyBuilds(env Env, g *core.Graph, f buildFlags) (map[string]string, error
 
 	inputs := buildsenricher.InputIDs(g)
 	repositories := map[string]string{}
+	named := map[string]string{}
 	for _, value := range f.repositories {
 		repository, id, found := strings.Cut(value, "=")
 		repository, id = strings.TrimSpace(repository), strings.TrimSpace(id)
@@ -98,6 +99,14 @@ func applyBuilds(env Env, g *core.Graph, f buildFlags) (map[string]string, error
 		if was, ok := repositories[repository]; ok && was != id {
 			return nil, fmt.Errorf("--build-repo %s: %s was already said to be %q", value, repository, was)
 		}
+		// And the other way round. An input is one repository's code — that is
+		// what the graph records on it — so two repositories naming one input
+		// is a sentence with two subjects, and whichever was read last would
+		// have won, in whatever order a map happened to be walked.
+		if was, ok := named[id]; ok && was != repository {
+			return nil, fmt.Errorf("--build-repo %s: %q was already said to be %s's code", value, id, was)
+		}
+		named[id] = repository
 		repositories[repository] = id
 	}
 
@@ -152,31 +161,6 @@ func checkCodeMaps(g *core.Graph, repositories map[string]string) error {
 		value := repository + "=" + id
 		if len(views.CodeOf(g, id)) == 0 {
 			return fmt.Errorf("--build-repo %s: %q is here, but there is no code map to draw from it — a repository is named as an input so that its code can be opened", value, id)
-		}
-		// And that it reached the repository. A box answers about the code
-		// inside the input it came from, so a mapping naming an input outside
-		// that one is not about it and is not written there — which is right,
-		// and silent: the run said the mapping was applied while the box went
-		// on opening onto whatever it opened onto before. A repository nothing
-		// here runs has no box at all, and that is the ordinary case the
-		// report already speaks about.
-		landed, boxes := false, 0
-		for _, n := range g.Nodes {
-			if n.Type != buildsenricher.NodeRepository || n.Name != repository {
-				continue
-			}
-			boxes++
-			if of, _ := n.Attrs[buildsenricher.AttrCodeInput].(string); of == id {
-				landed = true
-			}
-		}
-		if boxes > 0 && !landed {
-			was := "box"
-			if boxes > 1 {
-				was = "boxes"
-			}
-			return fmt.Errorf("--build-repo %s: %s is here as %d %s, and none of them is inside %q — the mapping was read and changed nothing",
-				value, repository, boxes, was, id)
 		}
 	}
 	return nil
