@@ -100,6 +100,51 @@ const (
 	relServes = "serves"
 )
 
+// codeLines is what a code map draws: the relations, the kinds of box each one
+// joins, and whether the far end is this repository's code.
+//
+// One table because two readings of it that disagree are a box put on a page
+// for a line the page then declines to draw, or a line drawn to a box that was
+// never chosen. Both questions are asked here — CodeOf chooses, joins draws —
+// and the next relation to land on a map (a router registration, a gRPC
+// service) is a row rather than an edit in two places that have to agree.
+var codeLines = []struct {
+	relation string
+	from, to string
+
+	// ours says the far end is code of the same repository. A serves claim's
+	// is not: an operation belongs to the document that declared it, and the
+	// map draws it as what a line runs to rather than as one of its own boxes.
+	ours bool
+}{
+	{relation: relImports, from: codeFile, to: codePackage, ours: true},
+	{relation: relCalls, from: codeFunction, to: codeFunction, ours: true},
+	{relation: relServes, from: codeFunction, to: apiOperation},
+}
+
+// farType is the kinds of box a code line may reach outside the repository it
+// is drawn for, derived from the table so the two cannot drift.
+var farType = func() map[string]bool {
+	out := map[string]bool{}
+	for _, l := range codeLines {
+		if !l.ours {
+			out[l.to] = true
+		}
+	}
+	return out
+}()
+
+// codeLine is the row a relation is drawn by, if it is drawn at all. Folded,
+// because a graph is a document and somebody else may have written it.
+func codeLine(relation string) (int, bool) {
+	for i := range codeLines {
+		if strings.EqualFold(relation, codeLines[i].relation) {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
 // Where a sequence's order came from.
 const (
 	// OrderObserved means something walked this route and the document
@@ -454,28 +499,44 @@ func (b *builder) liftCode() error {
 		if b.out[i].Kind != KindCodemap {
 			continue
 		}
+		mine := map[string]bool{}
 		for _, n := range b.out[i].Graph.Nodes {
 			elsewhere[n.ID] = true
+			if isCode(n.Type) {
+				mine[n.ID] = true
+			}
 		}
 		// And the pages the map opens: what a mapped file declares is drawn
 		// there rather than on the map, and the map is the door to it.
 		//
-		// Of that repository's own code, though, and not of everything those
-		// pages happen to draw. A page reached from here shows its subject's
-		// neighbours, and a neighbour can be anybody's — an operation's page
-		// draws every function said to serve it, a function's page draws what
-		// calls it across a repository boundary. Lifting one of those is the
-		// exact failure this exists to prevent, inverted: a box taken off the
-		// front page on the strength of a map it is not on, and which is not
-		// going to be built for it because nobody placed its repository.
+		// The pages of its own boxes, and on them, everything that is not
+		// somebody else's code.
+		//
+		// Both halves are load-bearing. A page reached from here shows its
+		// subject's neighbours, and a neighbour can be anybody's: an
+		// operation's page draws every function said to serve it, and a
+		// function's page draws what calls it across a repository boundary.
+		// Lifting one of those is this pass inverted — a box taken off the
+		// front page on the strength of a map it is not on, and which will
+		// never be built for it because nobody placed its repository.
+		//
+		// Not of *another* input, rather than of this one: a code node with no
+		// input stamped on it is nowhere else to be found, so it belongs
+		// behind the box whose page it was drawn on. Asking for this
+		// repository's stamp instead left every such node on the front page
+		// and on the map both, which is the duplication this whole pass is
+		// about.
 		of := b.scopesOf(strings.TrimPrefix(b.out[i].ID, codemapID("")))
 		for _, open := range b.out[i].Opens {
+			if !mine[open.Element] {
+				continue
+			}
 			j, ok := at[open.Diagram]
 			if !ok {
 				continue
 			}
 			for _, n := range b.out[j].Graph.Nodes {
-				if from, _ := n.Attrs["repository"].(string); of[from] {
+				if from, _ := n.Attrs["repository"].(string); from == "" || of[from] {
 					elsewhere[n.ID] = true
 				}
 			}
@@ -797,7 +858,10 @@ func (b *builder) scopesOf(name string) map[string]bool {
 		return of
 	}
 	for _, in := range b.in.Metadata.Inputs {
-		if in.Repository == name {
+		// An input with no id stamps nothing, so it would stand for every
+		// node that carries no stamp — which is the opposite of what a scope
+		// is for.
+		if in.ID != "" && in.Repository == name {
 			of[in.ID] = true
 		}
 	}
@@ -861,14 +925,13 @@ func CodeOf(g *core.Graph, scope string) []string {
 		return nil
 	}
 	kind := map[string]string{}
-	// And the operations, whatever input they came from. One end of a serves
-	// claim belongs to a document rather than to this repository, so that
-	// pairing cannot be asked of the scope alone — and an operation is the
-	// only thing outside it any of these lines may reach.
-	operation := map[string]bool{}
+	// And the boxes a line may reach outside this repository, whatever input
+	// they came from: the far end of a serves claim belongs to the document
+	// that declared it, so that pairing cannot be asked of the scope alone.
+	elsewhere := map[string]string{}
 	for _, n := range g.Nodes {
-		if n.Type == apiOperation {
-			operation[n.ID] = true
+		if farType[n.Type] {
+			elsewhere[n.ID] = n.Type
 		}
 		if of, _ := n.Attrs["repository"].(string); of != scope {
 			continue
@@ -889,35 +952,35 @@ func CodeOf(g *core.Graph, scope string) []string {
 		if e.Suppressed {
 			continue
 		}
-		// Both ends, and both of the kind the line joins. The page keeps a
-		// line only when both of its ends are on it, so an end that would not
-		// be chosen takes the line with it — and the other end, chosen for a
-		// line that is no longer there, sits on a page whose whole rule is
-		// that every box is on one. A file importing something that is not a
-		// package is not this project's own reading, but a graph is a document
-		// and somebody else may write one.
-		switch {
-		case strings.EqualFold(e.Relation, relImports):
-			if kind[e.From] == codeFile && kind[e.To] == codePackage {
-				on[e.From], on[e.To] = true, true
-			}
-		case strings.EqualFold(e.Relation, relCalls):
-			if kind[e.From] == codeFunction && kind[e.To] == codeFunction {
-				on[e.From], on[e.To] = true, true
-			}
-		// One end only, and it is the function. What it serves is an
-		// operation of a document the estate already draws somewhere else —
-		// putting it here would make this repository's code include a box
+		// Both ends of the kind the line joins. The page keeps a line only
+		// when both of its ends are on it, so an end that would not be chosen
+		// takes the line with it — and the other end, chosen for a line that
+		// is no longer there, sits on a page whose whole rule is that every
+		// box is on one. A file importing something that is not a package is
+		// not this project's own reading, but a graph is a document and
+		// somebody else may write one.
+		//
+		// And only the near end is chosen when the far one is not ours. A
+		// served operation is drawn on the map, but as what a line runs to:
+		// counting it here would make this repository's code include a box
 		// nobody read out of it, and the level would then have it lifted away.
 		//
-		// The function is on the page even if it calls nothing and nothing
-		// calls it. That is the whole point of the claim: a handler reached
-		// from outside the tree is where a request comes in, and the rule
-		// above can only see the ones something inside the tree calls.
-		case strings.EqualFold(e.Relation, relServes):
-			if kind[e.From] == codeFunction && operation[e.To] {
+		// The function is chosen even if it calls nothing and nothing calls
+		// it. That is the whole point of the claim: a handler reached from
+		// outside the tree is where a request comes in, and the rules above
+		// can only see the ones something inside the tree calls.
+		i, ok := codeLine(e.Relation)
+		if !ok || kind[e.From] != codeLines[i].from {
+			continue
+		}
+		if !codeLines[i].ours {
+			if elsewhere[e.To] == codeLines[i].to {
 				on[e.From] = true
 			}
+			continue
+		}
+		if kind[e.To] == codeLines[i].to {
+			on[e.From], on[e.To] = true, true
 		}
 	}
 
@@ -1009,15 +1072,8 @@ func joins(b *builder, e core.Edge) bool {
 	if from == nil || to == nil {
 		return false
 	}
-	switch {
-	case strings.EqualFold(e.Relation, relImports):
-		return from.Type == codeFile && to.Type == codePackage
-	case strings.EqualFold(e.Relation, relCalls):
-		return from.Type == codeFunction && to.Type == codeFunction
-	case strings.EqualFold(e.Relation, relServes):
-		return from.Type == codeFunction && to.Type == apiOperation
-	}
-	return false
+	i, ok := codeLine(e.Relation)
+	return ok && from.Type == codeLines[i].from && to.Type == codeLines[i].to
 }
 
 // codemapPage builds the map itself and nothing under it.
@@ -1053,11 +1109,7 @@ func (b *builder) codemapPage(id string, open Opening) error {
 		// Folded, the way every other relation in this file is read. A graph
 		// that writes `Imports` loses the lines here and the files with them,
 		// leaving a page of boxes and no flow, and saying nothing about it.
-		switch {
-		case strings.EqualFold(e.Relation, relCalls),
-			strings.EqualFold(e.Relation, relImports),
-			strings.EqualFold(e.Relation, relServes):
-		default:
+		if _, ok := codeLine(e.Relation); !ok {
 			continue
 		}
 		// And of the kind that line joins, the same pairing CodeOf asked for
@@ -1078,7 +1130,6 @@ func (b *builder) codemapPage(id string, open Opening) error {
 	// are already here — the rule every other line on this page follows — but
 	// it never brings a box with it, because a box on the page because of a
 	// line somebody denied is the page arguing with itself.
-	var served []string
 	for _, e := range lines {
 		if !strings.EqualFold(e.Relation, relServes) || e.Suppressed || !present[e.From] || present[e.To] {
 			continue
@@ -1089,9 +1140,7 @@ func (b *builder) codemapPage(id string, open Opening) error {
 		}
 		place(g, n)
 		present[e.To] = true
-		served = append(served, e.To)
 	}
-	served = sorted(served)
 
 	for _, e := range lines {
 		// Suppressed lines are drawn, the way every other page draws them. A
@@ -1145,10 +1194,15 @@ func (b *builder) codemapPage(id string, open Opening) error {
 	// worse than the question is expensive. The question is what got cheaper
 	// instead; see around.
 	//
-	// The operations too. A reader who has just learnt that this function
-	// answers that operation is one click from what else is on that surface,
-	// and the box would otherwise be the only one here that opens nothing.
-	for _, member := range append(append([]string{}, members...), served...) {
+	// The members. An operation drawn here gets no door, and the reason is
+	// what is behind one: its detail page is its neighbours, and its only
+	// neighbour is the function on this page that serves it. The door led to
+	// a page strictly smaller than the one the reader was already on, and
+	// charged the atlas a page for it — which under a budget is a page of
+	// this repository's code not drawn. The estate draws the operation on its
+	// level, among the things it actually sits with; this box says which code
+	// answers it, and that is the whole of what the map knows.
+	for _, member := range members {
 		if open, ok := b.detailOpening(member); ok {
 			d.Opens = append(d.Opens, open)
 		}
@@ -1160,13 +1214,22 @@ func (b *builder) codemapPage(id string, open Opening) error {
 // place copies a node onto a page.
 //
 // Without its group path: the page is not the estate the node was grouped in,
-// and a path naming a container that is not here fails validation. With its
-// own attrs rather than the graph's, because a page is a copy and a caller
-// that adjusts one box must not be editing the input.
+// and a path naming a container that is not here fails validation.
+//
+// With its own attrs and its own claim rather than the graph's. A node is
+// copied by value and those are pointers, so a page that adjusted one would be
+// editing the graph it was derived from and every other page derived from it —
+// which is what trimSinks says about coverage, three hundred lines down, for
+// the same reason. An operation arrives here carrying whoever's claim said it
+// is served.
 func place(g *core.Graph, n *core.Node) {
 	copied := *n
 	copied.Groups = nil
 	copied.Attrs = cloneAttrs(n.Attrs)
+	if n.Claim != nil {
+		claim := *n.Claim
+		copied.Claim = &claim
+	}
 	g.Nodes = append(g.Nodes, copied)
 }
 

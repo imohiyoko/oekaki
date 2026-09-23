@@ -144,7 +144,22 @@
         },
         {
           "if": { "properties": { "assert": { "const": "serves" } } },
-          "then": { "required": ["subject", "operation"] }
+          "then": {
+            "required": ["subject", "operation"],
+            "properties": {
+              "kind": {
+                "not": {},
+                "$comment": "A serves claim is a declaration and takes no evidence kind. Refused here as well as in Go so the message names the JSON path."
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "assert": { "enum": ["edge", "edge.suppress"] } } },
+          "then": {
+            "required": ["kind"],
+            "$comment": "Not optional in practice: the Go default is observed, so a denial written without a kind lands on an observed line nothing drew rather than on the line its author meant."
+          }
         },
         {
           "if": { "properties": { "assert": { "const": "note" } } },

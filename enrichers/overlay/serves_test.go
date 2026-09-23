@@ -486,11 +486,16 @@ func TestTwoSentencesAboutOneLineSettleTheSameWayEitherOrder(t *testing.T) {
 	})
 }
 
-// A positive assertion with no relation still reaches a line a parser drew
-// with one. "A connection exists that no parser found" may put an author's
-// name on one a parser did find, and taking that away would change what every
-// overlay already written does.
-func TestAnAssertionWithNoRelationStillClaimsAParsersLine(t *testing.T) {
+// A positive assertion with no relation makes its own line rather than taking
+// over one that means something.
+//
+// The rule used to be "a line a parser drew may be claimed, a line an
+// assertion made may not", which reads well and does not survive the graph
+// being written out and read back in: on the second run every line was in the
+// input, and a plain edge assertion would take the serves claim's name off it.
+// An overlay has to mean the same thing against the plan and against the graph
+// the last run wrote.
+func TestAnAssertionWithNoRelationDoesNotClaimALineThatMeansSomething(t *testing.T) {
 	g := serving()
 	g.Edges = append(g.Edges, core.Edge{
 		From: "file:handler/http.go", To: "file:handler/http.go#HandleOrder",
@@ -509,20 +514,114 @@ func TestAnAssertionWithNoRelationStillClaimsAParsersLine(t *testing.T) {
 		t.Fatalf("Enrich: %v", err)
 	}
 
+	var theirs, contains int
+	for _, e := range g.Edges {
+		if e.From != "file:handler/http.go" || e.To != "file:handler/http.go#HandleOrder" {
+			continue
+		}
+		switch e.Relation {
+		case "contains":
+			contains++
+			if e.Claim != nil {
+				t.Errorf("the parser's line was claimed: %+v", e.Claim)
+			}
+		case "":
+			theirs++
+			if e.Claim == nil || e.Claim.Author != "auditor" {
+				t.Errorf("their line carries %+v", e.Claim)
+			}
+		}
+	}
+	if contains != 1 || theirs != 1 {
+		t.Fatalf("%d contains lines and %d asserted lines", contains, theirs)
+	}
+}
+
+// A denial that names no relation is about every line between those two ends,
+// not about whichever one happens to sort first. The graph is normalized, so
+// the unnamed line always sorts ahead of the claim — a denial that stopped
+// there would never be able to deny a serves claim at all once anything else
+// had been asserted between the same boxes.
+func TestADenialWithNoRelationReachesEveryLine(t *testing.T) {
+	g, _ := serve(t, doc(`
+	  {"assert":"edge","from":{"node":"file:handler/http.go#HandleOrder"},
+	   "to":{"node":"api/checkout/get/orders/{id}"},"kind":"iac_ref","author":"auditor"},
+	  {"assert":"serves","subject":{"node":"file:handler/http.go#HandleOrder"},
+	   "operation":{"node":"api/checkout/get/orders/{id}"}},
+	  {"assert":"edge.suppress","from":{"node":"file:handler/http.go#HandleOrder"},
+	   "to":{"node":"api/checkout/get/orders/{id}"},"kind":"iac_ref"}`), Options{})
+
 	var lines int
 	for _, e := range g.Edges {
-		if e.From != "file:handler/http.go" {
+		if e.From != "file:handler/http.go#HandleOrder" {
 			continue
 		}
 		lines++
-		if e.Relation != "contains" {
-			t.Errorf("a second line was made beside the parser's: %+v", e)
-		}
-		if e.Claim == nil || e.Claim.Author != "auditor" {
-			t.Errorf("the parser's line carries %+v", e.Claim)
+		if !e.Suppressed {
+			t.Errorf("the denial did not reach the %q line", e.Relation)
 		}
 	}
-	if lines != 1 {
-		t.Fatalf("%d lines where the parser drew one", lines)
+	if lines != 2 {
+		t.Fatalf("%d lines, so the test is not asking what it means to", lines)
+	}
+}
+
+// A graph that spells the relation differently is still one line. The enricher
+// folds case because views does, and a second line here is a doubled arrow
+// there with the denial reaching only one of them.
+func TestARelationIsFoldedTheWayTheDrawingFoldsIt(t *testing.T) {
+	g := serving()
+	g.Edges = append(g.Edges, core.Edge{
+		From: "file:handler/http.go#HandleOrder", To: "api/checkout/get/orders/{id}",
+		Kind: core.EdgeIACRef, Relation: "Serves",
+	})
+	g.Normalize()
+
+	d, err := Parse([]byte(doc(`
+	  {"assert":"serves","subject":{"node":"file:handler/http.go#HandleOrder"},
+	   "operation":{"node":"api/checkout/get/orders/{id}"}}`)), "test.json")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if _, err := New([]*Document{d}, Options{}).Enrich(g); err != nil {
+		t.Fatalf("Enrich: %v", err)
+	}
+
+	var lines []string
+	for _, e := range g.Edges {
+		if e.From == "file:handler/http.go#HandleOrder" {
+			lines = append(lines, e.Relation)
+		}
+	}
+	if len(lines) != 1 {
+		t.Fatalf("the graph's spelling made a second line: %v", lines)
+	}
+	// And the graph's own spelling is left alone: it is their document.
+	if lines[0] != "Serves" {
+		t.Errorf("the line was respelled %q", lines[0])
+	}
+}
+
+// A denial of a line the same run made does not say nothing made it.
+func TestADeniedClaimIsNotToldItWasNeverThere(t *testing.T) {
+	for _, body := range []string{
+		`{"assert":"serves","subject":{"node":"file:handler/http.go#HandleOrder"},
+		  "operation":{"node":"api/checkout/get/orders/{id}"}},
+		 {"assert":"edge.suppress","from":{"node":"file:handler/http.go#HandleOrder"},
+		  "to":{"node":"api/checkout/get/orders/{id}"},"kind":"iac_ref"}`,
+		`{"assert":"edge.suppress","from":{"node":"file:handler/http.go#HandleOrder"},
+		  "to":{"node":"api/checkout/get/orders/{id}"},"kind":"iac_ref"},
+		 {"assert":"serves","subject":{"node":"file:handler/http.go#HandleOrder"},
+		  "operation":{"node":"api/checkout/get/orders/{id}"}}`,
+	} {
+		g, _ := serve(t, doc(body), Options{})
+		for _, e := range g.Edges {
+			if e.Relation != "serves" || e.Claim == nil {
+				continue
+			}
+			if strings.Contains(e.Claim.Note, "no such edge was found") {
+				t.Errorf("the reader is told nothing made a line this run made: %q", e.Claim.Note)
+			}
+		}
 	}
 }

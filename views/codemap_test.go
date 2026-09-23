@@ -1311,8 +1311,13 @@ func TestTheMapDrawsWhatSomebodySaidItsCodeServes(t *testing.T) {
 	if drawn != 1 {
 		t.Errorf("the map draws %d serves lines", drawn)
 	}
-	if openingOf(page, "api/checkout/get/orders") == nil {
-		t.Error("the operation is a box on the map that opens nothing")
+	// And no door. What is behind an operation's detail page is its
+	// neighbours, and its only neighbour here is the function on this page
+	// that serves it — a page strictly smaller than the one the reader is
+	// already on, charged to the atlas as a page of this repository's code
+	// not drawn. The estate opens the operation on its own level.
+	if o := openingOf(page, "api/checkout/get/orders"); o != nil {
+		t.Errorf("the operation opens %s, which is a page the reader has just left", o.Diagram)
 	}
 }
 
@@ -1426,6 +1431,9 @@ func TestAClaimBetweenTheWrongKindsDrawsNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	page := pageOf(a, "codemap:acme/checkout")
+	if page == nil {
+		t.Fatal("no code map, so a regression here would read as a panic")
+	}
 	for _, e := range page.Graph.Edges {
 		if e.Relation == "serves" && e.From == "repo-2-svc:file:handler/http.go" {
 			t.Errorf("a file was drawn serving an operation: %+v", e)
