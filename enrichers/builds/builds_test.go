@@ -553,57 +553,9 @@ func TestPointingAtAnElementRetractsWhatAnEarlierRunWrote(t *testing.T) {
 	}
 }
 
-// One mapping, one box it is about. Meeting a workload that box does not
-// cover makes a second box — and stamping the mapping on that one too drew
-// the same code map twice: two doors onto one room, both paid for out of the
-// same limit, and nothing downstream able to tell them apart.
-func TestASecondBoxDoesNotTakeTheAnswerTheFirstOneIsAbout(t *testing.T) {
-	const out = "repo-1-out2-json"
-	const code = out + ":repo-2-checkout"
-	g := core.New()
-	g.Metadata = &core.Metadata{Inputs: []core.InputRef{
-		{ID: out, Path: "out2.json", Kind: "graph"},
-		{ID: code, Path: "../checkout", Kind: "repository"},
-		{ID: "repo-2-cluster-yaml", Path: "cluster.yaml", Kind: "kubernetes"},
-	}}
-	g.Nodes = []core.Node{
-		{ID: "repo-2-cluster-yaml:workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
-			Attrs: map[string]any{
-				"image":      "registry.example/checkout:1.4.0",
-				"repository": "repo-2-cluster-yaml",
-			}},
-		{ID: out + ":repository:acme/checkout", Type: NodeRepository, Name: "acme/checkout",
-			Attrs: map[string]any{"repository": out}},
-	}
-	g.Normalize()
-
-	if _, err := (Enricher{
-		Documents:    []*builds.Document{record(t, oneBuild)},
-		Repositories: map[string]string{"acme/checkout": code},
-	}).Enrich(g); err != nil {
-		t.Fatal(err)
-	}
-
-	var open []string
-	for _, n := range g.Nodes {
-		if n.Type != NodeRepository || n.Name != "acme/checkout" {
-			continue
-		}
-		if of, _ := n.Attrs[AttrCodeInput].(string); of == code {
-			open = append(open, n.ID)
-		}
-	}
-	if len(open) != 1 {
-		t.Fatalf("%d boxes open onto %s: %v", len(open), code, open)
-	}
-	if open[0] != out+":repository:acme/checkout" {
-		t.Errorf("the answer landed on %s rather than on the box it is about", open[0])
-	}
-}
-
 // The same sentence, about somewhere else. An element of another input is not
-// this box's own subtree, so the mapping is not about this box and its answer
-// about its own code stands.
+// this box's own subtree, and there is another box that it is inside of — so
+// the mapping is not about this one, and its answer about its own code stands.
 func TestAnElementOfAnotherInputLeavesThisBoxAlone(t *testing.T) {
 	const mine = "repo-1-a-json"
 	g := graphRunning("registry.example/checkout:1.4.0")
@@ -615,6 +567,8 @@ func TestAnElementOfAnotherInputLeavesThisBoxAlone(t *testing.T) {
 	g.Nodes = append(g.Nodes,
 		core.Node{ID: mine + ":repository:acme/checkout", Type: NodeRepository, Name: "acme/checkout",
 			Attrs: map[string]any{"repository": mine, "code_input": mine + ":repo-2-svc"}},
+		core.Node{ID: "repo-2-b-json:repository:acme/checkout", Type: NodeRepository, Name: "acme/checkout",
+			Attrs: map[string]any{"repository": "repo-2-b-json"}},
 		core.Node{ID: "repo-2-b-json:file:main.go", Type: "code_file", Name: "main.go",
 			Attrs: map[string]any{"repository": "repo-2-b-json"}})
 	g.Normalize()
@@ -632,18 +586,23 @@ func TestAnElementOfAnotherInputLeavesThisBoxAlone(t *testing.T) {
 	}
 }
 
-// Two boxes, one answer between them. The single-box fallback writes the
-// mapping on a box whose own input does not cover it, and the box this run
-// then makes for a workload that box does not cover asked a different
-// question — whether the mapping is about some box already here — and got
-// "no", because being about a box and being written on one had come apart.
-// Two doors, two identical rooms, and the limit paying for both.
-func TestTheMappingIsStampedOnOneBoxEvenWhenTheFirstOneWasNotItsOwn(t *testing.T) {
+// Two boxes for one repository, the second made by this run for a workload the
+// first does not cover. Both of them are that repository, and where that
+// repository's code is does not change with which input a box came from — so
+// both say it.
+//
+// Two tests here used to assert the opposite, that only one box ends up
+// saying it. That was this package trying to stop the same code map being
+// drawn twice, and it stopped the wrong thing: the box a fresh estate's
+// workload points at is the one this run just made, so the reader who clicked
+// their own container arrived at a box that opened nothing. Drawing it once is
+// the atlas's business, and the atlas names a code map after the code it draws.
+func TestEveryBoxForOneRepositorySaysWhereItsCodeIs(t *testing.T) {
 	const code = "repo-3-checkout"
 	g := core.New()
 	g.Metadata = &core.Metadata{Inputs: []core.InputRef{
 		{ID: "repo-1-old-json", Path: "old.json", Kind: "graph"},
-		{ID: "repo-2-cluster2-yaml", Path: "cluster2.yaml", Kind: "kubernetes"},
+		{ID: "repo-2-fresh-yaml", Path: "fresh.yaml", Kind: "kubernetes"},
 		{ID: code, Path: "../checkout", Kind: "repository"},
 	}}
 	g.Nodes = []core.Node{
@@ -652,10 +611,10 @@ func TestTheMappingIsStampedOnOneBoxEvenWhenTheFirstOneWasNotItsOwn(t *testing.T
 				"image":      "registry.example/checkout:1.4.0",
 				"repository": "repo-1-old-json",
 			}},
-		{ID: "repo-2-cluster2-yaml:workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
+		{ID: "repo-2-fresh-yaml:workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
 			Attrs: map[string]any{
 				"image":      "registry.example/checkout:1.4.0",
-				"repository": "repo-2-cluster2-yaml",
+				"repository": "repo-2-fresh-yaml",
 			}},
 		{ID: "repo-1-old-json:repository:acme/checkout", Type: NodeRepository, Name: "acme/checkout",
 			Attrs: map[string]any{"repository": "repo-1-old-json"}},
@@ -669,13 +628,23 @@ func TestTheMappingIsStampedOnOneBoxEvenWhenTheFirstOneWasNotItsOwn(t *testing.T
 		t.Fatal(err)
 	}
 
-	var open []string
-	for _, n := range g.Nodes {
-		if of, _ := n.Attrs[AttrCodeInput].(string); of == code {
-			open = append(open, n.ID)
+	boxes := repositoriesNamed(g, "acme/checkout")
+	if len(boxes) != 2 {
+		t.Fatalf("%d boxes for one repository", len(boxes))
+	}
+	for _, n := range boxes {
+		if of, _ := n.Attrs[AttrCodeInput].(string); of != code {
+			t.Errorf("%s opens %q", n.ID, of)
 		}
 	}
-	if len(open) != 1 {
-		t.Fatalf("%d boxes open onto %s: %v", len(open), code, open)
+
+	// And the fresh estate's workload points at the box this run made for it.
+	for _, e := range g.Edges {
+		if e.Relation != Relation || e.From != "repo-2-fresh-yaml:workload:shop/checkout" {
+			continue
+		}
+		if e.To != "repository:acme/checkout" {
+			t.Errorf("the fresh workload was built from %s", e.To)
+		}
 	}
 }

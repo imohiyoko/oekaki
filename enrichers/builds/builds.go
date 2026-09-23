@@ -137,6 +137,26 @@ func (e Enricher) Enrich(g *core.Graph) (*enrichers.Report, error) {
 		}
 		for _, n := range boxes {
 			from, _ := n.Attrs["repository"].(string)
+			// The one entitlement, asked once, whether this run is about to
+			// write an answer or take one away. They were two conditions, and
+			// the retraction's was the narrower — so a box the fallback had
+			// written was one nobody could clear again.
+			//
+			// A box the mapping is inside of, first: that is what a box
+			// answers about, the code inside its own input.
+			//
+			// Failing that, the only box there is, when no other box is the
+			// one the mapping is about. Reading a previous output back beside
+			// the repository that output was missing leaves exactly that: one
+			// box, from that output, and no box of its own for the fresh
+			// input. One box and nothing else the mapping could be about is a
+			// question with one answer. A second box means there is something
+			// to tell this one apart from, and writing anyway is how a box
+			// comes to claim code that lives somewhere else — which puts the
+			// code it did have out of reach of every page.
+			if !within(id, from) && (owned || len(boxes) > 1) {
+				continue
+			}
 			if !inputs[id] {
 				// Pointed at an element rather than an input: no code map, so
 				// the answer an earlier run wrote is retracted. On the boxes
@@ -147,36 +167,7 @@ func (e Enricher) Enrich(g *core.Graph) (*enrichers.Report, error) {
 				// exactly the boxes an earlier run had written it on — and the
 				// atlas went on opening the input the operator had stopped
 				// naming.
-				if within(id, from) {
-					delete(n.Attrs, AttrCodeInput)
-				}
-				continue
-			}
-			if within(id, from) {
-				set(n, id)
-				continue
-			}
-			// Not about this box. It may still be the only place the mapping
-			// could mean: reading a previous output back beside the repository
-			// that output was missing leaves one box, from that output, with
-			// nothing said about its code and no box of its own for the fresh
-			// input. One box, nothing on it, and nothing else the mapping
-			// could be about — a question with one answer.
-			//
-			// Either of those and the mapping is left alone: a second box
-			// means there is something to tell this one apart from, and a box
-			// the mapping is about means this one is not it. Writing anyway is
-			// how a box comes to claim code that lives somewhere else, which
-			// puts the code it did have out of reach of every page.
-			//
-			// An answer already on the only box is not one of those. It was
-			// written by an earlier run, and this run says something else,
-			// out loud, about a repository with one box in this estate — the
-			// ordinary shape of running the same command on its own output,
-			// where the box comes back qualified and the freshly read code
-			// does not. Refusing to hear it made the documented command fail
-			// on the second run, and a wrapper passes these flags every time.
-			if owned || len(boxes) > 1 {
+				delete(n.Attrs, AttrCodeInput)
 				continue
 			}
 			set(n, id)
@@ -458,26 +449,17 @@ func (e Enricher) target(g *core.Graph, inputs map[string]bool, running core.Nod
 		ID: id, Type: NodeRepository, Name: b.repository,
 		Claim: &core.Claim{Origin: core.OriginParser, Note: b.run.Label()},
 	}
-	// The mapping goes on this box only when no box here is already open onto
-	// it. When this run meets a workload an existing box does not cover and
-	// makes a second one, stamping the same answer on both draws the same code
-	// map twice — two doors, two identical rooms, and the limit paying for
-	// both.
+	// Said here too, even when a box already here says it. This box is that
+	// repository as well, and where that repository's code is does not change
+	// with which input a box came from.
 	//
-	// Asked of the answer written, rather than of whose input the mapping is
-	// inside. Those are different questions: a box can be written by the
-	// fallback above without the mapping being inside its input at all, and
-	// asking the second one about that box said "not about it, write it here
-	// too". What matters here is not who it is about; it is that it is already
-	// somewhere.
-	if of != "" {
-		for _, n := range existing {
-			if was, _ := n.Attrs[AttrCodeInput].(string); was == of {
-				of = ""
-				break
-			}
-		}
-	}
+	// Keeping it off the second box was tried, to stop the same code map being
+	// drawn twice. It stopped the wrong thing: the box a fresh estate's
+	// workload points at is the one this run just made, so the reader who
+	// clicked their own container arrived at a box that opened nothing at all.
+	// Two boxes saying the same true thing is not the problem — drawing it
+	// twice was, and a page is named after the code it draws, so the two boxes
+	// are two doors into the one room.
 	if of != "" {
 		node.Attrs = map[string]any{AttrCodeInput: of}
 	}

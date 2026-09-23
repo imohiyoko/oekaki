@@ -137,7 +137,7 @@ func TestARepositoryNobodyPlacedKeepsItsOrdinaryPage(t *testing.T) {
 	if door.Kind == KindCodemap {
 		t.Fatal("a repository nobody placed opened a code map")
 	}
-	if pageOf(a, "codemap:repository:acme/checkout") != nil {
+	if pageOf(a, "codemap:repo-2-svc") != nil {
 		t.Error("a code map was built for a repository with no input")
 	}
 }
@@ -152,7 +152,7 @@ func TestTheCodeMapParticipatesInTheLimit(t *testing.T) {
 	if len(a.Diagrams) > 1 {
 		t.Fatalf("%d diagrams, over the limit", len(a.Diagrams))
 	}
-	if pageOf(a, "codemap:repository:acme/checkout") != nil {
+	if pageOf(a, "codemap:repo-2-svc") != nil {
 		t.Fatal("the code map ignored the limit")
 	}
 	if openingOf(pageOf(a, "detail:task"), "repository:acme/checkout") != nil {
@@ -168,7 +168,7 @@ func TestTheCodeMapsBoxesOpenTheWayTheyDoAnywhereElse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page := pageOf(a, "codemap:repository:acme/checkout")
+	page := pageOf(a, "codemap:repo-2-svc")
 	if page == nil {
 		t.Fatal("there is no code map")
 	}
@@ -226,7 +226,7 @@ func TestTheCodeMapReadsTheRepositorysOwnAnswerAndNotTheOneEveryNodeCarries(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	page := pageOf(a, "codemap:repository:acme/checkout")
+	page := pageOf(a, "codemap:repo-2-svc")
 	if page == nil {
 		t.Fatal("there is no code map")
 	}
@@ -251,7 +251,7 @@ func TestTheCodeMapIsNamedAfterItsRepository(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page := pageOf(a, "codemap:repository:acme/checkout")
+	page := pageOf(a, "codemap:repo-2-svc")
 	if page == nil {
 		t.Fatal("there is no code map")
 	}
@@ -279,7 +279,7 @@ func TestTheCodeMapReadsARelationHoweverItIsWritten(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page := pageOf(a, "codemap:repository:acme/checkout")
+	page := pageOf(a, "codemap:repo-2-svc")
 	if page == nil {
 		t.Fatal("there is no code map")
 	}
@@ -324,7 +324,7 @@ func TestABigRepositoryDoesNotSpendTheBudgetOnItsOwnFunctions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pageOf(a, "codemap:repository:acme/checkout") == nil {
+	if pageOf(a, "codemap:repo-2-svc") == nil {
 		t.Fatal("the code map lost its place to the pages of the code it maps")
 	}
 	// The door on the page the repository is placed on, which is the shortest
@@ -376,7 +376,7 @@ func TestTwoRepositoriesBothKeepTheirCodeMap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"codemap:repository:acme/aaa", "codemap:repository:acme/bbb"} {
+	for _, want := range []string{"codemap:repo-1-aaa", "codemap:repo-2-bbb"} {
 		if pageOf(a, want) == nil {
 			t.Errorf("%s was never built", want)
 		}
@@ -414,7 +414,7 @@ func TestABigChildLevelDoesNotCostThisLevelItsCodeMap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pageOf(a, "codemap:repository:acme/checkout") == nil {
+	if pageOf(a, "codemap:repo-2-svc") == nil {
 		t.Fatal("a child level spent the budget before this level's code map was made")
 	}
 }
@@ -442,7 +442,7 @@ func TestTheCodeMapDrawsOnlyWhatIsOnALine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page := pageOf(a, "codemap:repository:acme/checkout")
+	page := pageOf(a, "codemap:repo-2-svc")
 	if page == nil {
 		t.Fatal("there is no code map")
 	}
@@ -490,7 +490,7 @@ func TestTheCodeMapDoesNotDrawWhatSomebodyDenied(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if page := pageOf(a, "codemap:repository:acme/checkout"); page != nil {
+	if page := pageOf(a, "codemap:repo-2-svc"); page != nil {
 		t.Errorf("a code map was built out of %d denied lines", len(page.Graph.Edges))
 	}
 }
@@ -518,7 +518,7 @@ func TestACallLeavingTheRepositoryDoesNotPutABoxOnTheMap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page := pageOf(a, "codemap:repository:acme/checkout")
+	page := pageOf(a, "codemap:repo-2-svc")
 	if page == nil {
 		t.Fatal("there is no code map")
 	}
@@ -556,7 +556,7 @@ func TestTheCodeMapDrawsADeniedLineBetweenBoxesThatAreAlreadyThere(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	page := pageOf(a, "codemap:repository:acme/checkout")
+	page := pageOf(a, "codemap:repo-2-svc")
 	if page == nil {
 		t.Fatal("there is no code map")
 	}
@@ -592,7 +592,7 @@ func TestDenyingTheJoinDoesNotTakeTheCodeMapWithIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pageOf(a, "codemap:repository:acme/checkout") == nil {
+	if pageOf(a, "codemap:repo-2-svc") == nil {
 		t.Fatal("the code map went with the denied join")
 	}
 	if openingOf(pageOf(a, "level:"), "repository:acme/checkout") == nil {
@@ -630,7 +630,7 @@ func TestAnEndOfTheWrongKindPutsNoBoxOnTheMap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page := pageOf(a, "codemap:repository:acme/checkout")
+	page := pageOf(a, "codemap:repo-2-svc")
 	if page == nil {
 		t.Fatal("there is no code map")
 	}
@@ -795,6 +795,119 @@ func TestAFileOnNoLineIsStillDrawnSomewhere(t *testing.T) {
 		"repo-2-svc:file:model/order.go",
 		"repo-2-svc:file:model/order.go#Order",
 	} {
+		if !somewhere[id] {
+			t.Errorf("%s is on no page at all", id)
+		}
+	}
+}
+
+// One repository, here as a box per input, all of them open onto the one
+// input's code. A page per box drew that code once per box, under the same
+// title, out of the same budget. A page is named after the code it draws, so
+// there is one room and a door into it from each box.
+func TestTwoBoxesForOneRepositoryAreTwoDoorsIntoOneRoom(t *testing.T) {
+	g := estateWithCode(t, true)
+	g.Nodes = append(g.Nodes,
+		core.Node{ID: "task-b", Type: "aws_ecs_task_definition", Name: "b",
+			Attrs: map[string]any{"image": "img:1"}},
+		core.Node{ID: "repo-9-fresh:repository:acme/checkout", Type: "repository", Name: "acme/checkout",
+			Attrs: map[string]any{"repository": "repo-9-fresh", "code_input": "repo-2-svc"}})
+	g.Edges = append(g.Edges, core.Edge{
+		From: "task-b", To: "repo-9-fresh:repository:acme/checkout",
+		Kind: core.EdgeObserved, Relation: "built_from"})
+	g.Normalize()
+	if err := g.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := BuildAtlas(g, AtlasOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	maps := 0
+	for _, d := range a.Diagrams {
+		if d.Kind == KindCodemap {
+			maps++
+		}
+	}
+	if maps != 1 {
+		t.Errorf("%d code maps for one input's code", maps)
+	}
+	for _, box := range []string{"repository:acme/checkout", "repo-9-fresh:repository:acme/checkout"} {
+		open := openingOf(pageOf(a, "level:"), box)
+		if open == nil {
+			t.Errorf("%s opens onto nothing", box)
+			continue
+		}
+		if open.Diagram != "codemap:repo-2-svc" {
+			t.Errorf("%s opens %s", box, open.Diagram)
+		}
+	}
+}
+
+// An atlas drawn on the source axis is the code's own structure. A package is
+// at the root of that axis because that is where it is — nothing imports a
+// directory — so stripping it there took the package boxes, and the import
+// lines lifted to them, off the top page of an atlas whose whole subject is
+// the code.
+func TestTheSourceAxisKeepsWhatItPlacesAtItsRoot(t *testing.T) {
+	g := estateWithCode(t, true)
+	g.Axes = []core.Axis{{ID: "source", Label: "Source"}}
+	g.Groups = []core.Group{{ID: "dir:handler", Type: "directory", Label: "handler", Axis: "source"}}
+	for i := range g.Nodes {
+		if strings.HasPrefix(g.Nodes[i].ID, "repo-2-svc:file:handler/") {
+			g.Nodes[i].Groups = map[string]string{"source": "dir:handler"}
+		}
+	}
+	g.Normalize()
+	if err := g.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := BuildAtlas(g, AtlasOptions{Axis: "source"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := pageOf(a, "level:")
+	if root == nil {
+		t.Fatal("there is no root level")
+	}
+	found := false
+	for _, n := range root.Graph.Nodes {
+		if n.ID == "repo-2-svc:package:net/http" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("the package this axis puts at its root is not drawn there")
+	}
+	line := false
+	for _, e := range root.Graph.Edges {
+		if e.From == "dir:handler" && e.To == "repo-2-svc:package:net/http" {
+			line = true
+		}
+	}
+	if !line {
+		t.Errorf("the import lifted to the directory is gone: %+v", root.Graph.Edges)
+	}
+}
+
+// The code map is made after the level it hangs off, out of the same budget.
+// A bound reached first left the code stripped off the level and drawn
+// nowhere: prune can take away an opening that leads nowhere, and it cannot
+// put a box back.
+func TestCodeIsNotStrippedForAMapThereIsNoRoomFor(t *testing.T) {
+	a, err := BuildAtlas(estateWithCode(t, true), AtlasOptions{Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	somewhere := map[string]bool{}
+	for _, d := range a.Diagrams {
+		for _, n := range d.Graph.Nodes {
+			somewhere[n.ID] = true
+		}
+	}
+	for _, id := range []string{"repo-2-svc:file:handler/http.go", "repo-2-svc:package:net/http"} {
 		if !somewhere[id] {
 			t.Errorf("%s is on no page at all", id)
 		}

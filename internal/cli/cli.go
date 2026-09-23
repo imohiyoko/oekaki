@@ -21,6 +21,7 @@ import (
 	tracecollector "github.com/imohiyoko/oekaki/collectors/traces"
 	"github.com/imohiyoko/oekaki/core"
 	"github.com/imohiyoko/oekaki/enrichers/ai"
+	buildsenricher "github.com/imohiyoko/oekaki/enrichers/builds"
 	"github.com/imohiyoko/oekaki/enrichers/exposure"
 	loginventoryenricher "github.com/imohiyoko/oekaki/enrichers/loginventory"
 	"github.com/imohiyoko/oekaki/enrichers/observations"
@@ -1483,7 +1484,7 @@ func repositoryScope(path string, index int) string {
 // else's repository, and the code map drew that repository's code under this
 // one's name.
 func qualifyInputAttrs(attrs map[string]any, scope string) {
-	for _, key := range []string{"code_input"} {
+	for _, key := range []string{buildsenricher.AttrCodeInput} {
 		if was, ok := attrs[key].(string); ok && was != "" {
 			attrs[key] = scope + ":" + was
 		}
