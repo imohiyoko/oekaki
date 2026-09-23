@@ -113,7 +113,9 @@ nothing here at all. The edge is `iac_ref`, like a declared route.
 Denying one is an ordinary `edge.suppress` naming the same two ends and
 `iac_ref` — it says nothing about the relation, the way every edge assertion
 says nothing about it, and it reaches the claim whichever of the two was
-written first. A denied claim never puts the operation on a code map — a box
+written first. The kind is not optional in practice: `kind` defaults to
+`observed`, and a denial written without one lands on an observed line nobody
+drew rather than on the claim. A denied claim never puts the operation on a code map — a box
 there because of a line somebody denied would be the page arguing with
 itself — so the line is drawn, faintly, only where the operation is on the page
 for a claim nobody denied.

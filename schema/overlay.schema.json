@@ -109,7 +109,7 @@
         "stream": { "type": "string" },
         "records": { "description": "How many were seen. Zero is a finding; omitting it means no count was available.", "type": "number" },
         "kind": {
-          "description": "Which family of evidence this is. For edge and edge.suppress, the edge kind. For path, which kind of declared route it is: it defaults to iac_ref and may not be observed, because what a person writes down is a claim about what may happen and what did happen comes from something that watched it.",
+          "description": "Which family of evidence this is. For edge and edge.suppress, the edge kind, defaulting to observed when it is omitted — so denying a line of another kind has to name that kind, or the denial lands on an observed line nothing drew. For path, which kind of declared route it is: it defaults to iac_ref and may not be observed, because what a person writes down is a claim about what may happen and what did happen comes from something that watched it.",
           "type": "string",
           "enum": ["iac_ref", "reachable", "observed"]
         },
