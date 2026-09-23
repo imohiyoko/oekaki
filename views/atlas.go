@@ -92,6 +92,10 @@ const (
 	// meanings is decided by whichever was written last.
 	attrCodeInput = "code_input"
 
+	// sourceAxis is the axis the code's own structure is drawn on: the
+	// directories a repository is made of. The source parser writes it.
+	sourceAxis = "source"
+
 	relDeclares = "declares"
 	relCalls    = "calls"
 	relImports  = "imports"
@@ -370,25 +374,24 @@ func (b *builder) touching(id string) []int {
 	return b.incident[id]
 }
 
-// places reports whether the axis being drawn puts this input's code
-// somewhere of its own.
+// placesCode reports whether the axis being drawn is the code's own.
 //
-// An atlas on the source axis is the code's own structure: directories are
+// An atlas on the source axis is the code's structure: directories are
 // containers, and a package or a file directly under the repository is at the
 // root of that axis because that is where it is, not because the axis had
-// nothing to say about it. Stripping it there took the packages and the lines
-// lifted to them off the top page of an atlas whose whole subject is the code.
-func (b *builder) places(scope string) bool {
-	for i := range b.in.Nodes {
-		n := &b.in.Nodes[i]
-		if of, _ := n.Attrs["repository"].(string); of != scope {
-			continue
-		}
-		if n.Groups[b.axis] != "" {
-			return true
-		}
-	}
-	return false
+// nothing to say about it. Stripping it there takes the packages, and the
+// lines lifted to them, off the top page of an atlas whose whole subject is
+// the code.
+//
+// The axis itself, rather than whether some node of that input happens to
+// carry a group on it. That was tried and answered a different question: a
+// repository whose files all sit at its root has no directories, so no node
+// carried a group and the code was stripped off the source axis after all —
+// while on an estate's axis a single function somebody had put in a namespace
+// answered yes for the whole repository and brought the rest back onto the
+// front page.
+func (b *builder) placesCode() bool {
+	return b.axis == sourceAxis
 }
 
 // node is the document's node with this id.
@@ -423,10 +426,13 @@ func (b *builder) inACodeMap() map[string]bool {
 		return b.opened
 	}
 	b.opened = map[string]bool{}
+	if b.placesCode() {
+		return b.opened
+	}
 	scopes := map[string]bool{}
 	for i := range b.in.Nodes {
 		scope, ok := codeInputOf(&b.in.Nodes[i])
-		if !ok || scopes[scope] || b.places(scope) {
+		if !ok || scopes[scope] {
 			continue
 		}
 		scopes[scope] = true
