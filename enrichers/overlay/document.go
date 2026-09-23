@@ -34,6 +34,25 @@ const (
 	AssertNode         = "node"
 	AssertNote         = "note"
 	AssertPath         = "path"
+	AssertServes       = "serves"
+)
+
+// The vocabulary a serves claim joins.
+//
+// Strings rather than the parsers' own constants, for the reason every other
+// reader here writes them out: an enricher is given a graph, not the program
+// that produced it, and a graph is a document somebody else may have written.
+// Importing a reader to learn a type name would tie the claim to the one
+// parser that happens to be ours.
+const (
+	typeCodeFunction = "code_function"
+	typeAPIOperation = "api"
+
+	// relServes is what the edge means: this function answers this operation.
+	// The other direction of the same join is `declares`, which an API
+	// document's owner writes at the granularity of the box that serves it;
+	// this one is written at the granularity of the code that does.
+	relServes = "serves"
 )
 
 // Document is one overlay file.
@@ -80,6 +99,14 @@ type Assertion struct {
 	Subject Selector `json:"subject,omitempty"`
 	From    Selector `json:"from,omitempty"`
 	To      Selector `json:"to,omitempty"`
+
+	// Operation is what a serves assertion says its subject serves. It is
+	// not To: an edge assertion's two ends are interchangeable selectors and
+	// the assertion says nothing about what either one is, while these two
+	// are a function and an operation and the claim is false if they are
+	// swapped. Naming them apart is what lets the refusal say which end was
+	// wrong.
+	Operation Selector `json:"operation,omitempty"`
 
 	// Through is the walk a route assertion declares, in order.
 	//
@@ -156,6 +183,7 @@ var meaningful = map[string][]string{
 	AssertNode:         {"subject", "type", "name"},
 	AssertNote:         {"subject", "text"},
 	AssertPath:         {"through", "label", "kind"},
+	AssertServes:       {"subject", "operation"},
 }
 
 // alwaysMeaningful are the envelope fields every assertion may carry.
@@ -211,7 +239,7 @@ func precheckSelectors(raw []byte) error {
 
 	var problems []string
 	for i, a := range probe.Assertions {
-		for _, field := range []string{"subject", "from", "to"} {
+		for _, field := range []string{"subject", "from", "to", "operation"} {
 			body, ok := a[field]
 			if !ok {
 				continue
@@ -278,7 +306,9 @@ func (d *Document) Validate() error {
 				"%s: sink %q is not declared in this document's sinks", where, a.Sink))
 		}
 
-		for name, sel := range map[string]Selector{"subject": a.Subject, "from": a.From, "to": a.To} {
+		for name, sel := range map[string]Selector{
+			"subject": a.Subject, "from": a.From, "to": a.To, "operation": a.Operation,
+		} {
 			problems = append(problems, checkSelector(sel, where+"."+name)...)
 		}
 		for j, sel := range a.Through {

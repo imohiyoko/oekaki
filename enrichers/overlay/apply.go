@@ -343,6 +343,25 @@ func (e *enricher) applyDocument(g *core.Graph, ix *Index, doc *Document, tallie
 			})
 			report.Applied++
 
+		case AssertServes:
+			fn, ok := e.existing(g, ix, a, a.Subject, report,
+				"no function in this graph answers to it, and the subject of a serves claim is never adopted: the claim is about code something read",
+				"%q is a container, and a container does not answer a request; name the function that does")
+			if !ok {
+				continue
+			}
+			op, ok := e.existing(g, ix, a, a.Operation, report,
+				"no operation in this graph answers to it, and an operation is never adopted: one arrives from a document somebody read",
+				"%q is a container — a surface holds operations rather than being one; name the operation on it")
+			if !ok {
+				continue
+			}
+			if !servesJoins(g, a, fn, op, report) {
+				continue
+			}
+			edgeClaims.apply(g, fn, op, core.EdgeIACRef, relServes, false, claim)
+			report.Applied++
+
 		case AssertEdge, AssertEdgeSuppress:
 			from, ok := e.subject(g, ix, doc, a, a.From, claim, report)
 			if !ok {
@@ -372,20 +391,35 @@ func repeatedHop(walk []string) int {
 
 // participant resolves one hop of a route.
 //
-// It is not subject, and the difference is the point of the assertion.
-//
-// A route is *about* things that are already there — it says a request goes
-// through them in this order — so a hop that matches nothing is never adopted,
-// whatever the unmatched policy says. Adopting one would put a box nobody
-// parsed in the middle of the walk, and the route would then be permanently
-// unused while the real one stayed unannounced: the two failures this
-// assertion exists to remove, manufactured from a typo, in silence.
+// It is not subject, and the difference is the point of the assertion. A route
+// is *about* things that are already there — it says a request goes through
+// them in this order — so a hop that matches nothing is dropped rather than
+// adopted. Adopting one would leave the declared route permanently unused
+// while the real one stayed unannounced: the two failures this assertion
+// exists to remove, manufactured from a typo, in silence. See existing.
 //
 // A hop that resolves to a container is refused for a plainer reason: a
 // container does not call anything, which is why core refuses a path through
 // one. Letting it through failed the whole command on a graph validation error
 // that named neither the overlay nor the assertion.
 func (e *enricher) participant(g *core.Graph, ix *Index, a Assertion, sel Selector, report *enrichers.Report) (string, bool) {
+	return e.existing(g, ix, a, sel, report,
+		"no resource in this graph answers to it, and a hop of a route is never adopted: a route is about boxes that are already there",
+		"%q is a container, and a container does not call anything; name the thing inside it that does")
+}
+
+// existing resolves a selector to a node the graph already has.
+//
+// It is the half of participant that is not about routes. An assertion that
+// joins two things somebody else wrote down — a hop of a route, the ends of a
+// serves claim — is about boxes that are already there, so a selector matching
+// nothing is dropped rather than adopted whatever the policy says. The
+// alternative is a typo answered with a box nobody parsed, joined to something
+// real, in silence.
+//
+// The two refusals are the caller's sentences because why a container cannot
+// be one of these depends on what these are.
+func (e *enricher) existing(g *core.Graph, ix *Index, a Assertion, sel Selector, report *enrichers.Report, absent, container string) (string, bool) {
 	res := ix.Resolve(sel)
 	switch {
 	case len(res.Candidates) > 1:
@@ -397,7 +431,7 @@ func (e *enricher) participant(g *core.Graph, ix *Index, a Assertion, sel Select
 		return "", false
 
 	case res.ID == "":
-		reason := "no resource in this graph answers to it, and a hop of a route is never adopted: a route is about boxes that are already there"
+		reason := absent
 		if res.Stopped {
 			reason = "an exact id was given and this graph has no such id"
 		}
@@ -410,11 +444,50 @@ func (e *enricher) participant(g *core.Graph, ix *Index, a Assertion, sel Select
 	if _, ok := g.Node(res.ID); !ok {
 		report.Unmatched = append(report.Unmatched, enrichers.Unmatched{
 			Selector: sel.asMap(), Assert: a.Assert, Action: "dropped",
-			Reason: fmt.Sprintf("%q is a container, and a container does not call anything; name the thing inside it that does", res.ID),
+			Reason: fmt.Sprintf(container, res.ID),
 		})
 		return "", false
 	}
 	return res.ID, true
+}
+
+// servesJoins refuses a claim whose two ends are not a function and an
+// operation.
+//
+// The schema cannot ask this. It sees two selectors, and what they resolve to
+// is a fact about the graph rather than about the document — the same reason
+// the route rules are checked in Go. Refusing here is the rule the code map is
+// built by, said one step earlier: a line is kept only when both of its ends
+// are of the kind that line joins, so a claim that failed it would otherwise
+// be a line the map quietly declines to draw, for a reason nobody can see from
+// the file they wrote.
+func servesJoins(g *core.Graph, a Assertion, fn, op string, report *enrichers.Report) bool {
+	subject, _ := g.Node(fn)
+	operation, _ := g.Node(op)
+	switch {
+	case subject == nil || subject.Type != typeCodeFunction:
+		report.Unmatched = append(report.Unmatched, enrichers.Unmatched{
+			Selector: a.Subject.asMap(), Assert: a.Assert, Action: "dropped",
+			Reason: fmt.Sprintf("%q is %s, and only a %s serves an operation", fn, whatItIs(subject), typeCodeFunction),
+		})
+		return false
+	case operation == nil || operation.Type != typeAPIOperation:
+		report.Unmatched = append(report.Unmatched, enrichers.Unmatched{
+			Selector: a.Operation.asMap(), Assert: a.Assert, Action: "dropped",
+			Reason: fmt.Sprintf("%q is %s, and what a function serves is an operation — read one with --api", op, whatItIs(operation)),
+		})
+		return false
+	}
+	return true
+}
+
+// whatItIs names a node's type for a refusal, so the sentence says what was
+// wrong rather than only that something was.
+func whatItIs(n *core.Node) string {
+	if n == nil || n.Type == "" {
+		return "of no type this graph records"
+	}
+	return "a " + n.Type
 }
 
 // subject resolves a selector and applies the unmatched and ambiguous policies.
@@ -682,10 +755,20 @@ func newEdgeAssertionTracker(g *core.Graph) *edgeAssertionTracker {
 	return tracker
 }
 
-func (tracker *edgeAssertionTracker) matching(g *core.Graph, from, to string, kind core.EdgeKind) *edgeAssertionHistory {
+// matching finds the history of an edge an assertion is about.
+//
+// A relation is asked for only when the assertion gave one. An edge assertion
+// names two ends and a kind and says nothing about what the line means, and it
+// has always been able to reach a line a parser drew with a relation on it —
+// which is what suppressing a call is. Requiring a match here would have taken
+// that away from every assertion already written, to the benefit of none.
+func (tracker *edgeAssertionTracker) matching(g *core.Graph, from, to string, kind core.EdgeKind, relation string) *edgeAssertionHistory {
 	for i := range g.Edges {
 		edge := &g.Edges[i]
 		if edge.From != from || edge.To != to || edge.Kind != kind {
+			continue
+		}
+		if relation != "" && edge.Relation != relation {
 			continue
 		}
 		key := core.EdgeKey(edge.From, edge.To, edge.Kind, edge.Relation)
@@ -696,10 +779,10 @@ func (tracker *edgeAssertionTracker) matching(g *core.Graph, from, to string, ki
 	return nil
 }
 
-func (tracker *edgeAssertionTracker) create(g *core.Graph, from, to string, kind core.EdgeKind) *edgeAssertionHistory {
-	g.Edges = append(g.Edges, core.Edge{From: from, To: to, Kind: kind})
+func (tracker *edgeAssertionTracker) create(g *core.Graph, from, to string, kind core.EdgeKind, relation string) *edgeAssertionHistory {
+	g.Edges = append(g.Edges, core.Edge{From: from, To: to, Kind: kind, Relation: relation})
 	history := &edgeAssertionHistory{index: len(g.Edges) - 1}
-	tracker.byKey[core.EdgeKey(from, to, kind)] = history
+	tracker.byKey[core.EdgeKey(from, to, kind, relation)] = history
 	return history
 }
 
@@ -735,10 +818,10 @@ func trackedEdgeAssertionPreferred(candidate, current trackedEdgeAssertion) bool
 	return false
 }
 
-func (tracker *edgeAssertionTracker) apply(g *core.Graph, from, to string, kind core.EdgeKind, suppressed bool, claim core.Claim) {
-	history := tracker.matching(g, from, to, kind)
+func (tracker *edgeAssertionTracker) apply(g *core.Graph, from, to string, kind core.EdgeKind, relation string, suppressed bool, claim core.Claim) {
+	history := tracker.matching(g, from, to, kind, relation)
 	if history == nil {
-		history = tracker.create(g, from, to, kind)
+		history = tracker.create(g, from, to, kind, relation)
 	}
 	if suppressed && !history.existedInitially && claim.Note == "" {
 		claim.Note = "asserted not to exist; no such edge was found"
@@ -779,11 +862,11 @@ func applyEdgeAssertion(g *core.Graph, from, to string, a Assertion, claim core.
 	if kind == "" {
 		kind = core.EdgeObserved
 	}
-	tracker.apply(g, from, to, kind, a.Assert == AssertEdgeSuppress, claim)
+	tracker.apply(g, from, to, kind, "", a.Assert == AssertEdgeSuppress, claim)
 }
 
 func addEdge(g *core.Graph, from, to string, kind core.EdgeKind, claim core.Claim, tracker *edgeAssertionTracker) {
-	tracker.apply(g, from, to, kind, false, claim)
+	tracker.apply(g, from, to, kind, "", false, claim)
 }
 
 func boolString(value bool) string {

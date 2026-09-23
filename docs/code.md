@@ -34,6 +34,12 @@ resource.)
 | `embeds` | type → type | Go embedding: a field or interface element with no name |
 | `has_field` | type → type | a field whose type is another type here; the field names are on the edge |
 
+One relation about this code is not in that table and never will be: `serves`,
+which says a function answers an API operation. It is not there because nothing
+here can read it — a file does not say which operation it is the other end of,
+and the document that declares the operation does not say who implements it. It
+arrives as a claim with an author. See [api.md](api.md#which-function-serves-it).
+
 ## Why a method is not a second thing
 
 A method is one function, seen from the type's side. `declares` points at the

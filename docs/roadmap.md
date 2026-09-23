@@ -118,7 +118,13 @@ Still ahead in this line of work:
 - More assertion kinds: per-API call frequency, access paths by principal,
   volume against a declared baseline. All of them are additional `assert`
   values resolved by the same ladder, which is the payoff of unifying the
-  overlay format rather than shipping one file format per question
+  overlay format rather than shipping one file format per question. `serves` —
+  which function answers which API operation, the join neither the code reader
+  nor the API document can make on its own — landed this way
+  ([api.md](api.md#which-function-serves-it))
+- A reader for router registrations, which is the same fact written in the
+  source. It lands the same edge `serves` does, so what is left is the reading:
+  one per framework
 - A gRPC reader. A `.proto` service declares the same shape an OpenAPI
   document does — these operations exist — and lands as the same entity, so
   what is left is the reading rather than the design. See

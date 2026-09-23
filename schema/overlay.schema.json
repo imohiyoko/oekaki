@@ -94,13 +94,17 @@
       "additionalProperties": false,
       "properties": {
         "assert": {
-          "description": "logs.declared: configuration promises this subject ships logs to a sink. logs.observed: logs from this subject were actually seen. logs.none: somebody looked and found no destination — a claim, not an absence, which is what makes a blind spot distinguishable from an unchecked resource. edge: a connection exists that no parser found. edge.suppress: a connection a parser found is not real. note: somebody wrote something about this subject, in Markdown. It is kept beside the graph with their name on it rather than folded into the resource, because the sentence is theirs and not the estate's. node: something exists, or is called something, that is in no input file. A type says what it is, a name says what to call it, and either alone is a claim worth making: renaming a resource the parser did find is the same act as adopting one it did not. path: a route somebody means a request to take, written down as a walk of selectors. It is the declared side of the comparison a path listing makes, and it is preferred over the routes derived by following references — which is the whole reason to write one down.",
+          "description": "logs.declared: configuration promises this subject ships logs to a sink. logs.observed: logs from this subject were actually seen. logs.none: somebody looked and found no destination — a claim, not an absence, which is what makes a blind spot distinguishable from an unchecked resource. edge: a connection exists that no parser found. edge.suppress: a connection a parser found is not real. note: somebody wrote something about this subject, in Markdown. It is kept beside the graph with their name on it rather than folded into the resource, because the sentence is theirs and not the estate's. node: something exists, or is called something, that is in no input file. A type says what it is, a name says what to call it, and either alone is a claim worth making: renaming a resource the parser did find is the same act as adopting one it did not. path: a route somebody means a request to take, written down as a walk of selectors. It is the declared side of the comparison a path listing makes, and it is preferred over the routes derived by following references — which is the whole reason to write one down. serves: a function in the code graph serves an API operation. The document that declared the operation does not say who implements it and the code does not say which operation it answers, so the join is a claim with an author rather than two names that looked alike.",
           "type": "string",
-          "enum": ["logs.declared", "logs.observed", "logs.none", "edge", "edge.suppress", "node", "note", "path"]
+          "enum": ["logs.declared", "logs.observed", "logs.none", "edge", "edge.suppress", "node", "note", "path", "serves"]
         },
         "subject": { "$ref": "#/$defs/selector" },
         "from": { "$ref": "#/$defs/selector" },
         "to": { "$ref": "#/$defs/selector" },
+        "operation": {
+          "description": "The API operation a serves assertion says its subject serves. It is not \"to\": an edge assertion's two ends are interchangeable and say nothing about what either one is, while these two are a function and an operation and the claim is false if they are swapped.",
+          "$ref": "#/$defs/selector"
+        },
         "sink": { "description": "Id of a sink declared in this document.", "type": "string" },
         "stream": { "type": "string" },
         "records": { "description": "How many were seen. Zero is a finding; omitting it means no count was available.", "type": "number" },
@@ -137,6 +141,10 @@
         {
           "if": { "properties": { "assert": { "enum": ["edge", "edge.suppress"] } } },
           "then": { "required": ["from", "to"] }
+        },
+        {
+          "if": { "properties": { "assert": { "const": "serves" } } },
+          "then": { "required": ["subject", "operation"] }
         },
         {
           "if": { "properties": { "assert": { "const": "note" } } },

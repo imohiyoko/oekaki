@@ -80,6 +80,10 @@ const (
 	codeFile     = "code_file"
 	codePackage  = "code_package"
 
+	// apiOperation is one operation of a surface. Here for the same reason
+	// repositoryType is: a page draws what a graph holds, whoever wrote it.
+	apiOperation = "api"
+
 	// repositoryType is a node standing for a repository a build record named.
 	// The string rather than the enrichers' constant: views reads graphs, and
 	// importing an enricher to learn one node type would make the projection
@@ -89,6 +93,11 @@ const (
 	relDeclares = "declares"
 	relCalls    = "calls"
 	relImports  = "imports"
+
+	// relServes is a claim somebody wrote down: this function answers this
+	// operation. Nothing derives it — neither reader knows the other half —
+	// so it arrives from an overlay. See docs/api.md.
+	relServes = "serves"
 )
 
 // Where a sequence's order came from.
@@ -807,6 +816,13 @@ func (b *builder) codeOf(scope string) []string {
 // function nothing calls but which calls something is where a request comes
 // in, so it stays.
 //
+// And so does one somebody said serves an operation, whether or not it is on
+// any line the parser drew. A handler is reached from outside the tree, so the
+// call graph cannot see that it is an entrance; the claim is what says so, and
+// it is written down precisely because nothing here can read it. What the
+// claim points at is not returned: an operation belongs to the document that
+// declared it, not to this repository.
+//
 // Exported because the command line has to answer the same question before it
 // accepts a mapping: an input this finds nothing in is an input whose box
 // cannot be opened. Two readings of "has code" that differ is how a mapping
@@ -816,7 +832,12 @@ func CodeOf(g *core.Graph, scope string) []string {
 		return nil
 	}
 	kind := map[string]string{}
+	// And every node's type, whatever input it came from. One end of a serves
+	// claim is an operation, which belongs to a document rather than to this
+	// repository, so the pairing below cannot be asked of the scope alone.
+	typeOf := make(map[string]string, len(g.Nodes))
 	for _, n := range g.Nodes {
+		typeOf[n.ID] = n.Type
 		if of, _ := n.Attrs["repository"].(string); of != scope {
 			continue
 		}
@@ -851,6 +872,19 @@ func CodeOf(g *core.Graph, scope string) []string {
 		case strings.EqualFold(e.Relation, relCalls):
 			if kind[e.From] == codeFunction && kind[e.To] == codeFunction {
 				on[e.From], on[e.To] = true, true
+			}
+		// One end only, and it is the function. What it serves is an
+		// operation of a document the estate already draws somewhere else —
+		// putting it here would make this repository's code include a box
+		// nobody read out of it, and the level would then have it lifted away.
+		//
+		// The function is on the page even if it calls nothing and nothing
+		// calls it. That is the whole point of the claim: a handler reached
+		// from outside the tree is where a request comes in, and the rule
+		// above can only see the ones something inside the tree calls.
+		case strings.EqualFold(e.Relation, relServes):
+			if kind[e.From] == codeFunction && typeOf[e.To] == apiOperation {
+				on[e.From] = true
 			}
 		}
 	}
@@ -948,6 +982,8 @@ func joins(b *builder, e core.Edge) bool {
 		return from.Type == codeFile && to.Type == codePackage
 	case strings.EqualFold(e.Relation, relCalls):
 		return from.Type == codeFunction && to.Type == codeFunction
+	case strings.EqualFold(e.Relation, relServes):
+		return from.Type == codeFunction && to.Type == apiOperation
 	}
 	return false
 }
@@ -983,11 +1019,16 @@ func (b *builder) codemapPage(id string, open Opening) error {
 		g.Nodes = append(g.Nodes, copied)
 		present[member] = true
 	}
+	var lines []core.Edge
 	for _, e := range b.in.Edges {
 		// Folded, the way every other relation in this file is read. A graph
 		// that writes `Imports` loses the lines here and the files with them,
 		// leaving a page of boxes and no flow, and saying nothing about it.
-		if !strings.EqualFold(e.Relation, relCalls) && !strings.EqualFold(e.Relation, relImports) {
+		switch {
+		case strings.EqualFold(e.Relation, relCalls),
+			strings.EqualFold(e.Relation, relImports),
+			strings.EqualFold(e.Relation, relServes):
+		default:
 			continue
 		}
 		// And of the kind that line joins, the same pairing CodeOf asked for
@@ -996,6 +1037,37 @@ func (b *builder) codemapPage(id string, open Opening) error {
 		if !joins(b, e) {
 			continue
 		}
+		lines = append(lines, e)
+	}
+
+	// The operations the code on this page answers. They are not this
+	// repository's code and CodeOf did not choose them, so they arrive here as
+	// what the lines run to rather than as members: the map crosses into the
+	// estate exactly as far as somebody wrote down that it does.
+	//
+	// Not on a suppressed one. A denied claim is drawn when both of its ends
+	// are already here — the rule every other line on this page follows — but
+	// it never brings a box with it, because a box on the page because of a
+	// line somebody denied is the page arguing with itself.
+	var served []string
+	for _, e := range lines {
+		if !strings.EqualFold(e.Relation, relServes) || e.Suppressed || !present[e.From] || present[e.To] {
+			continue
+		}
+		n, ok := b.node(e.To)
+		if !ok {
+			continue
+		}
+		copied := *n
+		copied.Groups = nil
+		copied.Attrs = cloneAttrs(n.Attrs)
+		g.Nodes = append(g.Nodes, copied)
+		present[e.To] = true
+		served = append(served, e.To)
+	}
+	served = sorted(served)
+
+	for _, e := range lines {
 		// Suppressed lines are drawn, the way every other page draws them. A
 		// denial is a thing somebody said, and the reader decides whether to
 		// see it — dropping it here made --hide-suppressed a no-op on this
@@ -1046,7 +1118,11 @@ func (b *builder) codemapPage(id string, open Opening) error {
 	// cut were built and then had no door — reachable from nothing, which is
 	// worse than the question is expensive. The question is what got cheaper
 	// instead; see around.
-	for _, member := range members {
+	//
+	// The operations too. A reader who has just learnt that this function
+	// answers that operation is one click from what else is on that surface,
+	// and the box would otherwise be the only one here that opens nothing.
+	for _, member := range append(append([]string{}, members...), served...) {
 		if open, ok := b.detailOpening(member); ok {
 			d.Opens = append(d.Opens, open)
 		}

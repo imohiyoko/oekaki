@@ -56,6 +56,7 @@ var overlayRejections = map[string]struct{ at, because string }{
 	"no-assertions.json":             {"", "missing properties: 'assertions'"},
 	"node-without-type-or-name.json": {"/assertions/0", "missing properties: 'type'"},
 	"origin-parser.json":             {"/assertions/0/origin", `value must be one of "human", "ai"`},
+	"serves-without-operation.json":  {"/assertions/0", "missing properties: 'operation'"},
 	"sink-without-name.json":         {"/sinks/0", "missing properties: 'name'"},
 	"unknown-assert.json":            {"/assertions/0/assert", `value must be one of "logs.declared"`},
 	"unknown-assertion-field.json":   {"/assertions/0", "additionalProperties 'reason' not allowed"},
