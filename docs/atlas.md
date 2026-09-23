@@ -76,9 +76,20 @@ reader came from. Deriving the same estate twice, or reaching the same element
 from two neighbours, would otherwise give one page two different trails, and
 the trail is the thing a reader who has descended four times is relying on.
 
-No line on that map crosses into the estate around it. Which function serves
-which API operation, and which import carries which outbound call, is written
-down nowhere — so the map says what the parser read and stops there.
+One line on that map crosses into the estate around it, and only where
+somebody wrote it down: an `api` operation appears beside the function that
+[a `serves` claim says answers it](api.md#which-function-serves-it). The
+operation is not this repository's code, so it is not taken off the level the
+way the code is — the map holds a copy, and the estate keeps the original.
+
+A function is on the map because that claim exists, even when nothing in the
+tree calls it. That is the point of writing one: a handler is reached from
+outside, so the call graph alone cannot see that it is where a request comes
+in, and a page of flow that leaves out every entrance is a page of the middle.
+
+The other crossing is still nowhere. Which import carries which outbound call
+is written down by nothing, so the map's packages stop at the boundary — the
+map says what the parser read, plus what somebody signed for.
 
 A code graph descends the same way, and a **type** opens as a class diagram
 rather than as the generic inside-of-a-box page — one element still has one

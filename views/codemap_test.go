@@ -1239,3 +1239,196 @@ func pageIDs(a *Atlas) []string {
 	}
 	return out
 }
+
+// serving adds an operation somebody read from a document, and the claim that
+// a function of this repository answers it. The handler is deliberately in
+// neither a call nor an import, so the only reason it could be on the map is
+// the claim.
+func serving(t *testing.T, g *core.Graph) *core.Graph {
+	t.Helper()
+	g.Groups = append(g.Groups, core.Group{
+		ID: "api:checkout", Type: "api_surface", Label: "Checkout", Axis: "api"})
+	g.Axes = append(g.Axes, core.Axis{ID: "api", Label: "API"})
+	g.Nodes = append(g.Nodes,
+		core.Node{ID: "api/checkout/get/orders", Type: "api", Name: "GET /orders",
+			Groups: map[string]string{"api": "api:checkout"}},
+		core.Node{ID: "repo-2-svc:file:handler/http.go#Serve", Type: "code_function", Name: "Serve",
+			Attrs: map[string]any{"repository": "repo-2-svc"}})
+	g.Edges = append(g.Edges, core.Edge{
+		From: "repo-2-svc:file:handler/http.go#Serve", To: "api/checkout/get/orders",
+		Kind: core.EdgeIACRef, Relation: "serves",
+		Claim: &core.Claim{Origin: core.OriginHuman, Author: "operator"}})
+	g.Normalize()
+	if err := g.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	return g
+}
+
+func idsOf(d *Diagram) []string {
+	var out []string
+	for _, n := range d.Graph.Nodes {
+		out = append(out, n.ID)
+	}
+	return out
+}
+
+func draws(d *Diagram, id string) bool {
+	if d == nil {
+		return false
+	}
+	for _, n := range d.Graph.Nodes {
+		if n.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func TestTheMapDrawsWhatSomebodySaidItsCodeServes(t *testing.T) {
+	a, err := BuildAtlas(serving(t, estateWithCode(t, true)), AtlasOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := pageOf(a, "codemap:acme/checkout")
+	if page == nil {
+		t.Fatal("no code map")
+	}
+	// The handler calls nothing and nothing calls it. Only the claim puts it
+	// here, which is the whole reason the claim can be written.
+	if !draws(page, "repo-2-svc:file:handler/http.go#Serve") {
+		t.Errorf("the function that serves it is not on the map: %v", idsOf(page))
+	}
+	if !draws(page, "api/checkout/get/orders") {
+		t.Errorf("what it serves is not on the map: %v", idsOf(page))
+	}
+	var drawn int
+	for _, e := range page.Graph.Edges {
+		if e.Relation == "serves" {
+			drawn++
+		}
+	}
+	if drawn != 1 {
+		t.Errorf("the map draws %d serves lines", drawn)
+	}
+	if openingOf(page, "api/checkout/get/orders") == nil {
+		t.Error("the operation is a box on the map that opens nothing")
+	}
+}
+
+// The operation belongs to a document, not to this repository. Code goes
+// behind the box it was built into; an operation stays where the estate drew
+// it, and the map holds a copy.
+func TestWhatTheCodeServesIsNotLiftedOffTheLevel(t *testing.T) {
+	a, err := BuildAtlas(serving(t, estateWithCode(t, true)), AtlasOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, d := range a.Diagrams {
+		if strings.HasPrefix(d.ID, "level:") && draws(&d, "api/checkout/get/orders") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("the operation was taken off the level along with the code")
+	}
+	for _, d := range a.Diagrams {
+		if strings.HasPrefix(d.ID, "level:") && draws(&d, "repo-2-svc:file:handler/http.go#Serve") {
+			t.Error("the function is on the level and on the map both")
+		}
+	}
+}
+
+// A denied claim never brings a box with it. The function below is on the map
+// already — it calls another one — so the only thing the claim could add is
+// the operation, and a box on the page because of a line somebody denied is
+// the page arguing with itself.
+//
+// Drawn once the operation is there for another reason, like every other
+// suppressed line on this page: the reader decides whether to see a denial,
+// and --hide-suppressed is what decides it.
+func TestADeniedClaimDoesNotPutTheOperationOnTheMap(t *testing.T) {
+	denied := func(t *testing.T, alsoSaid bool) *Diagram {
+		t.Helper()
+		g := estateWithCode(t, true)
+		g.Groups = append(g.Groups, core.Group{
+			ID: "api:checkout", Type: "api_surface", Label: "Checkout", Axis: "api"})
+		g.Axes = append(g.Axes, core.Axis{ID: "api", Label: "API"})
+		g.Nodes = append(g.Nodes, core.Node{
+			ID: "api/checkout/get/orders", Type: "api", Name: "GET /orders",
+			Groups: map[string]string{"api": "api:checkout"}})
+		g.Edges = append(g.Edges, core.Edge{
+			From: "repo-2-svc:file:handler/http.go#Handle", To: "api/checkout/get/orders",
+			Kind: core.EdgeIACRef, Relation: "serves", Suppressed: true})
+		if alsoSaid {
+			g.Nodes = append(g.Nodes, core.Node{
+				ID: "repo-2-svc:file:handler/http.go#Serve", Type: "code_function", Name: "Serve",
+				Attrs: map[string]any{"repository": "repo-2-svc"}})
+			g.Edges = append(g.Edges, core.Edge{
+				From: "repo-2-svc:file:handler/http.go#Serve", To: "api/checkout/get/orders",
+				Kind: core.EdgeIACRef, Relation: "serves"})
+		}
+		g.Normalize()
+		if err := g.Validate(); err != nil {
+			t.Fatal(err)
+		}
+		a, err := BuildAtlas(g, AtlasOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		page := pageOf(a, "codemap:acme/checkout")
+		if page == nil {
+			t.Fatal("no code map")
+		}
+		return page
+	}
+
+	page := denied(t, false)
+	if draws(page, "api/checkout/get/orders") {
+		t.Errorf("a denied claim put the operation on the map: %v", idsOf(page))
+	}
+	for _, e := range page.Graph.Edges {
+		if e.Relation == "serves" {
+			t.Errorf("a line was drawn to a box that is not here: %+v", e)
+		}
+	}
+
+	page = denied(t, true)
+	if !draws(page, "api/checkout/get/orders") {
+		t.Fatalf("the claim nobody denied did not put the operation on the map: %v", idsOf(page))
+	}
+	var denials int
+	for _, e := range page.Graph.Edges {
+		if e.Relation == "serves" && e.Suppressed {
+			denials++
+		}
+	}
+	if denials != 1 {
+		t.Errorf("the map draws %d denied claims; the reader cannot learn it was denied", denials)
+	}
+}
+
+// The same pairing the choosing asked for. A claim whose ends are not a
+// function and an operation draws nothing, whoever wrote the graph.
+func TestAClaimBetweenTheWrongKindsDrawsNothing(t *testing.T) {
+	g := serving(t, estateWithCode(t, true))
+	g.Edges = append(g.Edges, core.Edge{
+		From: "repo-2-svc:file:handler/http.go", To: "api/checkout/get/orders",
+		Kind: core.EdgeIACRef, Relation: "serves"})
+	g.Normalize()
+	if err := g.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := BuildAtlas(g, AtlasOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := pageOf(a, "codemap:acme/checkout")
+	for _, e := range page.Graph.Edges {
+		if e.Relation == "serves" && e.From == "repo-2-svc:file:handler/http.go" {
+			t.Errorf("a file was drawn serving an operation: %+v", e)
+		}
+	}
+}

@@ -26,6 +26,7 @@ $ oekaki graph cluster.yaml --api service/shop/checkout=openapi.yaml -o estate.j
 | relation | between | what it says |
 | --- | --- | --- |
 | `declares` | element → operation | somebody said this element serves that operation |
+| `serves` | function → operation | somebody said this code answers it; see [below](#which-function-serves-it) |
 
 Each operation carries what a listing filters on, apart from its name so that
 nothing has to take the name back apart:
@@ -72,6 +73,52 @@ owner — which is how a document whose path has an `=` in it is written down:
 ```console
 --api =reports/q1=final.yaml
 ```
+
+## Which function serves it
+
+`--api` answers "who offers these operations" at the granularity of the estate:
+one id, one document, every operation on it. That is the right granularity for
+the box a request arrives at, and the wrong one for the question a reader has
+once they are behind it — *which code answers this*.
+
+The other half is written down the same way, one operation at a time, as an
+overlay assertion:
+
+```json
+{
+  "assert": "serves",
+  "subject":   { "node": "repo-2-svc:file:handler/http.go#HandleOrder" },
+  "operation": { "node": "api/checkout/get/orders/{id}" },
+  "author": "operator",
+  "note": "the router registers it under this path"
+}
+```
+
+It joins a `code_function` to an `api` operation and refuses anything else by
+name: a file, a surface, the service. The two ends are `subject` and
+`operation` rather than `from` and `to` because an edge assertion's ends are
+interchangeable and these are not — the claim is false if they are swapped, and
+naming them apart is what lets the refusal say which end was wrong.
+
+Neither end is ever adopted. A selector that matches nothing is dropped and
+reported, whatever `--overlay-unmatched` says, because a function nobody parsed
+is not code and inventing one would put a box on the code map that no reading
+of the repository produced. Ids are the ones in the graph, so with more than
+one input they are the qualified ones — `repo-2-svc:file:…`.
+
+It carries no `kind`. What somebody writes down is what a service is meant to
+do; `observed` comes from something that watched it, and `reachable` says
+nothing here at all. The edge is `iac_ref`, like a declared route.
+
+What it is for is the descent. A reader who arrived from a running container,
+went behind it to the repository and is looking at its code map can now see
+which of those functions is where a request comes in — including the ones
+nothing in the tree calls, which are exactly the ones the call graph cannot
+place. See [atlas.md](atlas.md).
+
+A router registration is the same fact written in the source, and reading one
+would land the same edge without anybody typing it. That is a parser's job, per
+framework, and none of them is read yet.
 
 ## Why an operation is not matched to a route
 

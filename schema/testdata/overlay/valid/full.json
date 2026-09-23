@@ -27,6 +27,9 @@
     { "assert": "edge.suppress", "from": { "node": "aws_security_group.db" },
       "to": { "node": "aws_security_group.bastion" }, "kind": "iac_ref" },
     { "assert": "node", "subject": { "id": "vendor.payments" },
-      "type": "external_service", "name": "payments gateway" }
+      "type": "external_service", "name": "payments gateway" },
+    { "assert": "serves", "subject": { "node": "file:handler/http.go#HandleOrder" },
+      "operation": { "node": "api/checkout/get/orders/{id}" },
+      "note": "the router registers it under this path" }
   ]
 }
