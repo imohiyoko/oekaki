@@ -409,25 +409,23 @@ func runRender(ctx context.Context, env Env, args []string) error {
 	if err := applyAPIs(env, g, f.apiFiles); err != nil {
 		return err
 	}
-	if err := applyBuilds(env, g, f.builds); err != nil {
+	placed, err := applyBuilds(env, g, f.builds)
+	if err != nil {
 		return err
 	}
 	if err := applyOverlays(env, g, f.overlay); err != nil {
 		return err
 	}
-	// Only when this run can open a box, or hands the answer to a run that
-	// can. The mapping still joins the workload to its repository in every
-	// format; what it also says — that the box opens onto this input's code —
-	// is drawn by an atlas, and carried by a graph. A denied code graph is a
-	// person saying those lines are not there, and refusing a single drawing
-	// over it left the SVG unwritten for a page that was never going to show
-	// it either way.
+	// Only when this run draws a box that can be opened. The mapping still
+	// joins the workload to its repository in every format; what it also says
+	// — that the box opens onto this input's code — is drawn by an atlas and
+	// by nothing else, so refusing a single drawing over a denied code graph
+	// left the SVG unwritten for a page that was never going to show it.
 	//
-	// json here is the graph itself rather than a picture of it, so it carries
-	// the mapping onward exactly as `graph` does, and the question has to be
-	// asked while the answer can still be given.
-	if (f.atlas && format == "html") || format == "json" {
-		if err := checkCodeMaps(g, f.builds); err != nil {
+	// A run that writes the graph itself asks the same question further down,
+	// of the graph it is about to write.
+	if f.atlas && format == "html" {
+		if err := checkCodeMaps(g, placed); err != nil {
 			return err
 		}
 	}
@@ -459,6 +457,18 @@ func runRender(ctx context.Context, env Env, args []string) error {
 	}
 	if f.overlay.hide {
 		g = hideSuppressed(g)
+	}
+	// A run that hands the graph on rather than a picture of it asks here,
+	// where the graph is the one that will be written. `--view`, `--root` and
+	// `--depth` are a reader narrowing a drawing, and they narrow a document
+	// too: a mapping recorded on a repository the view does not keep is not in
+	// the file, and the run said it was applied. A picture is asked earlier,
+	// and about the estate rather than about one view of it, because a drawing
+	// is not carried anywhere.
+	if carriesGraph(format, f.externalAssets) {
+		if err := checkCodeMaps(g, placed); err != nil {
+			return err
+		}
 	}
 	// Folding comes after the view and the suppression, because it is about
 	// how much is left to draw. Folding first would spend the budget on boxes
@@ -746,13 +756,14 @@ func runGraph(ctx context.Context, env Env, args []string) error {
 	if err := applyAPIs(env, g, apiFiles); err != nil {
 		return err
 	}
-	if err := applyBuilds(env, g, buildRecords); err != nil {
+	placed, err := applyBuilds(env, g, buildRecords)
+	if err != nil {
 		return err
 	}
 	if err := applyOverlays(env, g, ov); err != nil {
 		return err
 	}
-	if err := checkCodeMaps(g, buildRecords); err != nil {
+	if err := checkCodeMaps(g, placed); err != nil {
 		return err
 	}
 	if err := applyEvidenceInputs(env, g, observationsFiles, exposureFiles, aiCandidateFiles); err != nil {
@@ -1488,6 +1499,16 @@ func repositoryScope(path string, index int) string {
 // `repo-2-…` of its own, so the untouched id quietly came to mean somebody
 // else's repository, and the code map drew that repository's code under this
 // one's name.
+// carriesGraph reports whether a run writes the document itself rather than a
+// picture of it.
+//
+// The property rather than a list of formats: `--external-assets` writes the
+// graph beside the page as its own file, which is the same handing-on as
+// `-f json` and was not in the list.
+func carriesGraph(format string, externalAssets bool) bool {
+	return format == "json" || (format == "html" && externalAssets)
+}
+
 func qualifyInputAttrs(attrs map[string]any, scope string) {
 	for _, key := range []string{buildsenricher.AttrCodeInput} {
 		if was, ok := attrs[key].(string); ok && was != "" {

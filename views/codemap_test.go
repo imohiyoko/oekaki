@@ -155,7 +155,10 @@ func TestTheCodeMapParticipatesInTheLimit(t *testing.T) {
 	if pageOf(a, "codemap:repo-2-svc") != nil {
 		t.Fatal("the code map ignored the limit")
 	}
-	if openingOf(pageOf(a, "detail:task"), "repository:acme/checkout") != nil {
+	// The door is on the page the reader is actually on. Asking it of
+	// `detail:task` asked nothing: that page was never built either, so the
+	// answer was nil whatever prune did.
+	if openingOf(pageOf(a, "level:"), "repository:acme/checkout") != nil {
 		t.Error("a door was left pointing at a page that was never built")
 	}
 }
@@ -1046,5 +1049,121 @@ func TestEveryStrippedNodeHasAPageToBeOn(t *testing.T) {
 		if len(a.Diagrams) > limit {
 			t.Errorf("limit %d: %d diagrams", limit, len(a.Diagrams))
 		}
+	}
+}
+
+// Evidence is carried onto a page for the boxes that page draws. Taking a box
+// off it afterwards left an observation about a box that is no longer there —
+// a dangling reference, which core.Validate rejects the whole document for, so
+// one observation on one function stopped the entire atlas from being written.
+func TestLiftingCodeOffTheLevelDoesNotStrandTheEvidence(t *testing.T) {
+	g := estateWithCode(t, true)
+	g.Observations = []core.Observation{{
+		Subject: "repo-2-svc:file:handler/http.go#Handle",
+		Metric:  "requests", ObservedAt: "2026-01-01T00:00:00Z",
+	}}
+	g.Normalize()
+	if err := g.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := BuildAtlas(g, AtlasOptions{})
+	if err != nil {
+		t.Fatalf("the atlas was not built: %v", err)
+	}
+	for _, d := range a.Diagrams {
+		if err := d.Graph.Validate(); err != nil {
+			t.Errorf("%s: %v", d.ID, err)
+		}
+	}
+}
+
+// A box is taken off the front page because a code map draws it. Its own
+// detail page is not that: the door to a detail page was on the front page,
+// and taking the box away takes the door with it, which leaves a page nobody
+// can open. Drawn somewhere is not the test — drawn somewhere a reader can get
+// to without this door is.
+func TestABoxIsOnlyLiftedWhenAMapDrawsIt(t *testing.T) {
+	g := estateWithCode(t, true)
+	// On no line, so on no map, and holding something so it has a page.
+	g.Nodes = append(g.Nodes,
+		core.Node{ID: "repo-2-svc:file:model/order.go", Type: "code_file", Name: "model/order.go",
+			Attrs: map[string]any{"repository": "repo-2-svc"}},
+		core.Node{ID: "repo-2-svc:file:model/order.go#Order", Type: "code_type", Name: "Order",
+			Attrs: map[string]any{"repository": "repo-2-svc"}})
+	g.Edges = append(g.Edges, core.Edge{
+		From: "repo-2-svc:file:model/order.go", To: "repo-2-svc:file:model/order.go#Order",
+		Kind: core.EdgeIACRef, Relation: "declares"})
+	g.Normalize()
+	if err := g.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := BuildAtlas(g, AtlasOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := pageOf(a, "level:")
+	if root == nil {
+		t.Fatal("there is no root level")
+	}
+	on := false
+	for _, n := range root.Graph.Nodes {
+		if n.ID == "repo-2-svc:file:model/order.go" {
+			on = true
+		}
+	}
+	if !on {
+		t.Error("the file no map draws was taken off the only page that opens it")
+	}
+
+	// Every page of the atlas is opened by some other page.
+	doors := map[string]bool{}
+	for _, d := range a.Diagrams {
+		for _, open := range d.Opens {
+			doors[open.Diagram] = true
+		}
+	}
+	for _, d := range a.Diagrams {
+		if d.ID != a.Root && !doors[d.ID] {
+			t.Errorf("%s is a page nothing opens", d.ID)
+		}
+	}
+}
+
+// A monorepo: two repositories built out of one input, so both boxes open the
+// one code map. Naming the page after whichever box reached it first meant
+// clicking the other one arrived at a page named after its neighbour, and the
+// trail back up led to a level that box is not on.
+func TestOneRoomWithTwoNamesIsNamedAfterNeither(t *testing.T) {
+	g := estateWithCode(t, true)
+	g.Axes = []core.Axis{{ID: "containment", Label: "Cluster"}}
+	g.Groups = []core.Group{{ID: "ns:other", Type: "namespace", Label: "other", Axis: "containment"}}
+	g.Nodes = append(g.Nodes,
+		core.Node{ID: "task-b", Type: "aws_ecs_task_definition", Name: "b",
+			Attrs: map[string]any{"image": "img:2"}, Groups: map[string]string{"containment": "ns:other"}},
+		core.Node{ID: "repository:acme/worker", Type: "repository", Name: "acme/worker",
+			Attrs:  map[string]any{"code_input": "repo-2-svc"},
+			Groups: map[string]string{"containment": "ns:other"}})
+	g.Edges = append(g.Edges, core.Edge{From: "task-b", To: "repository:acme/worker",
+		Kind: core.EdgeObserved, Relation: "built_from"})
+	g.Normalize()
+	if err := g.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := BuildAtlas(g, AtlasOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := pageOf(a, "codemap:repo-2-svc")
+	if page == nil {
+		t.Fatal("there is no code map")
+	}
+	if page.Title == "acme/checkout" || page.Title == "acme/worker" {
+		t.Errorf("the shared page is named after one of them: %q", page.Title)
+	}
+	if page.Parent != "level:" {
+		t.Errorf("the trail back up goes to %q, which only one of them is on", page.Parent)
 	}
 }

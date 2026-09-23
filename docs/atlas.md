@@ -59,7 +59,7 @@ a tree like the one above:
 ```
 level:                                   the estate
   click the task definition   ->  detail:aws_ecs_task_definition.api
-  click the repository        ->  codemap:repository:acme/checkout   what it runs, as code
+  click the repository        ->  codemap:repo-2-checkout            what it runs, as code
   click a function            ->  detail:…#HandleOrder               what it calls
   click a file                ->  detail:…/http.go                   what it declares
   click a type there          ->  detail:…#type:Order                drawn as a class

@@ -174,6 +174,7 @@ func (e Enricher) Enrich(g *core.Graph) (*enrichers.Report, error) {
 		}
 	}
 
+	index := newBoxIndex(g)
 	matched := map[string]bool{}
 	for _, n := range g.Nodes {
 		image, ok := n.Attrs["image"].(string)
@@ -185,7 +186,7 @@ func (e Enricher) Enrich(g *core.Graph) (*enrichers.Report, error) {
 			continue
 		}
 		matched[b.image.Identity()] = true
-		to, invented, err := e.target(g, inputs, n, b)
+		to, invented, err := e.target(g, index, inputs, n, b)
 		if err != nil {
 			return r, err
 		}
@@ -361,7 +362,7 @@ func lookup(byKey map[string]built, image string) (built, bool) {
 
 // target is the element the edge points at, and whether this invented it: the
 // one somebody wrote down, or a node for the repository itself.
-func (e Enricher) target(g *core.Graph, inputs map[string]bool, running core.Node, b built) (string, bool, error) {
+func (e Enricher) target(g *core.Graph, index boxIndex, inputs map[string]bool, running core.Node, b built) (string, bool, error) {
 	// The repository this graph already holds, found by what it is rather than
 	// by the id this run would give it.
 	//
@@ -384,11 +385,19 @@ func (e Enricher) target(g *core.Graph, inputs map[string]bool, running core.Nod
 	// next to it, which is the doubling this matching was added to stop. The
 	// most specific box that covers the workload wins; a box this run made
 	// covers everything, and is the last resort rather than the first.
+	// A workload that says nothing about where it came from is covered by any
+	// box there is: nothing tells it apart from them, and demanding a scope it
+	// does not have matched none of them and invented a second box beside the
+	// one that was already right there.
 	from, _ := running.Attrs["repository"].(string)
-	existing := repositoriesNamed(g, b.repository)
+	existing := index.nodes(g, b.repository)
 	var mine *core.Node
 	for _, n := range existing {
 		of, _ := n.Attrs["repository"].(string)
+		if from == "" {
+			mine = n
+			break
+		}
 		if !within(from, of) {
 			continue
 		}
@@ -398,6 +407,17 @@ func (e Enricher) target(g *core.Graph, inputs map[string]bool, running core.Nod
 		}
 		if was, _ := mine.Attrs["repository"].(string); len(of) > len(was) {
 			mine = n
+		}
+	}
+	writable := mine
+	if mine == nil {
+		// The bare id, when a graph somebody handed in wears it while saying
+		// it came from an input that covers nothing here. Preferring it would
+		// have been wrong; refusing it is worse, and refusing it with "cannot
+		// be told apart" is not even true of it.
+		if n, ok := g.Node(NodeRepository + ":" + b.repository); ok &&
+			n.Type == NodeRepository && n.Name == b.repository {
+			mine, writable = n, n
 		}
 	}
 
@@ -412,11 +432,28 @@ func (e Enricher) target(g *core.Graph, inputs map[string]bool, running core.Nod
 	// map then drew that whole input's code.
 	of := ""
 	if id, ok := e.Repositories[b.repository]; ok {
+		// Whether some box here is the one the mapping is about. If one is, it
+		// was written before any of this, and nothing about the answer is
+		// decided by which workload happened to point where: the box the edge
+		// lands on is another input's box, and this input's code is not its.
+		// The edge still lands there — that is a different question.
+		for _, n := range existing {
+			if from, _ := n.Attrs["repository"].(string); within(id, from) {
+				writable = nil
+				break
+			}
+		}
 		if !inputs[id] {
 			// Pointed at an element instead. Whatever an earlier run wrote
 			// on the boxes this mapping is about was cleared before any of
 			// this, because it has to happen whether or not a record matched
-			// anything.
+			// anything — and the box the edge lands on is cleared here, by
+			// the same selection that would have written it. Written by one
+			// rule and taken back by a narrower one is how an answer comes to
+			// be one nobody can retract.
+			if writable != nil {
+				delete(writable.Attrs, AttrCodeInput)
+			}
 			return id, false, nil
 		}
 		of = id
@@ -431,25 +468,17 @@ func (e Enricher) target(g *core.Graph, inputs map[string]bool, running core.Nod
 		// already on it is its own and is left alone — which box a mapping
 		// replaces is decided before any of this, not by which workload
 		// happened to point here.
-		fill(mine, of)
+		fill(writable, of)
 		return mine.ID, false, nil
 	}
 
 	id := NodeRepository + ":" + b.repository
 	if n, ok := g.Node(id); ok {
-		// It is this repository after all — wearing the bare id while saying
-		// it came from an input that does not cover this workload, which no
-		// run of this writes but a graph somebody hands in may. Preferring it
-		// would have been wrong; refusing it is worse, and refusing it with
-		// "cannot be told apart" is not even true of it.
-		if n.Type == NodeRepository && n.Name == b.repository {
-			fill(n, of)
-			return id, false, nil
-		}
-		// Not a repository, then, and not this one: a different thing with the
-		// same name. Pointing the edge at it would answer "what built this"
-		// with somebody else's box, and nothing downstream could tell, because
-		// the graph would still validate.
+		// Not a repository, and not this one: a different thing with the same
+		// name — the box that is this repository was taken above. Pointing the
+		// edge at it would answer "what built this" with somebody else's box,
+		// and nothing downstream could tell, because the graph would still
+		// validate.
 		return "", false, fmt.Errorf(
 			"%q is already here as %s %q: that and the repository the record names cannot be told apart",
 			id, n.Type, n.Name)
@@ -473,15 +502,15 @@ func (e Enricher) target(g *core.Graph, inputs map[string]bool, running core.Nod
 		node.Attrs = map[string]any{AttrCodeInput: of}
 	}
 	g.Nodes = append(g.Nodes, node)
+	index.add(g, b.repository)
 	return id, true, nil
 }
 
-// repositoriesNamed are the nodes already standing for one repository,
-// whatever id they are wearing, in a fixed order so that a graph holding more
-// than one of them is read the same way twice.
-// fill says what this repository's code is on a box that is saying nothing.
-// Replacing an answer is decided elsewhere, by whether the mapping is about
-// that box at all; this is only the blank being filled in.
+// fill says what this repository's code is on the box the edge lands on, when
+// that box is saying nothing. Replacing an answer is decided elsewhere, by
+// whether the mapping is about that box at all; this is only the blank being
+// filled in — and it is undone by the same selection, so an element mapping
+// can take back what it wrote.
 func fill(n *core.Node, of string) {
 	if of == "" || n == nil {
 		return
@@ -492,6 +521,54 @@ func fill(n *core.Node, of string) {
 	set(n, of)
 }
 
+// boxIndex is where the repository nodes are, by name.
+//
+// By position rather than by pointer: this run appends invented boxes to the
+// same list, which may move it, and an index of positions survives that while
+// an index of pointers would quietly write into the list that used to be.
+//
+// Kept because the join asks for one repository's boxes per workload it
+// matches, and the answer is a walk of every node — on a graph that carries a
+// repository's code, most of the nodes are that code.
+type boxIndex map[string][]int
+
+func newBoxIndex(g *core.Graph) boxIndex {
+	x := boxIndex{}
+	for i := range g.Nodes {
+		if g.Nodes[i].Type == NodeRepository {
+			x[g.Nodes[i].Name] = append(x[g.Nodes[i].Name], i)
+		}
+	}
+	for name := range x {
+		x.sort(g, name)
+	}
+	return x
+}
+
+func (x boxIndex) sort(g *core.Graph, name string) {
+	at := x[name]
+	sort.SliceStable(at, func(i, j int) bool { return g.Nodes[at[i]].ID < g.Nodes[at[j]].ID })
+}
+
+// nodes are one repository's boxes, in a fixed order so that a graph holding
+// more than one of them is read the same way twice.
+func (x boxIndex) nodes(g *core.Graph, name string) []*core.Node {
+	out := make([]*core.Node, 0, len(x[name]))
+	for _, i := range x[name] {
+		out = append(out, &g.Nodes[i])
+	}
+	return out
+}
+
+// add records a box this run has just appended.
+func (x boxIndex) add(g *core.Graph, name string) {
+	x[name] = append(x[name], len(g.Nodes)-1)
+	x.sort(g, name)
+}
+
+// repositoriesNamed are the nodes already standing for one repository,
+// whatever id they are wearing, in a fixed order so that a graph holding more
+// than one of them is read the same way twice.
 func repositoriesNamed(g *core.Graph, name string) []*core.Node {
 	var out []*core.Node
 	for i := range g.Nodes {

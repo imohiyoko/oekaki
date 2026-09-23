@@ -698,3 +698,86 @@ func TestABoxAlreadyHereIsToldWhatThisRunWasTold(t *testing.T) {
 		t.Errorf("the box the workload points at opens %q", of)
 	}
 }
+
+// What the edge lands on is filled in when no box is the one the mapping is
+// about — and taken back by the same selection. Written by one rule and
+// retracted by a narrower one is how an answer comes to be one nobody can
+// remove: an element mapping is the documented way to say "no code map here",
+// and it left this one standing.
+func TestWhatFillsABoxCanAlsoTakeItBack(t *testing.T) {
+	estate := func() *core.Graph {
+		g := core.New()
+		g.Metadata = &core.Metadata{Inputs: []core.InputRef{
+			{ID: "repo-1-a-json", Path: "a.json", Kind: "graph"},
+			{ID: "repo-2-checkout", Path: "../checkout", Kind: "repository"},
+		}}
+		g.Nodes = []core.Node{
+			{ID: "repo-1-a-json:workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
+				Attrs: map[string]any{
+					"image":      "registry.example/checkout:1.4.0",
+					"repository": "repo-1-a-json",
+				}},
+			{ID: "repo-1-a-json:repository:acme/checkout", Type: NodeRepository, Name: "acme/checkout",
+				Attrs: map[string]any{"repository": "repo-1-a-json"}},
+			// A second box, so that the mapping is about neither of them and
+			// the entitlement this run is left with is the edge landing here.
+			{ID: "repo-9-other-json:repository:acme/checkout", Type: NodeRepository, Name: "acme/checkout",
+				Attrs: map[string]any{"repository": "repo-9-other-json"}},
+			{ID: "repo-2-checkout:file:main.go", Type: "code_file", Name: "main.go",
+				Attrs: map[string]any{"repository": "repo-2-checkout"}},
+		}
+		g.Normalize()
+		return g
+	}
+
+	g := estate()
+	if _, err := (Enricher{
+		Documents:    []*builds.Document{record(t, oneBuild)},
+		Repositories: map[string]string{"acme/checkout": "repo-2-checkout"},
+	}).Enrich(g); err != nil {
+		t.Fatal(err)
+	}
+	n, _ := g.Node("repo-1-a-json:repository:acme/checkout")
+	if of, _ := n.Attrs[AttrCodeInput].(string); of != "repo-2-checkout" {
+		t.Fatalf("the box the edge lands on opens %q", of)
+	}
+
+	// The same estate, read again with the mapping pointed at an element.
+	again := estate()
+	was, _ := again.Node("repo-1-a-json:repository:acme/checkout")
+	was.Attrs[AttrCodeInput] = "repo-2-checkout"
+	if _, err := (Enricher{
+		Documents:    []*builds.Document{record(t, oneBuild)},
+		Repositories: map[string]string{"acme/checkout": "repo-2-checkout:file:main.go"},
+	}).Enrich(again); err != nil {
+		t.Fatal(err)
+	}
+	n, _ = again.Node("repo-1-a-json:repository:acme/checkout")
+	if of, found := n.Attrs[AttrCodeInput]; found {
+		t.Errorf("the box is still open onto %v", of)
+	}
+}
+
+// A workload that says nothing about which input it came from is covered by
+// any box for its repository: nothing tells it apart from them. Demanding a
+// scope it does not have matched none of them and invented a second box beside
+// the one that was already there.
+func TestAWorkloadWithNoInputUsesTheBoxThatIsHere(t *testing.T) {
+	g := graphRunning("registry.example/checkout:1.4.0")
+	g.Nodes = append(g.Nodes, core.Node{
+		ID: "repo-1-out-json:repository:acme/checkout", Type: NodeRepository, Name: "acme/checkout",
+		Attrs: map[string]any{"repository": "repo-1-out-json"},
+	})
+	g.Normalize()
+
+	if _, err := (Enricher{Documents: []*builds.Document{record(t, oneBuild)}}).Enrich(g); err != nil {
+		t.Fatal(err)
+	}
+	if boxes := repositoriesNamed(g, "acme/checkout"); len(boxes) != 1 {
+		var ids []string
+		for _, n := range boxes {
+			ids = append(ids, n.ID)
+		}
+		t.Fatalf("%d boxes for one repository: %v", len(boxes), ids)
+	}
+}
