@@ -458,15 +458,21 @@ func (e Enricher) target(g *core.Graph, inputs map[string]bool, running core.Nod
 		ID: id, Type: NodeRepository, Name: b.repository,
 		Claim: &core.Claim{Origin: core.OriginParser, Note: b.run.Label()},
 	}
-	// The mapping goes on this box only when it is not already about one that
-	// is here. A box read back out of a previous output carries the answer
-	// about the code inside its own input; when this run then meets a workload
-	// that box does not cover and makes a second one, stamping the same answer
-	// on both drew the same code map twice — two doors, two identical rooms,
-	// and the limit paying for both.
+	// The mapping goes on this box only when no box here is already open onto
+	// it. When this run meets a workload an existing box does not cover and
+	// makes a second one, stamping the same answer on both draws the same code
+	// map twice — two doors, two identical rooms, and the limit paying for
+	// both.
+	//
+	// Asked of the answer written, rather than of whose input the mapping is
+	// inside. Those are different questions: a box can be written by the
+	// fallback above without the mapping being inside its input at all, and
+	// asking the second one about that box said "not about it, write it here
+	// too". What matters here is not who it is about; it is that it is already
+	// somewhere.
 	if of != "" {
 		for _, n := range existing {
-			if was, _ := n.Attrs["repository"].(string); within(of, was) {
+			if was, _ := n.Attrs[AttrCodeInput].(string); was == of {
 				of = ""
 				break
 			}
