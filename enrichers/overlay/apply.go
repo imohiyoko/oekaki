@@ -992,10 +992,43 @@ func (tracker *edgeAssertionTracker) settleDenials(g *core.Graph) {
 				asserted = true
 			}
 		}
+		if !asserted {
+			continue
+		}
 		edge := &g.Edges[history.index]
-		if asserted && edge.Claim != nil && edge.Claim.Note == deniedNote {
+		if edge.Claim != nil && edge.Claim.Note == deniedNote {
 			edge.Claim = cloneClaim(edge.Claim)
 			edge.Claim.Note = ""
+		}
+		// And where the disagreement is written down. A line with a denial and
+		// a claim on it records both, and the reader is shown the sentence
+		// each side gave — so taking it off the edge and leaving it in the
+		// conflict just moves where they read it.
+		key := core.EdgeKey(edge.From, edge.To, edge.Kind, edge.Relation)
+		for i := range g.Conflicts {
+			if g.Conflicts[i].TargetKind != core.ConflictTargetEdge || g.Conflicts[i].Target != key {
+				continue
+			}
+			claims := g.Conflicts[i].Claims[:0]
+			for _, value := range g.Conflicts[i].Claims {
+				if value.Claim.Note == deniedNote {
+					value.Claim.Note = ""
+				}
+				// Two sentences that were different only in the part just
+				// removed are now one. Normalize folds a repeated claimed
+				// value only where it merges two conflicts, so a conflict
+				// left holding the same claim twice would stay that way.
+				var seen bool
+				for _, kept := range claims {
+					if kept.Value == value.Value && claimsEqual(kept.Claim, value.Claim) {
+						seen = true
+					}
+				}
+				if !seen {
+					claims = append(claims, value)
+				}
+			}
+			g.Conflicts[i].Claims = claims
 		}
 	}
 }

@@ -620,8 +620,22 @@ func TestADeniedClaimIsNotToldItWasNeverThere(t *testing.T) {
 				continue
 			}
 			if strings.Contains(e.Claim.Note, "no such edge was found") {
-				t.Errorf("the reader is told nothing made a line this run made: %q", e.Claim.Note)
+				t.Errorf("the line says nothing made it: %q", e.Claim.Note)
 			}
+		}
+		// And where the two sides are written down. Taking the sentence off
+		// the line and leaving it in the conflict only moves where it is read.
+		var recorded int
+		for _, c := range g.Conflicts {
+			for _, value := range c.Claims {
+				recorded++
+				if strings.Contains(value.Claim.Note, "no such edge was found") {
+					t.Errorf("the disagreement says nothing made the line: %q", value.Claim.Note)
+				}
+			}
+		}
+		if recorded == 0 {
+			t.Error("no conflict was recorded, so this is not asking what it means to")
 		}
 	}
 }
