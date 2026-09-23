@@ -757,26 +757,59 @@ func newEdgeAssertionTracker(g *core.Graph) *edgeAssertionTracker {
 
 // matching finds the history of an edge an assertion is about.
 //
-// A relation is asked for only when the assertion gave one. An edge assertion
-// names two ends and a kind and says nothing about what the line means, and it
-// has always been able to reach a line a parser drew with a relation on it —
-// which is what suppressing a call is. Requiring a match here would have taken
-// that away from every assertion already written, to the benefit of none.
+// An assertion that gave no relation reaches any line between those two ends.
+// An edge assertion names two ends and a kind and says nothing about what the
+// line means, and it has always been able to reach a line a parser drew with a
+// relation on it — which is what suppressing a call is. Requiring a match
+// would have taken that away from every assertion already written.
+//
+// An assertion that gave one is more specific, and reaches a line of that
+// relation or a line of none. A line of another relation is a different fact
+// about the same two boxes and is left alone — that is what the relation is
+// for. A line of no relation is the *same* fact not yet named, which is the
+// whole of the second pass below: an edge.suppress written before the claim it
+// denies creates one, and the two have to be one line however the assertions
+// were ordered. Written the other way round they always were, and an overlay
+// whose meaning depends on the order of its own sentences is not a document
+// anybody can check.
 func (tracker *edgeAssertionTracker) matching(g *core.Graph, from, to string, kind core.EdgeKind, relation string) *edgeAssertionHistory {
-	for i := range g.Edges {
-		edge := &g.Edges[i]
-		if edge.From != from || edge.To != to || edge.Kind != kind {
-			continue
+	// Exactly, first. Otherwise which of the two a claim landed on would
+	// depend on the order the edges happen to be in.
+	for _, want := range []string{relation, ""} {
+		for i := range g.Edges {
+			edge := &g.Edges[i]
+			if edge.From != from || edge.To != to || edge.Kind != kind {
+				continue
+			}
+			if relation != "" && edge.Relation != want {
+				continue
+			}
+			key := core.EdgeKey(edge.From, edge.To, edge.Kind, edge.Relation)
+			if history := tracker.byKey[key]; history != nil {
+				return history
+			}
 		}
-		if relation != "" && edge.Relation != relation {
-			continue
-		}
-		key := core.EdgeKey(edge.From, edge.To, edge.Kind, edge.Relation)
-		if history := tracker.byKey[key]; history != nil {
-			return history
+		if relation == "" {
+			break
 		}
 	}
 	return nil
+}
+
+// name gives a line the meaning an assertion had for it, when the line was
+// made by one that had none.
+//
+// The key it is filed under is the edge's own, so renaming the edge means
+// re-filing it; leaving the old key behind would hand a later assertion about
+// the same line a history whose index now describes something else.
+func (tracker *edgeAssertionTracker) name(g *core.Graph, history *edgeAssertionHistory, relation string) {
+	edge := &g.Edges[history.index]
+	if relation == "" || edge.Relation == relation {
+		return
+	}
+	delete(tracker.byKey, core.EdgeKey(edge.From, edge.To, edge.Kind, edge.Relation))
+	edge.Relation = relation
+	tracker.byKey[core.EdgeKey(edge.From, edge.To, edge.Kind, relation)] = history
 }
 
 func (tracker *edgeAssertionTracker) create(g *core.Graph, from, to string, kind core.EdgeKind, relation string) *edgeAssertionHistory {
@@ -822,6 +855,8 @@ func (tracker *edgeAssertionTracker) apply(g *core.Graph, from, to string, kind 
 	history := tracker.matching(g, from, to, kind, relation)
 	if history == nil {
 		history = tracker.create(g, from, to, kind, relation)
+	} else {
+		tracker.name(g, history, relation)
 	}
 	if suppressed && !history.existedInitially && claim.Note == "" {
 		claim.Note = "asserted not to exist; no such edge was found"

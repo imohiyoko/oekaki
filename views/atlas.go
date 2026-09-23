@@ -459,7 +459,17 @@ func (b *builder) liftCode() error {
 		}
 		// And the pages the map opens: what a mapped file declares is drawn
 		// there rather than on the map, and the map is the door to it.
+		//
+		// The code it opens, that is. An operation on this page opens its own
+		// detail page, and that page draws every function anybody said serves
+		// it — including functions of a repository with no map at all, which
+		// would then be taken off the level and put nowhere. The door is a way
+		// back into the estate rather than a delegation of this map's
+		// contents, and only a delegation is a reason to strip the level.
 		for _, open := range b.out[i].Opens {
+			if n, ok := b.node(open.Element); !ok || !isCode(n.Type) {
+				continue
+			}
 			j, ok := at[open.Diagram]
 			if !ok {
 				continue

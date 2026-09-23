@@ -254,3 +254,114 @@ func TestAnEdgeAssertionStillReachesALineWithARelationOnIt(t *testing.T) {
 		t.Fatalf("the assertion made a second edge beside the call: %+v", g.Edges)
 	}
 }
+
+// A denial and the claim it denies are one line, however the two were
+// ordered — inside one document or across two --overlay files.
+//
+// They are not the same shape of sentence: edge.suppress names two ends and a
+// kind, serves names a relation as well. Reaching an unnamed line with a named
+// claim is what keeps them together when the denial is written first and makes
+// the line before the claim does.
+func TestASuppressionAndTheClaimItDeniesAreOneLineEitherWayRound(t *testing.T) {
+	denial := `
+	  {"assert":"edge.suppress",
+	   "from":{"node":"file:handler/http.go#HandleOrder"},
+	   "to":{"node":"api/checkout/get/orders/{id}"},
+	   "kind":"iac_ref"}`
+	claim := `
+	  {"assert":"serves",
+	   "subject":{"node":"file:handler/http.go#HandleOrder"},
+	   "operation":{"node":"api/checkout/get/orders/{id}"}}`
+
+	settled := func(t *testing.T, g *core.Graph) {
+		t.Helper()
+		var lines []core.Edge
+		for _, e := range g.Edges {
+			if e.From == "file:handler/http.go#HandleOrder" {
+				lines = append(lines, e)
+			}
+		}
+		if len(lines) != 1 {
+			t.Fatalf("the two sentences made %d lines: %+v", len(lines), lines)
+		}
+		if lines[0].Relation != "serves" {
+			t.Errorf("the line is %q, so the map cannot tell what it means", lines[0].Relation)
+		}
+		if !lines[0].Suppressed {
+			t.Error("the denial did not reach the claim, and a line somebody denied is drawn")
+		}
+		if len(g.Conflicts) != 1 {
+			t.Errorf("%d conflicts recorded; the disagreement is invisible", len(g.Conflicts))
+		}
+	}
+
+	t.Run("one document, either order", func(t *testing.T) {
+		for _, body := range []string{denial + "," + claim, claim + "," + denial} {
+			g, _ := serve(t, doc(body), Options{})
+			settled(t, g)
+		}
+	})
+
+	t.Run("two documents, either order", func(t *testing.T) {
+		parse := func(body string) *Document {
+			t.Helper()
+			d, err := Parse([]byte(doc(body)), "test.json")
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			return d
+		}
+		for _, docs := range [][]*Document{
+			{parse(denial), parse(claim)},
+			{parse(claim), parse(denial)},
+		} {
+			g := serving()
+			if _, err := New(docs, Options{}).Enrich(g); err != nil {
+				t.Fatalf("Enrich: %v", err)
+			}
+			if err := g.Validate(); err != nil {
+				t.Fatalf("the enriched graph does not validate: %v", err)
+			}
+			settled(t, g)
+		}
+	})
+}
+
+// A claim is about the line it names and not about another line between the
+// same two boxes. Adopting an unnamed one is the exception, and it must not
+// have widened into adopting any one.
+func TestAClaimDoesNotTakeOverALineThatMeansSomethingElse(t *testing.T) {
+	g := serving()
+	g.Edges = append(g.Edges, core.Edge{
+		From: "file:handler/http.go#HandleOrder", To: "api/checkout/get/orders/{id}",
+		Kind: core.EdgeIACRef, Relation: "documents",
+	})
+	g.Normalize()
+
+	d, err := Parse([]byte(doc(`
+	  {"assert":"serves",
+	   "subject":{"node":"file:handler/http.go#HandleOrder"},
+	   "operation":{"node":"api/checkout/get/orders/{id}"}}`)), "test.json")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if _, err := New([]*Document{d}, Options{}).Enrich(g); err != nil {
+		t.Fatalf("Enrich: %v", err)
+	}
+
+	var documents, serves int
+	for _, e := range g.Edges {
+		switch e.Relation {
+		case "documents":
+			documents++
+			if e.Claim != nil {
+				t.Errorf("the claim was written onto a line about something else: %+v", e)
+			}
+		case "serves":
+			serves++
+		}
+	}
+	if documents != 1 || serves != 1 {
+		t.Fatalf("%d documents lines and %d serves lines: %+v", documents, serves, g.Edges)
+	}
+}

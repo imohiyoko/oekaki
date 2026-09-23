@@ -1432,3 +1432,61 @@ func TestAClaimBetweenTheWrongKindsDrawsNothing(t *testing.T) {
 		}
 	}
 }
+
+// A code map's doors are followed to find what it has delegated: a file's
+// contents are drawn on the file's page rather than on the map, so that page
+// counts as the map having them. An operation's page is not a delegation. It
+// is a way back into the estate, and it draws every function anybody said
+// serves that operation — including code of a repository with no map at all,
+// which has nowhere else to be.
+func TestTheDoorIntoTheEstateDoesNotStripALevel(t *testing.T) {
+	g := serving(t, estateWithCode(t, true))
+	// A second repository's code, in an input nobody placed. It has no map.
+	g.Metadata.Inputs = append(g.Metadata.Inputs,
+		core.InputRef{ID: "repo-3-other", Path: "../other", Kind: "repository"})
+	g.Nodes = append(g.Nodes,
+		core.Node{ID: "repo-3-other:file:api/http.go#Serve", Type: "code_function", Name: "Serve",
+			Attrs: map[string]any{"repository": "repo-3-other"}},
+		core.Node{ID: "repo-3-other:file:api/http.go#helper", Type: "code_function", Name: "helper",
+			Attrs: map[string]any{"repository": "repo-3-other"}})
+	g.Edges = append(g.Edges,
+		core.Edge{From: "repo-3-other:file:api/http.go#Serve", To: "repo-3-other:file:api/http.go#helper",
+			Kind: core.EdgeIACRef, Relation: "calls"},
+		core.Edge{From: "repo-3-other:file:api/http.go#Serve", To: "api/checkout/get/orders",
+			Kind: core.EdgeIACRef, Relation: "serves"})
+	g.Normalize()
+	if err := g.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := BuildAtlas(g, AtlasOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pageOf(a, "codemap:repo-3-other") != nil {
+		t.Fatal("the second repository has a map after all; the test no longer asks anything")
+	}
+
+	onALevel := func(id string) bool {
+		for _, d := range a.Diagrams {
+			if strings.HasPrefix(d.ID, levelID("")) && draws(&d, id) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, id := range []string{
+		"repo-3-other:file:api/http.go#Serve",
+		"repo-3-other:file:api/http.go#helper",
+	} {
+		if !onALevel(id) {
+			t.Errorf("%s was lifted off the level onto a map it is not on", id)
+		}
+	}
+
+	// And the repository that does have one is still lifted: the fix must not
+	// have been to stop lifting.
+	if onALevel("repo-2-svc:file:handler/http.go#Serve") {
+		t.Error("the mapped repository's code is on the level and on the map both")
+	}
+}
