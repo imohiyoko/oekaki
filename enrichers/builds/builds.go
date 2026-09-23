@@ -423,7 +423,15 @@ func (e Enricher) target(g *core.Graph, inputs map[string]bool, running core.Nod
 	}
 
 	if mine != nil {
-		// Already told what its code is, before any of this.
+		// The box this workload is inside of, and the edge points at it. What
+		// this run was told about the repository goes on it when it is saying
+		// nothing yet: it is this repository, the edge lands here, and a
+		// reader who clicked their own container and arrived at a box that
+		// opens nothing has been told less than this run knows. An answer
+		// already on it is its own and is left alone — which box a mapping
+		// replaces is decided before any of this, not by which workload
+		// happened to point here.
+		fill(mine, of)
 		return mine.ID, false, nil
 	}
 
@@ -435,6 +443,7 @@ func (e Enricher) target(g *core.Graph, inputs map[string]bool, running core.Nod
 		// would have been wrong; refusing it is worse, and refusing it with
 		// "cannot be told apart" is not even true of it.
 		if n.Type == NodeRepository && n.Name == b.repository {
+			fill(n, of)
 			return id, false, nil
 		}
 		// Not a repository, then, and not this one: a different thing with the
@@ -470,6 +479,19 @@ func (e Enricher) target(g *core.Graph, inputs map[string]bool, running core.Nod
 // repositoriesNamed are the nodes already standing for one repository,
 // whatever id they are wearing, in a fixed order so that a graph holding more
 // than one of them is read the same way twice.
+// fill says what this repository's code is on a box that is saying nothing.
+// Replacing an answer is decided elsewhere, by whether the mapping is about
+// that box at all; this is only the blank being filled in.
+func fill(n *core.Node, of string) {
+	if of == "" || n == nil {
+		return
+	}
+	if was, _ := n.Attrs[AttrCodeInput].(string); was != "" {
+		return
+	}
+	set(n, of)
+}
+
 func repositoriesNamed(g *core.Graph, name string) []*core.Node {
 	var out []*core.Node
 	for i := range g.Nodes {

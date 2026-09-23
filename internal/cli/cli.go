@@ -415,13 +415,18 @@ func runRender(ctx context.Context, env Env, args []string) error {
 	if err := applyOverlays(env, g, f.overlay); err != nil {
 		return err
 	}
-	// Only when this run can open a box. The mapping still joins the workload
-	// to its repository in every format; what it also says — that the box
-	// opens onto this input's code — is drawn by an atlas and by nothing else,
-	// so refusing a single drawing over it stops output that was never going
-	// to show it. A denied code graph is a person saying those lines are not
-	// there, and it left the SVG unwritten.
-	if f.atlas && format == "html" {
+	// Only when this run can open a box, or hands the answer to a run that
+	// can. The mapping still joins the workload to its repository in every
+	// format; what it also says — that the box opens onto this input's code —
+	// is drawn by an atlas, and carried by a graph. A denied code graph is a
+	// person saying those lines are not there, and refusing a single drawing
+	// over it left the SVG unwritten for a page that was never going to show
+	// it either way.
+	//
+	// json here is the graph itself rather than a picture of it, so it carries
+	// the mapping onward exactly as `graph` does, and the question has to be
+	// asked while the answer can still be given.
+	if (f.atlas && format == "html") || format == "json" {
 		if err := checkCodeMaps(g, f.builds); err != nil {
 			return err
 		}

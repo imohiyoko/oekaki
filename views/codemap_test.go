@@ -991,3 +991,60 @@ func TestTheSourceAxisKeepsBothRepositoriesOnATightBudget(t *testing.T) {
 		}
 	}
 }
+
+// The code map is made after the level whose code it took, out of the same
+// budget. Counting what was left at the time was a guess about a moment that
+// had not arrived — every other page made in between spends first — so the
+// place is set aside before the code is taken, and what is set aside cannot be
+// spent by anything else.
+func TestEveryStrippedNodeHasAPageToBeOn(t *testing.T) {
+	g := estateWithCode(t, true)
+	// The box is down a level, so the maps of this level are made before the
+	// level it is on exists — and every level before that one spends first.
+	g.Axes = []core.Axis{{ID: "containment", Label: "Cluster"}}
+	g.Groups = append(g.Groups, core.Group{ID: "ns:z", Type: "namespace", Label: "z", Axis: "containment"})
+	for i := range g.Nodes {
+		if g.Nodes[i].ID == "repository:acme/checkout" || g.Nodes[i].ID == "task" {
+			g.Nodes[i].Groups = map[string]string{"containment": "ns:z"}
+		}
+	}
+	for _, ns := range []string{"a", "b", "c"} {
+		g.Groups = append(g.Groups, core.Group{ID: "ns:" + ns, Type: "namespace", Label: ns, Axis: "containment"})
+		for i := 0; i < 4; i++ {
+			g.Nodes = append(g.Nodes, core.Node{
+				ID: fmt.Sprintf("svc:%s/%d", ns, i), Type: "kubernetes_deployment",
+				Name: fmt.Sprintf("%s-%d", ns, i), Groups: map[string]string{"containment": "ns:" + ns},
+			})
+		}
+	}
+	g.Normalize()
+	if err := g.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, limit := range []int{1, 2, 3, 5, 8, 40} {
+		a, err := BuildAtlas(g, AtlasOptions{Limit: limit})
+		if err != nil {
+			t.Fatal(err)
+		}
+		somewhere := map[string]bool{}
+		for _, d := range a.Diagrams {
+			for _, n := range d.Graph.Nodes {
+				somewhere[n.ID] = true
+			}
+		}
+		for _, id := range []string{
+			"repo-2-svc:file:handler/http.go",
+			"repo-2-svc:file:handler/http.go#Handle",
+			"repo-2-svc:file:handler/http.go#total",
+			"repo-2-svc:package:net/http",
+		} {
+			if !somewhere[id] {
+				t.Errorf("limit %d: %s is on no page at all", limit, id)
+			}
+		}
+		if len(a.Diagrams) > limit {
+			t.Errorf("limit %d: %d diagrams", limit, len(a.Diagrams))
+		}
+	}
+}

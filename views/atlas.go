@@ -257,6 +257,7 @@ func BuildAtlas(in *core.Graph, opts AtlasOptions) (*Atlas, error) {
 	if err := b.level("", "", ""); err != nil {
 		return nil, err
 	}
+	b.liftCode()
 	b.prune()
 	sort.SliceStable(b.out, func(i, j int) bool { return b.out[i].ID < b.out[j].ID })
 	return &Atlas{Version: AtlasVersion, Root: RootDiagram, Diagrams: b.out}, nil
@@ -342,9 +343,6 @@ type builder struct {
 	// descended records the code maps whose members have already been walked.
 	descended map[string]bool
 
-	// opened is the code some box on this axis already opens, read once.
-	opened map[string]bool
-
 	// nodes is the document's nodes by id. A graph is a list, so looking one
 	// up walks it, and every page asks about a node per edge it considers —
 	// a cost that is invisible on an estate and quadratic on a repository.
@@ -406,72 +404,108 @@ func (b *builder) node(id string) (*core.Node, bool) {
 	return n, ok
 }
 
-// inACodeMap is the code this atlas already gives a page of its own: the boxes
-// on a map some repository opens, and what those boxes hold.
+// liftCode takes the code off the estate's front page, once the atlas is
+// built and it is known where else it is drawn.
 //
-// Source carries no group on an estate's axis, and a node with no group on the
-// axis is drawn at the root of it — "nowhere on this axis" and "at the top of
-// this axis" are one thing to a level page. A repository of any size then
-// arrives as a mat of boxes on the front page of the estate, which is the
-// complaint the atlas exists to answer rather than to reproduce, and it does
-// it while spending the budget the rest of the estate needed.
+// Source carries no position on an estate's axis — a function is not in a
+// namespace, a subscription or a VPC — and a level page draws what the axis
+// places nowhere at its root, because "nowhere on this axis" and "at the top
+// of this axis" are one thing to it. A repository of any size then arrives as
+// a mat of boxes on the front page of the estate, which is the complaint the
+// atlas exists to answer rather than to reproduce.
 //
-// Drawn behind the box instead, where somebody asked for it. Only what is
-// actually behind it, though: a map draws the boxes on a line and no others,
-// so a file that imports nothing is on no map, and taking it and what it
-// declares off the level as well would take them out of the atlas altogether.
-// Being inside an input a box opens is not the same as being drawn there.
-func (b *builder) inACodeMap() map[string]bool {
-	if b.opened != nil {
-		return b.opened
-	}
-	b.opened = map[string]bool{}
+// Only a box some other page of this atlas draws. That was a question about
+// the future while the level was being built — the maps and the pages of what
+// they hold are made afterwards, out of the same budget — and every way of
+// answering it early was a guess: counting what was left over, setting a place
+// aside, asking whether a map would be made at all. A box the guess was wrong
+// about was taken off the level and drawn nowhere, and prune can take away an
+// opening that leads nowhere but it cannot put a box back. Asked here, the
+// question is about pages that exist.
+func (b *builder) liftCode() {
 	if b.placesCode() {
-		return b.opened
+		return
+	}
+	root := -1
+	for i := range b.out {
+		if b.out[i].ID == levelID("") {
+			root = i
+		}
+	}
+	if root < 0 {
+		return
 	}
 	scopes := map[string]bool{}
 	for i := range b.in.Nodes {
-		scope, ok := codeInputOf(&b.in.Nodes[i])
-		if !ok || scopes[scope] {
+		if scope, ok := codeInputOf(&b.in.Nodes[i]); ok {
+			scopes[scope] = true
+		}
+	}
+	if len(scopes) == 0 {
+		return
+	}
+	elsewhere := map[string]bool{}
+	for i := range b.out {
+		if i == root {
 			continue
 		}
-		scopes[scope] = true
-	}
-	// Room for this level and a map apiece, or the code stays where it is.
-	// The maps are made after this page and out of the same budget, so a
-	// bound reached first left the code stripped off the level and drawn
-	// nowhere — and prune can take away an opening that leads nowhere, but it
-	// cannot put a box back.
-	if len(scopes) == 0 || len(b.out)+1+len(scopes) > b.limit {
-		return b.opened
-	}
-	for scope := range scopes {
-		for _, member := range b.codeOf(scope) {
-			b.opened[member] = true
+		for _, n := range b.out[i].Graph.Nodes {
+			elsewhere[n.ID] = true
 		}
 	}
-	if len(b.opened) == 0 {
-		return b.opened
-	}
-	// And what those boxes hold. A file on the map opens what it declares, so
-	// its functions and its types are behind the box too — one step, because
-	// that is how far the map leads on its own.
-	held := map[string]bool{}
-	for _, e := range b.in.Edges {
-		if e.Suppressed || e.From == e.To {
+
+	gone := map[string]bool{}
+	d := &b.out[root]
+	kept := d.Graph.Nodes[:0]
+	for _, n := range d.Graph.Nodes {
+		of, _ := n.Attrs["repository"].(string)
+		if scopes[of] && elsewhere[n.ID] && isCode(n.Type) {
+			gone[n.ID] = true
 			continue
 		}
-		switch {
-		case b.opened[e.From] && holdsFrom(e, e.From):
-			held[e.To] = true
-		case b.opened[e.To] && holdsFrom(e, e.To):
-			held[e.From] = true
+		kept = append(kept, n)
+	}
+	if len(gone) == 0 {
+		return
+	}
+	d.Graph.Nodes = kept
+
+	// A line to a box that is not here is not here either. It is on the page
+	// that does draw the box, between it and whatever it is joined to there.
+	edges := d.Graph.Edges[:0]
+	for _, e := range d.Graph.Edges {
+		if gone[e.From] || gone[e.To] {
+			continue
+		}
+		edges = append(edges, e)
+	}
+	d.Graph.Edges = edges
+
+	opens := d.Opens[:0]
+	for _, open := range d.Opens {
+		if gone[open.Element] {
+			continue
+		}
+		opens = append(opens, open)
+	}
+	d.Opens = opens
+
+	containers := 0
+	for _, n := range d.Graph.Nodes {
+		if held, _ := n.Attrs["container"].(bool); held {
+			containers++
 		}
 	}
-	for id := range held {
-		b.opened[id] = true
+	d.Kind = levelKind(containers, len(d.Graph.Nodes)-containers)
+	d.Subtitle = fmt.Sprintf("%d containers · %d resources", containers, len(d.Graph.Nodes)-containers)
+}
+
+func isCode(t string) bool {
+	switch t {
+	case codeFile, codePackage, codeFunction, codeType:
+		return true
 	}
-	return b.opened
+	return false
 }
 
 // room reports whether another diagram may be added, and records the id so a
@@ -500,20 +534,6 @@ func (b *builder) level(path, parent, origin string) error {
 
 	children := b.childGroups(path)
 	nodes := b.in.NodesIn(b.axis, path)
-
-	// Only here, and only for a node this axis places nowhere else: deeper
-	// levels are somewhere a node was put, and an atlas drawn on the source
-	// axis is the code's own structure, where these pages are the point.
-	opened := b.inACodeMap()
-	if path == "" && len(opened) > 0 {
-		kept := make([]*core.Node, 0, len(nodes))
-		for _, n := range nodes {
-			if !opened[n.ID] {
-				kept = append(kept, n)
-			}
-		}
-		nodes = kept
-	}
 
 	g := core.New()
 	g.Metadata = b.in.Metadata
@@ -550,21 +570,6 @@ func (b *builder) level(path, parent, origin string) error {
 	// "this namespace talks to that one" without drawing either one's
 	// contents.
 	at := b.representatives(path, children)
-	if path == "" {
-		// A line to something that is not drawn here is not drawn here
-		// either. It is on the map, between the two boxes it joins.
-		//
-		// Only for what this page was going to draw as itself. A node the
-		// axis put inside a container is represented here by that container,
-		// and dropping it dropped every line the container had: an atlas on
-		// the source axis lost the lines between its top-level directories
-		// the moment any box opened a code map.
-		for id := range opened {
-			if at[id] == id {
-				delete(at, id)
-			}
-		}
-	}
 	g.Edges = liftEdges(b.in.Edges, at)
 	carry(b.in, g)
 
