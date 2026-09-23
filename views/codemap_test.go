@@ -913,3 +913,81 @@ func TestCodeIsNotStrippedForAMapThereIsNoRoomFor(t *testing.T) {
 		}
 	}
 }
+
+// A repository whose files all sit at its root has no directories, so no node
+// of it carries a group on the source axis. Asking whether some node carried
+// one answered "this axis places nothing here" and stripped the code off the
+// top page of an atlas whose whole subject is that code.
+func TestAFlatRepositoryKeepsItsCodeOnTheSourceAxis(t *testing.T) {
+	g := estateWithCode(t, true)
+	g.Axes = []core.Axis{{ID: "source", Label: "Source"}}
+	g.Normalize()
+	if err := g.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := BuildAtlas(g, AtlasOptions{Axis: "source"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := pageOf(a, "level:")
+	if root == nil {
+		t.Fatal("there is no root level")
+	}
+	on := map[string]bool{}
+	for _, n := range root.Graph.Nodes {
+		on[n.ID] = true
+	}
+	for _, id := range []string{"repo-2-svc:file:handler/http.go", "repo-2-svc:package:net/http"} {
+		if !on[id] {
+			t.Errorf("%s is not on the source axis's own front page", id)
+		}
+	}
+}
+
+// Two repositories, one with directories and one without, drawn on the axis
+// they are the structure of. Deciding per repository meant one of them was
+// stripped and the other not, while both were still given a map — so the maps
+// the budget was counting were not the maps it was about to make, and the
+// stripped repository's code went nowhere.
+func TestTheSourceAxisKeepsBothRepositoriesOnATightBudget(t *testing.T) {
+	g := core.New()
+	g.Axes = []core.Axis{{ID: "source", Label: "Source"}}
+	g.Groups = []core.Group{{ID: "dir:handler", Type: "directory", Label: "handler", Axis: "source"}}
+	for _, scope := range []string{"repo-2-a", "repo-3-b"} {
+		flat := scope == "repo-3-b"
+		file := scope + ":file:main.go"
+		box := core.Node{ID: scope + ":repository:acme/" + scope, Type: "repository", Name: "acme/" + scope,
+			Attrs: map[string]any{"code_input": scope}}
+		fileNode := core.Node{ID: file, Type: "code_file", Name: "main.go",
+			Attrs: map[string]any{"repository": scope}}
+		if !flat {
+			fileNode.Groups = map[string]string{"source": "dir:handler"}
+		}
+		g.Nodes = append(g.Nodes, box, fileNode,
+			core.Node{ID: scope + ":package:fmt", Type: "code_package", Name: "fmt",
+				Attrs: map[string]any{"repository": scope}})
+		g.Edges = append(g.Edges, core.Edge{From: file, To: scope + ":package:fmt",
+			Kind: core.EdgeIACRef, Relation: "imports"})
+	}
+	g.Normalize()
+	if err := g.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := BuildAtlas(g, AtlasOptions{Axis: "source", Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	somewhere := map[string]bool{}
+	for _, d := range a.Diagrams {
+		for _, n := range d.Graph.Nodes {
+			somewhere[n.ID] = true
+		}
+	}
+	for _, id := range []string{"repo-3-b:file:main.go", "repo-3-b:package:fmt"} {
+		if !somewhere[id] {
+			t.Errorf("%s is on no page at all", id)
+		}
+	}
+}

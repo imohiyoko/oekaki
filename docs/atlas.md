@@ -31,7 +31,10 @@ a level page draws what the axis places nowhere at its root, which put every
 file and function of a repository on the estate's front page next to the two or
 three things the estate is made of. Code a box opens is drawn behind that box:
 the front page stays the estate, and the budget stays with it. Code no box
-opens is still drawn on the level, because there would be nowhere else for it.
+opens is still drawn on the level, because there would be nowhere else for it —
+and so is every bit of it when the atlas is drawn on the source axis with
+`--axis`, where the levels are the repository's own directories and the code is
+the subject rather than a guest.
 
 Every box on the map is on a line: a function because it calls or is called, a
 file because it imports, a package because something reached it. A function
