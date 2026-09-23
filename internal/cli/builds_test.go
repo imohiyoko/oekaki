@@ -177,8 +177,8 @@ func TestTheSyntaxErrorShowsAnIdThatCouldExist(t *testing.T) {
 	if r.code == 0 {
 		t.Fatal("a mapping with no = was accepted")
 	}
-	if !strings.Contains(r.stderr, "repo-1-checkout:") {
-		t.Errorf("the example is not a whole id:\n%s", r.stderr)
+	if !strings.Contains(r.stderr, "acme/checkout=repo-2-checkout") {
+		t.Errorf("the example is not the one the flag and the docs use:\n%s", r.stderr)
 	}
 }
 
@@ -815,6 +815,29 @@ func TestAGraphWrittenByRenderIsCheckedLikeAnyOther(t *testing.T) {
 		"--builds", buildsFile(t, buildRecord), "--build-repo", "acme/checkout=repo-1-cluster")
 	if r.code == 0 {
 		t.Fatal("a graph was written recording a mapping with no code map to open")
+	}
+	if !strings.Contains(r.stderr, "no code map to draw") {
+		t.Errorf("the error does not say why:\n%s", r.stderr)
+	}
+}
+
+// --external-assets writes the graph beside the page as its own file, which is
+// the same handing-on as -f json. Listing the formats that carry a document
+// missed it.
+func TestAPageWithItsGraphBesideItIsCheckedToo(t *testing.T) {
+	g := core.New()
+	g.Metadata = &core.Metadata{Inputs: []core.InputRef{{ID: "repo-1-cluster", Path: "cluster.yaml", Kind: "kubernetes"}}}
+	g.Nodes = []core.Node{{
+		ID: "workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
+		Attrs: map[string]any{"image": "registry.example/checkout:1.4.0", "repository": "repo-1-cluster"},
+	}}
+	g.Normalize()
+
+	out := filepath.Join(t.TempDir(), "estate.html")
+	r := run(t, "", "render", graphFile(t, g), "-f", "html", "--external-assets", "-o", out,
+		"--builds", buildsFile(t, buildRecord), "--build-repo", "acme/checkout=repo-1-cluster")
+	if r.code == 0 {
+		t.Fatal("a graph was written beside the page recording a mapping with no code map")
 	}
 	if !strings.Contains(r.stderr, "no code map to draw") {
 		t.Errorf("the error does not say why:\n%s", r.stderr)

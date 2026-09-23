@@ -50,6 +50,10 @@ const AxisProvider = "provider"
 // the network topology cannot answer.
 const AxisModule = "module"
 
+// AxisSource groups by where in a repository something was read from: the
+// directories a file sits in. Code carries no position on any other axis.
+const AxisSource = "source"
+
 // AxisAccount groups by the billing and ownership boundary a resource sits in:
 // an Azure resource group, a GCP project, an AWS account. These cut across
 // network topology rather than nesting inside it, which is why they need an

@@ -3,6 +3,7 @@ package cli
 import (
 	"flag"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/imohiyoko/oekaki/collectors/builds"
@@ -31,18 +32,18 @@ func (b *buildFlags) register(fs *flag.FlagSet) {
 // often assembled by a wrapper — an action.yml, a Makefile — that passes
 // --builds unconditionally. Refusing then has to be sayable downstream of
 // whoever wrote the wrapper.
-func applyBuilds(env Env, g *core.Graph, f buildFlags) error {
+func applyBuilds(env Env, g *core.Graph, f buildFlags) (map[string]string, error) {
 	if f.refuse {
 		if len(f.files) > 0 || len(f.repositories) > 0 {
 			fmt.Fprintln(env.Stderr, "builds: --no-builds, so the build records were not read")
 		}
-		return nil
+		return nil, nil
 	}
 	if len(f.files) == 0 {
 		if len(f.repositories) > 0 {
-			return fmt.Errorf("--build-repo says which part of this graph a repository is, but there are no --builds records to say what it built")
+			return nil, fmt.Errorf("--build-repo says which part of this graph a repository is, but there are no --builds records to say what it built")
 		}
-		return nil
+		return nil, nil
 	}
 
 	docs := make([]*builds.Document, 0, len(f.files))
@@ -50,11 +51,11 @@ func applyBuilds(env Env, g *core.Graph, f buildFlags) error {
 	for _, path := range f.files {
 		raw, err := readInput(env, path)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		doc, err := builds.Parse(raw, displayName(path))
 		if err != nil {
-			return err
+			return nil, err
 		}
 		for _, b := range doc.Builds {
 			built[b.Repository] = true
@@ -68,7 +69,7 @@ func applyBuilds(env Env, g *core.Graph, f buildFlags) error {
 		repository, id, found := strings.Cut(value, "=")
 		repository, id = strings.TrimSpace(repository), strings.TrimSpace(id)
 		if !found || repository == "" || id == "" {
-			return fmt.Errorf("--build-repo %s: write it as repository=id, such as acme/checkout=repo-1-checkout:source:dir:cmd", value)
+			return nil, fmt.Errorf("--build-repo %s: write it as repository=id, such as acme/checkout=repo-2-checkout", value)
 		}
 		// An input is the useful thing to name: it is the whole repository,
 		// and naming it is what lets the drawing open that repository's code
@@ -85,17 +86,17 @@ func applyBuilds(env Env, g *core.Graph, f buildFlags) error {
 			// point.
 		case element(g, id):
 		default:
-			return fmt.Errorf("--build-repo %s: nothing here is %q — not an input, not a node, not a group", value, id)
+			return nil, fmt.Errorf("--build-repo %s: nothing here is %q — not an input, not a node, not a group", value, id)
 		}
 		// And the other half of the same sentence. A repository no record
 		// mentions is a mapping that will never be consulted: the run still
 		// joins, to a repository node invented under the name somebody was
 		// trying to override, and nothing would have said so.
 		if !built[repository] {
-			return fmt.Errorf("--build-repo %s: no record here says %s built anything", value, repository)
+			return nil, fmt.Errorf("--build-repo %s: no record here says %s built anything", value, repository)
 		}
 		if was, ok := repositories[repository]; ok && was != id {
-			return fmt.Errorf("--build-repo %s: %s was already said to be %q", value, repository, was)
+			return nil, fmt.Errorf("--build-repo %s: %s was already said to be %q", value, repository, was)
 		}
 		repositories[repository] = id
 	}
@@ -105,9 +106,20 @@ func applyBuilds(env Env, g *core.Graph, f buildFlags) error {
 		report.WriteText(env.Stderr)
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return g.Validate()
+	return repositories, g.Validate()
+}
+
+// sortedNames are a mapping's repositories in a fixed order, so that an estate
+// with two mistakes in it is told about the same one twice running.
+func sortedNames(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // checkCodeMaps asks, of each repository placed at an input, whether there is
@@ -130,17 +142,14 @@ func applyBuilds(env Env, g *core.Graph, f buildFlags) error {
 // one of this run's views is narrow would be answering a different question
 // from the one asked here, which is whether the estate holds the code the
 // mapping names.
-func checkCodeMaps(g *core.Graph, f buildFlags) error {
-	if f.refuse || len(f.files) == 0 {
-		return nil
-	}
+func checkCodeMaps(g *core.Graph, repositories map[string]string) error {
 	inputs := buildsenricher.InputIDs(g)
-	for _, value := range f.repositories {
-		repository, id, found := strings.Cut(value, "=")
-		repository, id = strings.TrimSpace(repository), strings.TrimSpace(id)
-		if !found || !inputs[id] {
+	for _, repository := range sortedNames(repositories) {
+		id := repositories[repository]
+		if !inputs[id] {
 			continue
 		}
+		value := repository + "=" + id
 		if len(views.CodeOf(g, id)) == 0 {
 			return fmt.Errorf("--build-repo %s: %q is here, but there is no code map to draw from it — a repository is named as an input so that its code can be opened", value, id)
 		}

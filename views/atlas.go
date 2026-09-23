@@ -92,10 +92,6 @@ const (
 	// meanings is decided by whichever was written last.
 	attrCodeInput = "code_input"
 
-	// sourceAxis is the axis the code's own structure is drawn on: the
-	// directories a repository is made of. The source parser writes it.
-	sourceAxis = "source"
-
 	relDeclares = "declares"
 	relCalls    = "calls"
 	relImports  = "imports"
@@ -257,8 +253,10 @@ func BuildAtlas(in *core.Graph, opts AtlasOptions) (*Atlas, error) {
 	if err := b.level("", "", ""); err != nil {
 		return nil, err
 	}
-	b.liftCode()
 	b.prune()
+	if err := b.liftCode(); err != nil {
+		return nil, err
+	}
 	sort.SliceStable(b.out, func(i, j int) bool { return b.out[i].ID < b.out[j].ID })
 	return &Atlas{Version: AtlasVersion, Root: RootDiagram, Diagrams: b.out}, nil
 }
@@ -389,7 +387,7 @@ func (b *builder) touching(id string) []int {
 // answered yes for the whole repository and brought the rest back onto the
 // front page.
 func (b *builder) placesCode() bool {
-	return b.axis == sourceAxis
+	return b.axis == core.AxisSource
 }
 
 // node is the document's node with this id.
@@ -405,7 +403,7 @@ func (b *builder) node(id string) (*core.Node, bool) {
 }
 
 // liftCode takes the code off the estate's front page, once the atlas is
-// built and it is known where else it is drawn.
+// built and pruned and it is known where else it is drawn.
 //
 // Source carries no position on an estate's axis — a function is not in a
 // namespace, a subscription or a VPC — and a level page draws what the axis
@@ -414,17 +412,18 @@ func (b *builder) node(id string) (*core.Node, bool) {
 // a mat of boxes on the front page of the estate, which is the complaint the
 // atlas exists to answer rather than to reproduce.
 //
-// Only a box some other page of this atlas draws. That was a question about
-// the future while the level was being built — the maps and the pages of what
-// they hold are made afterwards, out of the same budget — and every way of
-// answering it early was a guess: counting what was left over, setting a place
-// aside, asking whether a map would be made at all. A box the guess was wrong
-// about was taken off the level and drawn nowhere, and prune can take away an
-// opening that leads nowhere but it cannot put a box back. Asked here, the
-// question is about pages that exist.
-func (b *builder) liftCode() {
+// Only a box that a code map of this atlas draws, or that a page one of those
+// maps opens draws. Anything looser takes the box off this page and leaves it
+// on a page nothing opens: the door it had was the one being taken away.
+// "Drawn somewhere" is not the test — "drawn somewhere a reader can get to
+// without this door" is.
+//
+// After prune rather than before, because a map whose level was never built is
+// dropped there, and a box lifted on the strength of it would be lifted onto
+// nothing.
+func (b *builder) liftCode() error {
 	if b.placesCode() {
-		return
+		return nil
 	}
 	root := -1
 	for i := range b.out {
@@ -433,40 +432,49 @@ func (b *builder) liftCode() {
 		}
 	}
 	if root < 0 {
-		return
+		return nil
 	}
-	scopes := map[string]bool{}
-	for i := range b.in.Nodes {
-		if scope, ok := codeInputOf(&b.in.Nodes[i]); ok {
-			scopes[scope] = true
-		}
-	}
-	if len(scopes) == 0 {
-		return
+
+	at := map[string]int{}
+	for i := range b.out {
+		at[b.out[i].ID] = i
 	}
 	elsewhere := map[string]bool{}
 	for i := range b.out {
-		if i == root {
+		if b.out[i].Kind != KindCodemap {
 			continue
 		}
 		for _, n := range b.out[i].Graph.Nodes {
 			elsewhere[n.ID] = true
 		}
+		// And the pages the map opens: what a mapped file declares is drawn
+		// there rather than on the map, and the map is the door to it.
+		for _, open := range b.out[i].Opens {
+			j, ok := at[open.Diagram]
+			if !ok {
+				continue
+			}
+			for _, n := range b.out[j].Graph.Nodes {
+				elsewhere[n.ID] = true
+			}
+		}
+	}
+	if len(elsewhere) == 0 {
+		return nil
 	}
 
 	gone := map[string]bool{}
 	d := &b.out[root]
 	kept := d.Graph.Nodes[:0]
 	for _, n := range d.Graph.Nodes {
-		of, _ := n.Attrs["repository"].(string)
-		if scopes[of] && elsewhere[n.ID] && isCode(n.Type) {
+		if elsewhere[n.ID] && isCode(n.Type) {
 			gone[n.ID] = true
 			continue
 		}
 		kept = append(kept, n)
 	}
 	if len(gone) == 0 {
-		return
+		return nil
 	}
 	d.Graph.Nodes = kept
 
@@ -490,6 +498,14 @@ func (b *builder) liftCode() {
 	}
 	d.Opens = opens
 
+	// What was carried onto this page is carried again, because some of it was
+	// about a box that is no longer here. An observation about a node the page
+	// does not draw is a dangling reference, and core.Validate rejects the
+	// whole document for one — which on this path is the whole atlas, over a
+	// page that had simply been tidied.
+	d.Graph.Observations, d.Graph.LogRecords, d.Graph.Conflicts = nil, nil, nil
+	carry(b.in, d.Graph)
+
 	containers := 0
 	for _, n := range d.Graph.Nodes {
 		if held, _ := n.Attrs["container"].(bool); held {
@@ -498,6 +514,12 @@ func (b *builder) liftCode() {
 	}
 	d.Kind = levelKind(containers, len(d.Graph.Nodes)-containers)
 	d.Subtitle = fmt.Sprintf("%d containers · %d resources", containers, len(d.Graph.Nodes)-containers)
+
+	d.Graph.Normalize()
+	if err := d.Graph.Validate(); err != nil {
+		return fmt.Errorf("level %q: %w", "", err)
+	}
+	return nil
 }
 
 func isCode(t string) bool {
@@ -857,6 +879,36 @@ func (b *builder) codemap(id string, open Opening) error {
 	return nil
 }
 
+// mapNamedFor is what to call one input's code map, and where its trail back
+// up goes: the repository every box that opens it is, and the level they are
+// all on. Where they disagree it is the input's own id and the root, which are
+// true of all of them.
+func (b *builder) mapNamedFor(scope string) (title, parent string) {
+	for i := range b.in.Nodes {
+		n := &b.in.Nodes[i]
+		of, ok := codeInputOf(n)
+		if !ok || of != scope {
+			continue
+		}
+		name := orDefault(n.Name, n.ID)
+		level := b.levelOf(n.ID)
+		if title == "" && parent == "" {
+			title, parent = name, level
+			continue
+		}
+		if title != name {
+			title = scope
+		}
+		if parent != level {
+			parent = levelID("")
+		}
+	}
+	if title == "" {
+		title = scope
+	}
+	return title, parent
+}
+
 // codemapPage builds the map itself and nothing under it.
 //
 // Separate from the descent into its members because the two want opposite
@@ -911,17 +963,18 @@ func (b *builder) codemapPage(id string, open Opening) error {
 		return fmt.Errorf("code map %q: %w", id, err)
 	}
 
-	// Named after its subject, like every other page. Two repositories placed
-	// in one estate produced two pages both called コードマップ, which is a
-	// title only until there are two of them.
-	subject, _ := b.node(id)
-	title := id
-	if subject != nil {
-		title = orDefault(subject.Name, subject.ID)
-	}
+	// Named for every box that opens it, not for whichever one got here
+	// first. The page is one room with a door per box, so the box the reader
+	// happened to come through is not what it is a page of: two repositories
+	// of a monorepo share an input, and titling it after the first meant
+	// clicking the second one's box arrived at a page named after the other.
+	// The trail back up is the same question — a box in another namespace led
+	// back to a level the reader had never been on — and where the boxes
+	// disagree the answer is the level they are all under.
+	title, parent := b.mapNamedFor(scope)
 	d := Diagram{
 		ID: open.Diagram, Kind: KindCodemap, Graph: g,
-		Parent:   b.levelOf(id),
+		Parent:   parent,
 		Origin:   id,
 		Title:    title,
 		Subtitle: open.Label,

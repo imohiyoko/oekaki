@@ -154,7 +154,7 @@ func ParseFiles(files []string, root string) (*core.Graph, error) {
 		return nil, err
 	}
 	addSourceGroups(g)
-	g.Axes = []core.Axis{{ID: "source", Label: "Source"}}
+	g.Axes = []core.Axis{{ID: core.AxisSource, Label: "Source"}}
 	g.Normalize()
 	if err := g.Validate(); err != nil {
 		return nil, err
@@ -181,12 +181,12 @@ func addSourceGroups(g *core.Graph) {
 			if !created[id] {
 				created[id] = true
 				p := parent
-				g.Groups = append(g.Groups, core.Group{ID: id, Axis: "source", Type: "directory", Label: part, Parent: p})
+				g.Groups = append(g.Groups, core.Group{ID: id, Axis: core.AxisSource, Type: "directory", Label: part, Parent: p})
 			}
 			cur := id
 			parent = &cur
 		}
-		g.Nodes[i].SetGroup("source", strings.Join(pathIDs(path), core.GroupSeparator))
+		g.Nodes[i].SetGroup(core.AxisSource, strings.Join(pathIDs(path), core.GroupSeparator))
 	}
 }
 
