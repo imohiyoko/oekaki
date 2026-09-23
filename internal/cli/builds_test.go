@@ -805,6 +805,47 @@ func TestAPageWithItsGraphBesideItIsCheckedToo(t *testing.T) {
 	}
 }
 
+// A view is a reader narrowing a drawing, not a verdict on the mapping they
+// narrowed. code-dependency keeps the code and drops the operations, so a
+// repository whose code is reached through a serves claim has no map in that
+// projection — and the same command without --view accepts the same file.
+func TestAViewDoesNotTurnAGoodMappingIntoAnError(t *testing.T) {
+	g := core.New()
+	g.Metadata = &core.Metadata{Inputs: []core.InputRef{
+		{ID: "repo-1-cluster", Path: "cluster.yaml", Kind: "kubernetes"},
+		{ID: "repo-2-svc", Path: "../svc", Kind: "repository"},
+	}}
+	g.Axes = []core.Axis{{ID: core.AxisNetwork}, {ID: "api", Label: "API"}}
+	g.Groups = []core.Group{{ID: "api:checkout", Type: "api_surface", Label: "Checkout", Axis: "api"}}
+	g.Nodes = []core.Node{
+		{ID: "workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
+			Attrs: map[string]any{"image": "registry.example/checkout:1.4.0", "repository": "repo-1-cluster"}},
+		// The repository's only code evidence is the claim below.
+		{ID: "repo-2-svc:file:h.go#Serve", Type: "code_function", Name: "Serve",
+			Attrs: map[string]any{"repository": "repo-2-svc"}},
+		{ID: "api/checkout/get/orders", Type: "api", Name: "GET /orders",
+			Groups: map[string]string{"api": "api:checkout"}},
+	}
+	g.Edges = []core.Edge{{
+		From: "repo-2-svc:file:h.go#Serve", To: "api/checkout/get/orders",
+		Kind: core.EdgeIACRef, Relation: "serves",
+	}}
+	g.Normalize()
+
+	file := graphFile(t, g)
+	for _, view := range []string{"", "code-dependency"} {
+		args := []string{"render", file, "--atlas", "-f", "html", "--external-assets",
+			"-o", filepath.Join(t.TempDir(), "estate.html"),
+			"--builds", buildsFile(t, buildRecord), "--build-repo", "acme/checkout=repo-2-svc"}
+		if view != "" {
+			args = append(args, "--view", view)
+		}
+		if r := run(t, "", args...); r.code != 0 {
+			t.Errorf("--view %q refused a mapping the same file accepts without one:\n%s", view, r.stderr)
+		}
+	}
+}
+
 // claiming is the inputs that say they are one repository's code.
 func claiming(g *core.Graph, repository string) []string {
 	var out []string

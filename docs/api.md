@@ -101,10 +101,18 @@ interchangeable and these are not — the claim is false if they are swapped, an
 naming them apart is what lets the refusal say which end was wrong.
 
 Neither end is ever adopted. A selector that matches nothing is dropped and
-reported, whatever `--overlay-unmatched` says, because a function nobody parsed
-is not code and inventing one would put a box on the code map that no reading
-of the repository produced. Ids are the ones in the graph, so with more than
-one input they are the qualified ones — `repo-2-svc:file:…`.
+reported rather than turned into a box, whatever `--overlay-unmatched` says,
+because a function nobody parsed is not code and inventing one would put a box
+on the code map that no reading of the repository produced. An end that
+resolves to the wrong kind of thing is dropped and reported the same way. Both
+count as unapplied, so `--overlay-unmatched error` fails the run over either —
+that flag is how a caller says an overlay that did not fully apply is not to be
+drawn. Ids are the ones in the graph, so with more than one input they are the
+qualified ones — `repo-2-svc:file:…`.
+
+Two people claiming the same pair is refused rather than merged, for the same
+reason [a route declared twice is](paths.md): one line carries one claim, and
+folding the second in would drop somebody's name without saying so.
 
 It carries no `kind`. What somebody writes down is what a service is meant to
 do; `observed` comes from something that watched it, and `reachable` says
@@ -113,9 +121,10 @@ nothing here at all. The edge is `iac_ref`, like a declared route.
 Denying one is an ordinary `edge.suppress` naming the same two ends and
 `iac_ref` — it says nothing about the relation, the way every edge assertion
 says nothing about it, and it reaches the claim whichever of the two was
-written first. The kind is not optional in practice: `kind` defaults to
-`observed`, and a denial written without one lands on an observed line nobody
-drew rather than on the claim. A denied claim never puts the operation on a code map — a box
+written first, and it reaches every line between those two ends rather than
+whichever sorts first. `kind` is required on both edge assertions: it used to
+default to `observed`, which meant a denial written without one landed on an
+observed line nobody drew rather than on the claim it was about. A denied claim never puts the operation on a code map — a box
 there because of a line somebody denied would be the page arguing with
 itself — so the line is drawn, faintly, only where the operation is on the page
 for a claim nobody denied.

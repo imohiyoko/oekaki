@@ -415,15 +415,21 @@ func runRender(ctx context.Context, env Env, args []string) error {
 	if err := applyOverlays(env, g, f.overlay); err != nil {
 		return err
 	}
-	// Only when this run draws a box that can be opened. The mapping still
-	// joins the workload to its repository in every format; what it also says
-	// — that the box opens onto this input's code — is drawn by an atlas and
-	// by nothing else, so refusing a single drawing over a denied code graph
-	// left the SVG unwritten for a page that was never going to show it.
+	// Only when this run draws a box that can be opened or hands the document
+	// on. The mapping still joins the workload to its repository in every
+	// format; what it also says — that the box opens onto this input's code —
+	// is drawn by an atlas and by nothing else, so refusing a single drawing
+	// over a denied code graph left the SVG unwritten for a page that was
+	// never going to show it.
 	//
-	// A run that writes the graph itself asks the same question further down,
-	// of the graph it is about to write.
-	if f.atlas && format == "html" {
+	// Once, and of the estate rather than of a view of it. Asking again after
+	// the view meant one run inspecting two graphs, and the second answer was
+	// wrong: `--view code-dependency` keeps the code and drops the operations,
+	// so a repository whose code is reached through a serves claim had no map
+	// in that projection and the whole render failed — on a mapping that is
+	// correct, and that the same command without --view accepts. What a reader
+	// narrows a drawing to is not a verdict on the document they narrowed.
+	if carriesGraph(format) {
 		if err := checkCodeMaps(g, placed); err != nil {
 			return err
 		}
@@ -456,18 +462,6 @@ func runRender(ctx context.Context, env Env, args []string) error {
 	}
 	if f.overlay.hide {
 		g = hideSuppressed(g)
-	}
-	// A run that hands the graph on rather than a picture of it asks here,
-	// where the graph is the one that will be written. `--view`, `--root` and
-	// `--depth` are a reader narrowing a drawing, and they narrow a document
-	// too: a mapping recorded on a repository the view does not keep is not in
-	// the file, and the run said it was applied. A picture is asked earlier,
-	// and about the estate rather than about one view of it, because a drawing
-	// is not carried anywhere.
-	if carriesGraph(format) {
-		if err := checkCodeMaps(g, placed); err != nil {
-			return err
-		}
 	}
 	// Folding comes after the view and the suppression, because it is about
 	// how much is left to draw. Folding first would spend the budget on boxes

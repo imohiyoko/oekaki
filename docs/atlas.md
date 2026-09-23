@@ -80,7 +80,10 @@ One line on that map crosses into the estate around it, and only where
 somebody wrote it down: an `api` operation appears beside the function that
 [a `serves` claim says answers it](api.md#which-function-serves-it). The
 operation is not this repository's code, so it is not taken off the level the
-way the code is — the map holds a copy, and the estate keeps the original.
+way the code is — the map holds a copy, and the estate keeps the original, and
+that copy has no door. What is behind an operation is its neighbours, and on a
+code map its only neighbour is the function beside it: a page smaller than the
+one the reader is on. The estate opens it where it actually sits.
 
 A function is on the map because that claim exists, even when nothing in the
 tree calls it. That is the point of writing one: a handler is reached from

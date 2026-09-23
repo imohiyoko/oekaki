@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/imohiyoko/oekaki/core"
@@ -226,6 +227,7 @@ func (e *enricher) Enrich(g *core.Graph) (*enrichers.Report, error) {
 		recordOverlay(g, doc)
 	}
 
+	edgeClaims.settleDenials(g)
 	e.settle(g, tallies)
 	nodeClaims.settle(g)
 	countCoverage(g, report)
@@ -359,6 +361,23 @@ func (e *enricher) applyDocument(g *core.Graph, ix *Index, doc *Document, tallie
 			if !servesJoins(a, fn, op, report) {
 				continue
 			}
+			// The same claim twice. Two people saying the same true thing is
+			// agreement, but one line carries one claim: the second is folded
+			// into the first, and whichever of the two ranks lower loses its
+			// author and its note without a word. Within one run the author
+			// can fix it, so say so instead — the same answer path gives to
+			// the same walk declared twice.
+			key := relServes + " " + core.EdgeKey(fn.ID, op.ID, core.EdgeIACRef, relServes)
+			if declared[key] {
+				report.Unmatched = append(report.Unmatched, enrichers.Unmatched{
+					Selector: a.Subject.asMap(), Assert: a.Assert, Action: "dropped",
+					Reason: fmt.Sprintf(
+						"this run already says %q serves %q; a second claim of the same pair would be folded into the first and its author lost",
+						fn.ID, op.ID),
+				})
+				continue
+			}
+			declared[key] = true
 			edgeClaims.apply(g, fn.ID, op.ID, core.EdgeIACRef, relServes, false, claim)
 			report.Applied++
 
@@ -428,6 +447,11 @@ func (e *enricher) participant(g *core.Graph, ix *Index, a Assertion, sel Select
 // it found — whether it is a function, whether it is an operation — and asking
 // the graph a second time for something this already has in hand is a walk of
 // every node apiece.
+//
+// container holds one %q for the id. It is substituted rather than printed,
+// because a format string that arrives in a variable is one go vet cannot
+// check — and these two sentences are the ones a mistyped overlay is read
+// through.
 func (e *enricher) existing(g *core.Graph, ix *Index, a Assertion, sel Selector, report *enrichers.Report, absent, container string) (*core.Node, bool) {
 	res := ix.Resolve(sel)
 	switch {
@@ -454,7 +478,7 @@ func (e *enricher) existing(g *core.Graph, ix *Index, a Assertion, sel Selector,
 	if !ok {
 		report.Unmatched = append(report.Unmatched, enrichers.Unmatched{
 			Selector: sel.asMap(), Assert: a.Assert, Action: "dropped",
-			Reason: fmt.Sprintf(container, res.ID),
+			Reason: strings.ReplaceAll(container, "%q", strconv.Quote(res.ID)),
 		})
 		return nil, false
 	}
@@ -496,7 +520,14 @@ func whatItIs(n *core.Node) string {
 	if n.Type == "" {
 		return "of no type this graph records"
 	}
-	return "a " + n.Type
+	// The article agrees with the word. This sentence exists to be read by
+	// somebody who put the two ends the wrong way round, and "a api" reads as
+	// a program that is not paying attention to what it is telling them.
+	article := "a "
+	if strings.ContainsRune("aeiou", rune(n.Type[0])) {
+		article = "an "
+	}
+	return article + n.Type
 }
 
 // subject resolves a selector and applies the unmatched and ambiguous policies.
@@ -764,39 +795,33 @@ func newEdgeAssertionTracker(g *core.Graph) *edgeAssertionTracker {
 	return tracker
 }
 
-// matching finds the history of an edge an assertion is about.
+// matching finds the lines an assertion is about.
 //
-// An assertion that gave no relation reaches any line between those two ends.
-// An edge assertion names two ends and a kind and says nothing about what the
-// line means, and it has always been able to reach a line a parser drew with a
-// relation on it — which is what suppressing a call is. Requiring a match
-// would have taken that away from every assertion already written.
+// Three rules, and the whole of them is that an overlay must mean the same
+// thing whichever order its sentences were written in, and whether it was
+// applied to a plan or to the graph a previous run wrote out:
 //
-// Which line an assertion is about, and the whole of it is that an overlay
-// whose meaning depends on the order of its own sentences is not a document
-// anybody can check. Three rules, and each of them is a pair of assertions
-// that has to settle the same way whichever came first:
-//
-//   - The relation it named. Nothing surprising.
-//   - No relation, and it is a denial: any line. "A connection a parser found
-//     is not real" is what edge.suppress is for, and a parser's lines are the
-//     ones that carry relations. A denial that could not reach them would
-//     mean nothing.
-//   - No relation, positively asserted: a line a parser drew, and not one
-//     another assertion made. "A connection exists that no parser found" can
-//     still put an author's name on one that a parser did find; what it must
-//     not do is land on a *claim*, because a serves line is somebody's
-//     sentence and taking it over replaces both its meaning and their name.
+//   - It named a relation: the line of that relation.
+//   - No relation, and it is a denial: every line between those two ends of
+//     that kind. "A connection a parser found is not real" is what
+//     edge.suppress is for, a parser's lines are the ones carrying relations,
+//     and a denial that reached only the first of them would leave the rest
+//     drawn — differently depending on how the edges happened to be sorted.
+//   - No relation, positively asserted: the line that has no relation either.
+//     "A connection exists that no parser found" must not land on a line that
+//     means something — a serves claim is somebody's sentence, and taking it
+//     over replaces their meaning and their name. Telling a parser's line from
+//     an assertion's was tried and is not a distinction that survives being
+//     written out and read back in: on the second run every line was in the
+//     input.
 //
 // And one adoption, in the other direction: a claim takes over a line that
 // exists only because somebody denied it before making it. A denial of an
 // edge nothing has drawn yet invents one, unnamed, and the claim arriving
 // afterwards has to be that same line — otherwise the denial sits on a
 // phantom and the claim is drawn undenied.
-func (tracker *edgeAssertionTracker) matching(g *core.Graph, from, to string, kind core.EdgeKind, relation string, suppressed bool) *edgeAssertionHistory {
-	// The line it names, and only then the one it may adopt. Taking whichever
-	// came first in the slice would make the answer depend on the order the
-	// edges happen to be in, which is the thing this is here to remove.
+func (tracker *edgeAssertionTracker) matching(g *core.Graph, from, to string, kind core.EdgeKind, relation string, suppressed bool) []*edgeAssertionHistory {
+	var found []*edgeAssertionHistory
 	var adoptable *edgeAssertionHistory
 	for i := range g.Edges {
 		edge := &g.Edges[i]
@@ -807,15 +832,28 @@ func (tracker *edgeAssertionTracker) matching(g *core.Graph, from, to string, ki
 		if history == nil {
 			continue
 		}
-		if edge.Relation == relation ||
-			(relation == "" && (suppressed || history.existedInitially)) {
-			return history
-		}
-		if adoptable == nil && edge.Relation == "" && onlyDenied(history) {
+		switch {
+		// Collected rather than returned: a denial that named no relation is
+		// about all of them, and stopping at the unnamed line would leave the
+		// claim beside it drawn — which is the line the author was denying.
+		case relation == "" && suppressed:
+			found = append(found, history)
+		// Folded, because views folds it: a graph spelling a relation
+		// differently would otherwise get a second line here and a doubled
+		// arrow there, with the denial reaching only one of them.
+		case strings.EqualFold(edge.Relation, relation):
+			return []*edgeAssertionHistory{history}
+		case relation != "" && edge.Relation == "" && adoptable == nil && onlyDenied(history):
 			adoptable = history
 		}
 	}
-	return adoptable
+	if len(found) > 0 {
+		return found
+	}
+	if adoptable != nil {
+		return []*edgeAssertionHistory{adoptable}
+	}
+	return nil
 }
 
 // onlyDenied reports whether a line is here for no reason but denial: nothing
@@ -843,7 +881,7 @@ func onlyDenied(history *edgeAssertionHistory) bool {
 // an order nobody thought was significant.
 func (tracker *edgeAssertionTracker) name(g *core.Graph, history *edgeAssertionHistory, relation string) {
 	edge := &g.Edges[history.index]
-	if relation == "" || edge.Relation == relation {
+	if relation == "" || edge.Relation != "" {
 		return
 	}
 	was := core.EdgeKey(edge.From, edge.To, edge.Kind, edge.Relation)
@@ -900,26 +938,66 @@ func trackedEdgeAssertionPreferred(candidate, current trackedEdgeAssertion) bool
 }
 
 func (tracker *edgeAssertionTracker) apply(g *core.Graph, from, to string, kind core.EdgeKind, relation string, suppressed bool, claim core.Claim) {
-	history := tracker.matching(g, from, to, kind, relation, suppressed)
-	if history == nil {
-		history = tracker.create(g, from, to, kind, relation)
-	} else {
+	histories := tracker.matching(g, from, to, kind, relation, suppressed)
+	if len(histories) == 0 {
+		histories = []*edgeAssertionHistory{tracker.create(g, from, to, kind, relation)}
+	}
+	for _, history := range histories {
 		tracker.name(g, history, relation)
-	}
-	if suppressed && !history.existedInitially && claim.Note == "" {
-		claim.Note = "asserted not to exist; no such edge was found"
-	}
-	history.add(trackedEdgeAssertion{suppressed: suppressed, claim: claim, explicit: true})
 
-	winner := history.winner()
-	edge := &g.Edges[history.index]
-	edge.Suppressed = winner.suppressed
-	if winner.explicit {
-		edge.Claim = cloneClaim(&winner.claim)
-	} else {
-		edge.Claim = nil
+		said := claim
+		// Asked of the input graph only. Whether some other assertion also
+		// speaks for this line is not yet known — it may be in a document not
+		// read yet — and answering it from what has been seen so far would
+		// make the sentence depend on the order the assertions were written.
+		// The run settles that afterwards; see settleDenials.
+		if suppressed && !history.existedInitially && said.Note == "" {
+			said.Note = deniedNote
+		}
+		history.add(trackedEdgeAssertion{suppressed: suppressed, claim: said, explicit: true})
+
+		winner := history.winner()
+		edge := &g.Edges[history.index]
+		edge.Suppressed = winner.suppressed
+		if winner.explicit {
+			edge.Claim = cloneClaim(&winner.claim)
+		} else {
+			edge.Claim = nil
+		}
+		recordEdgeAssertionHistory(g, edge, history)
 	}
-	recordEdgeAssertionHistory(g, edge, history)
+}
+
+// deniedNote is what a denial of an edge nobody drew says about itself.
+const deniedNote = "asserted not to exist; no such edge was found"
+
+// settleDenials takes that sentence back off the lines it turned out to be
+// wrong about.
+//
+// A denial of an edge nothing had drawn writes "no such edge was found",
+// because at the time none was. If another assertion in the run then makes
+// one — a serves claim denied by a sentence earlier in the same document —
+// the note is false, and it is the sentence a reader is shown when they hover
+// the line. Settled here rather than when the denial was applied, because
+// until every document has been read the answer depends on the order they
+// were written in.
+func (tracker *edgeAssertionTracker) settleDenials(g *core.Graph) {
+	for _, history := range tracker.byKey {
+		if history.existedInitially || history.index >= len(g.Edges) {
+			continue
+		}
+		var asserted bool
+		for _, a := range history.assertions {
+			if !a.suppressed {
+				asserted = true
+			}
+		}
+		edge := &g.Edges[history.index]
+		if asserted && edge.Claim != nil && edge.Claim.Note == deniedNote {
+			edge.Claim = cloneClaim(edge.Claim)
+			edge.Claim.Note = ""
+		}
+	}
 }
 
 func recordEdgeAssertionHistory(g *core.Graph, edge *core.Edge, history *edgeAssertionHistory) {
