@@ -797,3 +797,26 @@ func TestTheSameCommandOnItsOwnOutputIsHeard(t *testing.T) {
 		t.Errorf("the box opens %q rather than the code this run read", of)
 	}
 }
+
+// A graph is the answer carried onward rather than a picture of it, whichever
+// command wrote it. `render -f json` writes one, so the mapping it records
+// reaches whoever renders that file next, and the question has to be asked
+// while it can still be answered.
+func TestAGraphWrittenByRenderIsCheckedLikeAnyOther(t *testing.T) {
+	g := core.New()
+	g.Metadata = &core.Metadata{Inputs: []core.InputRef{{ID: "repo-1-cluster", Path: "cluster.yaml", Kind: "kubernetes"}}}
+	g.Nodes = []core.Node{{
+		ID: "workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
+		Attrs: map[string]any{"image": "registry.example/checkout:1.4.0", "repository": "repo-1-cluster"},
+	}}
+	g.Normalize()
+
+	r := run(t, "", "render", graphFile(t, g), "-f", "json",
+		"--builds", buildsFile(t, buildRecord), "--build-repo", "acme/checkout=repo-1-cluster")
+	if r.code == 0 {
+		t.Fatal("a graph was written recording a mapping with no code map to open")
+	}
+	if !strings.Contains(r.stderr, "no code map to draw") {
+		t.Errorf("the error does not say why:\n%s", r.stderr)
+	}
+}

@@ -648,3 +648,53 @@ func TestEveryBoxForOneRepositorySaysWhereItsCodeIs(t *testing.T) {
 		}
 	}
 }
+
+// The box the workload is inside of, already here and saying nothing about
+// its code. The edge lands on it, so the reader who clicks their own container
+// arrives there — and arrived at a box that opened nothing while this run had
+// been told where the code is. Reusing a box is not a reason to keep that from
+// it; replacing an answer is decided before any of this, and it has none.
+func TestABoxAlreadyHereIsToldWhatThisRunWasTold(t *testing.T) {
+	const code = "repo-2-checkout"
+	g := core.New()
+	g.Metadata = &core.Metadata{Inputs: []core.InputRef{
+		{ID: "repo-1-a-json", Path: "a.json", Kind: "graph"},
+		{ID: "repo-1-a-json:repo-9-old", Path: "../old", Kind: "repository"},
+		{ID: code, Path: "../checkout", Kind: "repository"},
+	}}
+	g.Nodes = []core.Node{
+		{ID: "repo-1-a-json:workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
+			Attrs: map[string]any{
+				"image":      "registry.example/checkout:1.4.0",
+				"repository": "repo-1-a-json",
+			}},
+		// The mapping is about this one, so the one below is left alone.
+		{ID: "repo-1-a-json:repo-9-old:repository:acme/checkout", Type: NodeRepository, Name: "acme/checkout",
+			Attrs: map[string]any{"repository": "repo-1-a-json:repo-9-old"}},
+		// And this is the box the workload is inside of.
+		{ID: "repo-1-a-json:repository:acme/checkout", Type: NodeRepository, Name: "acme/checkout",
+			Attrs: map[string]any{"repository": "repo-1-a-json"}},
+	}
+	g.Normalize()
+
+	if _, err := (Enricher{
+		Documents:    []*builds.Document{record(t, oneBuild)},
+		Repositories: map[string]string{"acme/checkout": code},
+	}).Enrich(g); err != nil {
+		t.Fatal(err)
+	}
+
+	to := ""
+	for _, e := range g.Edges {
+		if e.Relation == Relation {
+			to = e.To
+		}
+	}
+	if to != "repo-1-a-json:repository:acme/checkout" {
+		t.Fatalf("the edge points at %s", to)
+	}
+	n, _ := g.Node(to)
+	if of, _ := n.Attrs[AttrCodeInput].(string); of != code {
+		t.Errorf("the box the workload points at opens %q", of)
+	}
+}
