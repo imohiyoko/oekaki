@@ -370,6 +370,27 @@ func (b *builder) touching(id string) []int {
 	return b.incident[id]
 }
 
+// places reports whether the axis being drawn puts this input's code
+// somewhere of its own.
+//
+// An atlas on the source axis is the code's own structure: directories are
+// containers, and a package or a file directly under the repository is at the
+// root of that axis because that is where it is, not because the axis had
+// nothing to say about it. Stripping it there took the packages and the lines
+// lifted to them off the top page of an atlas whose whole subject is the code.
+func (b *builder) places(scope string) bool {
+	for i := range b.in.Nodes {
+		n := &b.in.Nodes[i]
+		if of, _ := n.Attrs["repository"].(string); of != scope {
+			continue
+		}
+		if n.Groups[b.axis] != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // node is the document's node with this id.
 func (b *builder) node(id string) (*core.Node, bool) {
 	if b.nodes == nil {
@@ -405,10 +426,20 @@ func (b *builder) inACodeMap() map[string]bool {
 	scopes := map[string]bool{}
 	for i := range b.in.Nodes {
 		scope, ok := codeInputOf(&b.in.Nodes[i])
-		if !ok || scopes[scope] {
+		if !ok || scopes[scope] || b.places(scope) {
 			continue
 		}
 		scopes[scope] = true
+	}
+	// Room for this level and a map apiece, or the code stays where it is.
+	// The maps are made after this page and out of the same budget, so a
+	// bound reached first left the code stripped off the level and drawn
+	// nowhere — and prune can take away an opening that leads nowhere, but it
+	// cannot put a box back.
+	if len(scopes) == 0 || len(b.out)+1+len(scopes) > b.limit {
+		return b.opened
+	}
+	for scope := range scopes {
 		for _, member := range b.codeOf(scope) {
 			b.opened[member] = true
 		}
@@ -618,7 +649,13 @@ func (b *builder) detailOpening(id string) (Opening, bool) {
 	subject, _ := b.node(id)
 	if scope, ok := codeInputOf(subject); ok {
 		if len(b.codeOf(scope)) > 0 {
-			return Opening{Element: id, Diagram: codemapID(id), Kind: KindCodemap, Label: "コードマップ"}, true
+			// Named after the code it draws, not after the box it was opened
+			// from. One repository can be here as a box per input — the same
+			// repository, each box the one some workload was built from — and
+			// they are all open onto the one input's code. A page apiece drew
+			// that code once per box, under the same title, out of the same
+			// budget; this way they are doors into one room.
+			return Opening{Element: id, Diagram: codemapID(scope), Kind: KindCodemap, Label: "コードマップ"}, true
 		}
 	}
 
