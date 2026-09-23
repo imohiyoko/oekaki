@@ -9,6 +9,27 @@ import (
 	"github.com/imohiyoko/oekaki/core"
 )
 
+// Two repositories, so that naming one input for both is refused for what it
+// is rather than for a repository no record mentions.
+const twoRepositories = `{
+  "kind": "oekaki.builds",
+  "version": "0.1",
+  "builds": [
+    {
+      "repository": "acme/checkout",
+      "commit": "9f1c0f2e",
+      "run": { "id": "17243", "workflow": "release", "url": "https://ci.example/17243" },
+      "images": [{ "reference": "registry.example/checkout:1.4.0" }]
+    },
+    {
+      "repository": "acme/worker",
+      "commit": "1a2b3c4d",
+      "run": { "id": "17244", "workflow": "release", "url": "https://ci.example/17244" },
+      "images": [{ "reference": "registry.example/worker:2.0.0" }]
+    }
+  ]
+}`
+
 const buildRecord = `{
   "kind": "oekaki.builds",
   "version": "0.1",
@@ -212,12 +233,11 @@ func TestBuildRepoCanNameAnInput(t *testing.T) {
 		"--builds", buildsFile(t, buildRecord), "--build-repo", "acme/checkout=repo-2-checkout")
 
 	out := graphOf(t, r.stdout)
-	repo, ok := out.Node("repository:acme/checkout")
-	if !ok {
+	if _, ok := out.Node("repository:acme/checkout"); !ok {
 		t.Fatal("no repository node")
 	}
-	if repo.Attrs["code_input"] != "repo-2-checkout" {
-		t.Errorf("the repository does not record which input its code is: %v", repo.Attrs)
+	if of := claiming(out, "acme/checkout"); len(of) != 1 || of[0] != "repo-2-checkout" {
+		t.Errorf("the inputs saying they are this repository's code are %v", of)
 	}
 	for _, e := range out.Edges {
 		if e.Relation == "built_from" && e.To != "repository:acme/checkout" {
@@ -240,12 +260,12 @@ func TestBuildRepoAcceptsAnInputOfAnInput(t *testing.T) {
 		"--builds", buildsFile(t, buildRecord),
 		"--build-repo", "acme/checkout=repo-1-out-json:repo-2-svc")
 
-	repo, ok := graphOf(t, r.stdout).Node("repo-1-out-json:repository:acme/checkout")
-	if !ok {
+	out := graphOf(t, r.stdout)
+	if _, ok := out.Node("repo-1-out-json:repository:acme/checkout"); !ok {
 		t.Fatal("the repository that came in with the input is gone")
 	}
-	if of, _ := repo.Attrs["code_input"].(string); of != "repo-1-out-json:repo-2-svc" {
-		t.Errorf("the input of an input landed as %q", of)
+	if of := claiming(out, "acme/checkout"); len(of) != 1 || of[0] != "repo-1-out-json:repo-2-svc" {
+		t.Errorf("the input of an input landed as %v", of)
 	}
 }
 
@@ -269,11 +289,7 @@ func TestBuildRepoPlacesARepositoryThatIsAlreadyHere(t *testing.T) {
 			ID: "repo-2-checkout:package:net/http", Type: "code_package", Name: "net/http",
 			Attrs: map[string]any{"repository": "repo-2-checkout"},
 		},
-		// Written by an earlier run, which knew a different estate.
-		{
-			ID: "repository:acme/checkout", Type: "repository", Name: "acme/checkout",
-			Attrs: map[string]any{"code_input": "repo-9-somewhere-else"},
-		},
+		{ID: "repository:acme/checkout", Type: "repository", Name: "acme/checkout"},
 	}
 	g.Edges = []core.Edge{{
 		From: "repo-2-checkout:file:main.go", To: "repo-2-checkout:package:net/http",
@@ -285,12 +301,11 @@ func TestBuildRepoPlacesARepositoryThatIsAlreadyHere(t *testing.T) {
 		"--builds", buildsFile(t, buildRecord), "--build-repo", "acme/checkout=repo-2-checkout")
 
 	out := graphOf(t, r.stdout)
-	repo, ok := out.Node("repository:acme/checkout")
-	if !ok {
+	if _, ok := out.Node("repository:acme/checkout"); !ok {
 		t.Fatal("no repository node")
 	}
-	if repo.Attrs["code_input"] != "repo-2-checkout" {
-		t.Errorf("what this run was told did not hold: %v", repo.Attrs)
+	if of := claiming(out, "acme/checkout"); len(of) != 1 || of[0] != "repo-2-checkout" {
+		t.Errorf("what this run was told did not hold: %v", of)
 	}
 }
 
@@ -325,13 +340,15 @@ func TestBuildRepoRefusesAnInputWithNoCode(t *testing.T) {
 // name.
 func TestReadingAGraphBackInKeepsItsRepositoryPointingAtItsOwnCode(t *testing.T) {
 	first := core.New()
+	first.Metadata = &core.Metadata{Inputs: []core.InputRef{
+		{ID: "repo-2-checkout", Path: "../checkout", Kind: "repository", Repository: "acme/checkout"},
+	}}
 	first.Nodes = []core.Node{
 		{ID: "workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
 			Attrs: map[string]any{"image": "registry.example/checkout:1.4.0", "repository": "repo-2-checkout"}},
 		{ID: "repo-2-checkout:file:main.go#Handle", Type: "code_function", Name: "Handle",
 			Attrs: map[string]any{"repository": "repo-2-checkout"}},
-		{ID: "repository:acme/checkout", Type: "repository", Name: "acme/checkout",
-			Attrs: map[string]any{"code_input": "repo-2-checkout"}},
+		{ID: "repository:acme/checkout", Type: "repository", Name: "acme/checkout"},
 	}
 	first.Normalize()
 
@@ -347,22 +364,25 @@ func TestReadingAGraphBackInKeepsItsRepositoryPointingAtItsOwnCode(t *testing.T)
 	r := mustRun(t, "", "graph", graphFile(t, first), "--repo", graphFile(t, other))
 	out := graphOf(t, r.stdout)
 
-	repo, ok := out.Node("repo-1-graph-json:repository:acme/checkout")
-	if !ok {
+	if _, ok := out.Node("repo-1-graph-json:repository:acme/checkout"); !ok {
 		var ids []string
 		for _, n := range out.Nodes {
 			ids = append(ids, n.ID)
 		}
 		t.Fatalf("no repository node among %v", ids)
 	}
-	of, _ := repo.Attrs["code_input"].(string)
+	claims := claiming(out, "acme/checkout")
+	if len(claims) != 1 {
+		t.Fatalf("the inputs claiming this repository are %v", claims)
+	}
+	of := claims[0]
 	code, ok := out.Node("repo-1-graph-json:repo-2-checkout:file:main.go#Handle")
 	if !ok {
 		t.Fatal("the code came in under a different id than expected")
 	}
 	came, _ := code.Attrs["repository"].(string)
 	if of != came {
-		t.Errorf("the repository says its code is %q; its code says it came from %q", of, came)
+		t.Errorf("the input says it is this repository's code under the id %q; that code says it came from %q", of, came)
 	}
 	// And it must not name an input of this run, which is a different thing
 	// that happens to sit in the same position.
@@ -403,7 +423,10 @@ func TestBuildRepoRefusesAnInputWhoseOnlyCodeTheMapWouldNotDraw(t *testing.T) {
 // workload — opening onto the code map of the mapping just replaced.
 func TestPointingARepositoryAtAnElementDropsTheOldCodeMap(t *testing.T) {
 	g := core.New()
-	g.Metadata = &core.Metadata{Inputs: []core.InputRef{{ID: "repo-2-svc", Path: "../svc", Kind: "repository"}}}
+	// Said by the run that named the whole input.
+	g.Metadata = &core.Metadata{Inputs: []core.InputRef{
+		{ID: "repo-2-svc", Path: "../svc", Kind: "repository", Repository: "acme/checkout"},
+	}}
 	g.Nodes = []core.Node{
 		{ID: "workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
 			Attrs: map[string]any{"image": "registry.example/checkout:1.4.0", "repository": "repo-2-svc"}},
@@ -411,9 +434,7 @@ func TestPointingARepositoryAtAnElementDropsTheOldCodeMap(t *testing.T) {
 			Attrs: map[string]any{"repository": "repo-2-svc"}},
 		{ID: "repo-2-svc:package:net/http", Type: "code_package", Name: "net/http",
 			Attrs: map[string]any{"repository": "repo-2-svc"}},
-		// Written by the run that said the repository is the whole input.
-		{ID: "repository:acme/checkout", Type: "repository", Name: "acme/checkout",
-			Attrs: map[string]any{"code_input": "repo-2-svc"}},
+		{ID: "repository:acme/checkout", Type: "repository", Name: "acme/checkout"},
 	}
 	g.Normalize()
 
@@ -421,12 +442,8 @@ func TestPointingARepositoryAtAnElementDropsTheOldCodeMap(t *testing.T) {
 		"--builds", buildsFile(t, buildRecord), "--build-repo", "acme/checkout=repo-2-svc:file:main.go")
 
 	out := graphOf(t, r.stdout)
-	repo, ok := out.Node("repository:acme/checkout")
-	if !ok {
-		return // dropped entirely is an honest outcome too
-	}
-	if of, found := repo.Attrs["code_input"]; found {
-		t.Errorf("the replaced mapping is still on the repository: %v", of)
+	if of := claiming(out, "acme/checkout"); len(of) > 0 {
+		t.Errorf("the replaced mapping is still claimed by %v", of)
 	}
 }
 
@@ -501,12 +518,11 @@ func TestPointingAtAnElementClosesTheBoxItIsInside(t *testing.T) {
 		"--build-repo", "acme/checkout=repo-1-out-json:repo-2-svc:file:main.go")
 
 	out := graphOf(t, r.stdout)
-	repo, ok := out.Node("repo-1-out-json:repository:acme/checkout")
-	if !ok {
+	if _, ok := out.Node("repo-1-out-json:repository:acme/checkout"); !ok {
 		t.Fatal("the repository that came in with the input is gone")
 	}
-	if of, found := repo.Attrs["code_input"]; found {
-		t.Errorf("the box is still open onto %v", of)
+	if of := claiming(out, "acme/checkout"); len(of) > 0 {
+		t.Errorf("the code map is still claimed by %v", of)
 	}
 }
 
@@ -601,7 +617,9 @@ func TestAMappingDoesNotClobberAnotherInputsAnswer(t *testing.T) {
 // workload's box open onto the code map of the mapping just replaced.
 func TestReplacingAMappingHoldsEvenWhenNoRecordMatches(t *testing.T) {
 	g := core.New()
-	g.Metadata = &core.Metadata{Inputs: []core.InputRef{{ID: "repo-2-svc", Path: "../svc", Kind: "repository"}}}
+	g.Metadata = &core.Metadata{Inputs: []core.InputRef{
+		{ID: "repo-2-svc", Path: "../svc", Kind: "repository", Repository: "acme/checkout"},
+	}}
 	g.Nodes = []core.Node{
 		// Running 1.3.0; the record below is about 1.4.0.
 		{ID: "workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
@@ -610,8 +628,7 @@ func TestReplacingAMappingHoldsEvenWhenNoRecordMatches(t *testing.T) {
 			Attrs: map[string]any{"repository": "repo-2-svc"}},
 		{ID: "repo-2-svc:package:net/http", Type: "code_package", Name: "net/http",
 			Attrs: map[string]any{"repository": "repo-2-svc"}},
-		{ID: "repository:acme/checkout", Type: "repository", Name: "acme/checkout",
-			Attrs: map[string]any{"code_input": "repo-2-svc"}},
+		{ID: "repository:acme/checkout", Type: "repository", Name: "acme/checkout"},
 	}
 	g.Edges = []core.Edge{{
 		From: "repo-2-svc:file:main.go", To: "repo-2-svc:package:net/http",
@@ -624,12 +641,8 @@ func TestReplacingAMappingHoldsEvenWhenNoRecordMatches(t *testing.T) {
 		"--build-repo", "acme/checkout=repo-2-svc:file:main.go")
 
 	out := graphOf(t, r.stdout)
-	repo, ok := out.Node("repository:acme/checkout")
-	if !ok {
-		return
-	}
-	if of, found := repo.Attrs["code_input"]; found {
-		t.Errorf("the replaced mapping is still on the repository: %v", of)
+	if of := claiming(out, "acme/checkout"); len(of) > 0 {
+		t.Errorf("the replaced mapping is still claimed by %v", of)
 	}
 }
 
@@ -640,15 +653,14 @@ func TestReplacingAMappingHoldsEvenWhenNoRecordMatches(t *testing.T) {
 func TestRepointingAMappingHoldsEvenWhenNoRecordMatches(t *testing.T) {
 	g := core.New()
 	g.Metadata = &core.Metadata{Inputs: []core.InputRef{
-		{ID: "repo-2-svc", Path: "../svc", Kind: "repository"},
+		{ID: "repo-2-svc", Path: "../svc", Kind: "repository", Repository: "acme/checkout"},
 		{ID: "repo-3-other", Path: "../other", Kind: "repository"},
 	}}
 	g.Nodes = []core.Node{
 		// Running 1.3.0; the record below is about 1.4.0.
 		{ID: "workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
 			Attrs: map[string]any{"image": "registry.example/checkout:1.3.0", "repository": "repo-2-svc"}},
-		{ID: "repository:acme/checkout", Type: "repository", Name: "acme/checkout",
-			Attrs: map[string]any{"code_input": "repo-2-svc"}},
+		{ID: "repository:acme/checkout", Type: "repository", Name: "acme/checkout"},
 	}
 	for _, scope := range []string{"repo-2-svc", "repo-3-other"} {
 		g.Nodes = append(g.Nodes,
@@ -667,56 +679,11 @@ func TestRepointingAMappingHoldsEvenWhenNoRecordMatches(t *testing.T) {
 		"--builds", buildsFile(t, buildRecord), "--build-repo", "acme/checkout=repo-3-other")
 
 	out := graphOf(t, r.stdout)
-	repo, ok := out.Node("repository:acme/checkout")
-	if !ok {
+	if _, ok := out.Node("repository:acme/checkout"); !ok {
 		t.Fatal("no repository node")
 	}
-	if of, _ := repo.Attrs["code_input"].(string); of != "repo-3-other" {
-		t.Errorf("the repository still says its code is %q", of)
-	}
-}
-
-// A mapping naming an input outside the one a box came from is not about that
-// box, and is not written there — which is right, and silent. The run said the
-// mapping was applied while the box went on opening onto what it opened onto
-// before.
-func TestAMappingThatReachesNoBoxIsRefusedRatherThanReported(t *testing.T) {
-	const old, other = "repo-1-prev-json:repo-9-old", "repo-2-checkout"
-	g := core.New()
-	g.Metadata = &core.Metadata{Inputs: []core.InputRef{
-		{ID: old, Path: "../old", Kind: "repository"},
-		{ID: other, Path: "../checkout", Kind: "repository"},
-	}}
-	g.Nodes = []core.Node{
-		{ID: "repo-1-prev-json:workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
-			Attrs: map[string]any{"image": "registry.example/checkout:1.4.0", "repository": old}},
-		{ID: "repo-1-prev-json:repository:acme/checkout", Type: "repository", Name: "acme/checkout",
-			Attrs: map[string]any{"repository": "repo-1-prev-json", "code_input": old}},
-		// A second box, so the mapping has something to be told apart from —
-		// and neither of them came from the input it names.
-		{ID: "repo-3-third-json:repository:acme/checkout", Type: "repository", Name: "acme/checkout",
-			Attrs: map[string]any{"repository": "repo-3-third-json"}},
-	}
-	for _, scope := range []string{old, other} {
-		g.Nodes = append(g.Nodes,
-			core.Node{ID: scope + ":file:main.go", Type: "code_file", Name: "main.go",
-				Attrs: map[string]any{"repository": scope}},
-			core.Node{ID: scope + ":package:net/http", Type: "code_package", Name: "net/http",
-				Attrs: map[string]any{"repository": scope}})
-		g.Edges = append(g.Edges, core.Edge{
-			From: scope + ":file:main.go", To: scope + ":package:net/http",
-			Kind: core.EdgeIACRef, Relation: "imports",
-		})
-	}
-	g.Normalize()
-
-	r := run(t, "", "graph", graphFile(t, g),
-		"--builds", buildsFile(t, buildRecord), "--build-repo", "acme/checkout="+other)
-	if r.code == 0 {
-		t.Fatal("a mapping that reached no box was accepted and reported as applied")
-	}
-	if !strings.Contains(r.stderr, "changed nothing") {
-		t.Errorf("the error does not say what happened:\n%s", r.stderr)
+	if of := claiming(out, "acme/checkout"); len(of) != 1 || of[0] != "repo-3-other" {
+		t.Errorf("the inputs claiming this repository are %v", of)
 	}
 }
 
@@ -784,17 +751,11 @@ func TestTheSameCommandOnItsOwnOutputIsHeard(t *testing.T) {
 	again := mustRun(t, "", append([]string{"graph", out1}, flags...)...).stdout
 
 	out := graphOf(t, again)
-	var boxes []*core.Node
-	for i := range out.Nodes {
-		if out.Nodes[i].Type == "repository" && out.Nodes[i].Name == "acme/checkout" {
-			boxes = append(boxes, &out.Nodes[i])
-		}
+	if ids := repositoryNodes(out, "acme/checkout"); len(ids) != 1 {
+		t.Fatalf("%d boxes for one repository: %v", len(ids), ids)
 	}
-	if len(boxes) != 1 {
-		t.Fatalf("%d boxes for one repository", len(boxes))
-	}
-	if of, _ := boxes[0].Attrs["code_input"].(string); of != "repo-2-checkout" {
-		t.Errorf("the box opens %q rather than the code this run read", of)
+	if of := claiming(out, "acme/checkout"); len(of) != 1 || of[0] != "repo-2-checkout" {
+		t.Errorf("the code this run read is claimed by %v", of)
 	}
 }
 
@@ -840,6 +801,45 @@ func TestAPageWithItsGraphBesideItIsCheckedToo(t *testing.T) {
 		t.Fatal("a graph was written beside the page recording a mapping with no code map")
 	}
 	if !strings.Contains(r.stderr, "no code map to draw") {
+		t.Errorf("the error does not say why:\n%s", r.stderr)
+	}
+}
+
+// claiming is the inputs that say they are one repository's code.
+func claiming(g *core.Graph, repository string) []string {
+	var out []string
+	if g.Metadata == nil {
+		return nil
+	}
+	for _, in := range g.Metadata.Inputs {
+		if in.Repository == repository {
+			out = append(out, in.ID)
+		}
+	}
+	return out
+}
+
+// An input is one repository's code — that is what the graph records on it —
+// so two repositories naming one input is a sentence with two subjects.
+// Whichever was read last would have won, in whatever order a map happened to
+// be walked.
+func TestTwoRepositoriesCannotBeTheSameInput(t *testing.T) {
+	g := core.New()
+	g.Metadata = &core.Metadata{Inputs: []core.InputRef{{ID: "repo-2-checkout", Path: "../checkout", Kind: "repository"}}}
+	g.Nodes = []core.Node{{
+		ID: "workload:shop/checkout", Type: "kubernetes_deployment", Name: "checkout",
+		Attrs: map[string]any{"image": "registry.example/checkout:1.4.0"},
+	}}
+	g.Normalize()
+
+	r := run(t, "", "graph", graphFile(t, g),
+		"--builds", buildsFile(t, twoRepositories),
+		"--build-repo", "acme/checkout=repo-2-checkout",
+		"--build-repo", "acme/worker=repo-2-checkout")
+	if r.code == 0 {
+		t.Fatal("one input was accepted as two repositories' code")
+	}
+	if !strings.Contains(r.stderr, "already said to be") {
 		t.Errorf("the error does not say why:\n%s", r.stderr)
 	}
 }

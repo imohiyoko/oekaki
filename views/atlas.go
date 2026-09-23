@@ -86,12 +86,6 @@ const (
 	// depend on the thing that produced its input.
 	repositoryType = "repository"
 
-	// attrCodeInput is the input a repository's code was read from, said by a
-	// build record's mapping. Not `repository`, which every node of a
-	// combined graph carries naming the input it came from — one key with two
-	// meanings is decided by whichever was written last.
-	attrCodeInput = "code_input"
-
 	relDeclares = "declares"
 	relCalls    = "calls"
 	relImports  = "imports"
@@ -239,6 +233,19 @@ func BuildAtlas(in *core.Graph, opts AtlasOptions) (*Atlas, error) {
 	if opts.Axis != "" && axis == "" {
 		return nil, fmt.Errorf("this graph has no %s axis", opts.Axis)
 	}
+	// Nobody said which axis, and the code's own axis came first in the list.
+	// An estate that has read a repository has both, and defaulting to the
+	// code's meant the front page of the estate was the repository's
+	// directories — the code is a guest here, and `--axis source` is how a
+	// reader asks for it.
+	if opts.Axis == "" && axis == core.AxisSource {
+		for _, a := range in.Axes {
+			if a.ID != core.AxisSource {
+				axis = a.ID
+				break
+			}
+		}
+	}
 	depth := opts.Depth
 	if depth <= 0 {
 		depth = defaultSequenceDepth
@@ -338,6 +345,10 @@ type builder struct {
 	// input for the same reason.
 	code map[string][]string
 
+	// byName is one repository's whole code map: every input that says it is
+	// that repository, read together and once.
+	byName map[string][]string
+
 	// descended records the code maps whose members have already been walked.
 	descended map[string]bool
 
@@ -425,16 +436,6 @@ func (b *builder) liftCode() error {
 	if b.placesCode() {
 		return nil
 	}
-	root := -1
-	for i := range b.out {
-		if b.out[i].ID == levelID("") {
-			root = i
-		}
-	}
-	if root < 0 {
-		return nil
-	}
-
 	at := map[string]int{}
 	for i := range b.out {
 		at[b.out[i].ID] = i
@@ -463,8 +464,23 @@ func (b *builder) liftCode() error {
 		return nil
 	}
 
+	// Every level, not only the estate's front page. Code carries no position
+	// on an estate's axis and lands at its root, but a graph can put it
+	// anywhere — an overlay may place a function in a namespace — and then it
+	// was drawn on that level and on the map both.
+	for i := range b.out {
+		if !strings.HasPrefix(b.out[i].ID, levelID("")) {
+			continue
+		}
+		if err := b.liftFrom(&b.out[i], elsewhere); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (b *builder) liftFrom(d *Diagram, elsewhere map[string]bool) error {
 	gone := map[string]bool{}
-	d := &b.out[root]
 	kept := d.Graph.Nodes[:0]
 	for _, n := range d.Graph.Nodes {
 		if elsewhere[n.ID] && isCode(n.Type) {
@@ -517,7 +533,7 @@ func (b *builder) liftCode() error {
 
 	d.Graph.Normalize()
 	if err := d.Graph.Validate(); err != nil {
-		return fmt.Errorf("level %q: %w", "", err)
+		return fmt.Errorf("level %q: %w", d.ID, err)
 	}
 	return nil
 }
@@ -680,15 +696,15 @@ func (b *builder) detailOpening(id string) (Opening, bool) {
 	// suppressing one is for — left the repository holding code nobody could
 	// reach, while the command line went on saying there was a map to open.
 	subject, _ := b.node(id)
-	if scope, ok := codeInputOf(subject); ok {
-		if len(b.codeOf(scope)) > 0 {
+	if name, ok := repositoryNamed(subject); ok {
+		if len(b.codeFor(name)) > 0 {
 			// Named after the code it draws, not after the box it was opened
 			// from. One repository can be here as a box per input — the same
 			// repository, each box the one some workload was built from — and
 			// they are all open onto the one input's code. A page apiece drew
 			// that code once per box, under the same title, out of the same
 			// budget; this way they are doors into one room.
-			return Opening{Element: id, Diagram: codemapID(scope), Kind: KindCodemap, Label: "コードマップ"}, true
+			return Opening{Element: id, Diagram: codemapID(name), Kind: KindCodemap, Label: "コードマップ"}, true
 		}
 	}
 
@@ -722,29 +738,41 @@ func (b *builder) detailOpening(id string) (Opening, bool) {
 	return Opening{Element: id, Diagram: detailID(id), Kind: kind, Label: label}, true
 }
 
-// repositoryScope is the input a repository node was said to be, when a build
-// record's mapping placed it. Absent means nobody said, and a repository
-// nobody placed has no code to open.
+// codeFor is the code map of one repository: every input that says it is that
+// repository's code, read together.
 //
-// The repository's own attribute, not the one every node carries naming the
-// input it came from. A repository node that arrived inside a previous output
-// wears both, and reading the wrong one opened that input's whole code.
-func (b *builder) repositoryScope(id string) (string, bool) {
-	n, _ := b.node(id)
-	return codeInputOf(n)
+// Asked of the name rather than of the box, because the answer is not the
+// box's. A repository is here as one box, as a box per input it was read
+// beside, or as none, and where its code is does not change with that. The
+// inputs say it — `metadata.inputs[].repository` — and every box of that name
+// opens the same room.
+func (b *builder) codeFor(name string) []string {
+	if out, ok := b.byName[name]; ok {
+		return out
+	}
+	var out []string
+	if b.in.Metadata != nil {
+		for _, in := range b.in.Metadata.Inputs {
+			if in.Repository == name {
+				out = append(out, b.codeOf(in.ID)...)
+			}
+		}
+	}
+	out = sorted(dedupe(out))
+	if b.byName == nil {
+		b.byName = map[string][]string{}
+	}
+	b.byName[name] = out
+	return out
 }
 
-// codeInputOf is repositoryScope of a node already in hand. Finding the node
-// is a walk of every node, and detailOpening needs the same one twice.
-func codeInputOf(n *core.Node) (string, bool) {
-	if n == nil || n.Type != repositoryType {
+// repositoryNamed is the name of the repository a node stands for, when it
+// stands for one.
+func repositoryNamed(n *core.Node) (string, bool) {
+	if n == nil || n.Type != repositoryType || n.Name == "" {
 		return "", false
 	}
-	scope, ok := n.Attrs[attrCodeInput].(string)
-	if !ok || scope == "" {
-		return "", false
-	}
-	return scope, true
+	return n.Name, true
 }
 
 // codeOf is CodeOf, read once per scope.
@@ -863,7 +891,8 @@ func (b *builder) codemap(id string, open Opening) error {
 	if len(b.out) >= b.limit {
 		return nil
 	}
-	scope, ok := b.repositoryScope(id)
+	subject, _ := b.node(id)
+	name, ok := repositoryNamed(subject)
 	if !ok {
 		return nil
 	}
@@ -871,7 +900,7 @@ func (b *builder) codemap(id string, open Opening) error {
 		b.descended = map[string]bool{}
 	}
 	b.descended[open.Diagram] = true
-	for _, member := range b.codeOf(scope) {
+	for _, member := range b.codeFor(name) {
 		if err := b.detail(member); err != nil {
 			return err
 		}
@@ -879,34 +908,48 @@ func (b *builder) codemap(id string, open Opening) error {
 	return nil
 }
 
-// mapNamedFor is what to call one input's code map, and where its trail back
-// up goes: the repository every box that opens it is, and the level they are
-// all on. Where they disagree it is the input's own id and the root, which are
-// true of all of them.
-func (b *builder) mapNamedFor(scope string) (title, parent string) {
+// trailUpFrom is where a code map's "back" goes: the level the boxes that open
+// it are on. One repository can be here as a box per input, and where they
+// disagree the answer is the level they are all under, which is true of all of
+// them — a trail leading back to a level the reader was never on is worse than
+// a longer one.
+func (b *builder) trailUpFrom(name string) string {
+	parent := ""
 	for i := range b.in.Nodes {
 		n := &b.in.Nodes[i]
-		of, ok := codeInputOf(n)
-		if !ok || of != scope {
+		if of, ok := repositoryNamed(n); !ok || of != name {
 			continue
 		}
-		name := orDefault(n.Name, n.ID)
 		level := b.levelOf(n.ID)
-		if title == "" && parent == "" {
-			title, parent = name, level
+		if parent == "" {
+			parent = level
 			continue
-		}
-		if title != name {
-			title = scope
 		}
 		if parent != level {
-			parent = levelID("")
+			return levelID("")
 		}
 	}
-	if title == "" {
-		title = scope
+	if parent == "" {
+		return levelID("")
 	}
-	return title, parent
+	return parent
+}
+
+// joins reports whether a line is one a code map draws: the ends of the kinds
+// that relation holds between.
+func joins(b *builder, e core.Edge) bool {
+	from, _ := b.node(e.From)
+	to, _ := b.node(e.To)
+	if from == nil || to == nil {
+		return false
+	}
+	switch {
+	case strings.EqualFold(e.Relation, relImports):
+		return from.Type == codeFile && to.Type == codePackage
+	case strings.EqualFold(e.Relation, relCalls):
+		return from.Type == codeFunction && to.Type == codeFunction
+	}
+	return false
 }
 
 // codemapPage builds the map itself and nothing under it.
@@ -916,11 +959,12 @@ func (b *builder) mapNamedFor(scope string) (title, parent string) {
 // spends what is left on the pages of its own code. One repository saved at
 // the cost of the next one is not the rule this is meant to be.
 func (b *builder) codemapPage(id string, open Opening) error {
-	scope, ok := b.repositoryScope(id)
+	subject, _ := b.node(id)
+	name, ok := repositoryNamed(subject)
 	if !ok {
 		return nil
 	}
-	members := b.codeOf(scope)
+	members := b.codeFor(name)
 	if len(members) == 0 || !b.room(open.Diagram) {
 		return nil
 	}
@@ -935,6 +979,7 @@ func (b *builder) codemapPage(id string, open Opening) error {
 		}
 		copied := *n
 		copied.Groups = nil
+		copied.Attrs = cloneAttrs(n.Attrs)
 		g.Nodes = append(g.Nodes, copied)
 		present[member] = true
 	}
@@ -943,6 +988,12 @@ func (b *builder) codemapPage(id string, open Opening) error {
 		// that writes `Imports` loses the lines here and the files with them,
 		// leaving a page of boxes and no flow, and saying nothing about it.
 		if !strings.EqualFold(e.Relation, relCalls) && !strings.EqualFold(e.Relation, relImports) {
+			continue
+		}
+		// And of the kind that line joins, the same pairing CodeOf asked for
+		// when it chose the boxes. Drawing a line the choosing refused is the
+		// page contradicting the rule it was built by.
+		if !joins(b, e) {
 			continue
 		}
 		// Suppressed lines are drawn, the way every other page draws them. A
@@ -971,12 +1022,11 @@ func (b *builder) codemapPage(id string, open Opening) error {
 	// The trail back up is the same question — a box in another namespace led
 	// back to a level the reader had never been on — and where the boxes
 	// disagree the answer is the level they are all under.
-	title, parent := b.mapNamedFor(scope)
 	d := Diagram{
 		ID: open.Diagram, Kind: KindCodemap, Graph: g,
-		Parent:   parent,
+		Parent:   b.trailUpFrom(name),
 		Origin:   id,
-		Title:    title,
+		Title:    name,
 		Subtitle: open.Label,
 	}
 	// A box on this page opens the same way it opens anywhere else: a function

@@ -26,14 +26,6 @@ const Relation = "built_from"
 // NodeRepository is the type of a node standing for a repository.
 const NodeRepository = "repository"
 
-// AttrCodeInput is the input a repository's code was read from, on the
-// repository node, when somebody said which one it is.
-//
-// Deliberately not `repository`: that attribute is already how a combined
-// graph records which input each node came from, and two meanings on one key
-// means whichever was written last wins.
-const AttrCodeInput = "code_input"
-
 // Enricher applies build records to a graph.
 type Enricher struct {
 	Documents []*builds.Document
@@ -102,75 +94,44 @@ func (e Enricher) Enrich(g *core.Graph) (*enrichers.Report, error) {
 		})
 	}
 
-	// What this run was told about a repository is written on it, whether or
-	// not anything here happens to be running an image these records name.
+	// What this run was told about a repository is recorded on the input it
+	// names, whether or not anything here happens to be running an image these
+	// records mention. A mapping is a sentence about a repository, not about
+	// what is deployed today, and doing it where the join happens left an
+	// estate that had moved on to an untagged build opening the input the
+	// operator had just stopped naming.
 	//
-	// Doing it where the join happens meant an estate that had moved on to a
-	// tag no record covers kept the answer the last run wrote: the mapping was
-	// accepted, the box stayed open, and what it opened onto was the input the
-	// operator had just stopped naming. A mapping is a sentence about a
-	// repository, not about what is running today.
+	// On the input, because that is what the sentence is about: the code in
+	// this input is that repository's. The repository itself may stand here as
+	// one box, as a box per input it was read beside, or as no box at all, and
+	// none of that changes where its code is. Writing it on a box instead made
+	// the answer depend on which box — and a repository name is not a unique
+	// key, so every reading of it needed a rule for which box was meant, each
+	// rule a new way to be wrong.
 	//
 	// A repository this run says nothing about keeps what it was told before.
 	// Not repeating a flag is not a retraction, and throwing away somebody's
-	// answer because they did not say it twice is the same kind of quiet loss
-	// this is fixing.
-	//
-	// Written only where this run is entitled to speak. Combining two outputs
-	// leaves a box per input, each already carrying the right answer about the
-	// code inside its own input, and a mapping names one input — so writing it
-	// on every box that shares the name made the other boxes claim code that
-	// lives somewhere else, and put the code they did have out of reach of
-	// every page. A mapping pointed at an element names somewhere too: an
-	// element inside an input is a sentence about that input's box.
+	// answer because they did not say it twice is the same quiet loss this is
+	// avoiding. Saying it is an element is a retraction: an element is not a
+	// code map, and the inputs that claimed the repository stop claiming it.
 	inputs := InputIDs(g)
 	for repository, id := range e.Repositories {
-		boxes := repositoriesNamed(g, repository)
-		// Whether any box is the one the mapping is about. A box answers about
-		// the code inside its own input, so a mapping naming something inside
-		// that input is about it and a mapping naming anything else is not.
-		owned := false
-		for _, n := range boxes {
-			if from, _ := n.Attrs["repository"].(string); within(id, from) {
-				owned = true
-			}
+		if g.Metadata == nil {
+			continue
 		}
-		for _, n := range boxes {
-			from, _ := n.Attrs["repository"].(string)
-			// The one entitlement, asked once, whether this run is about to
-			// write an answer or take one away. They were two conditions, and
-			// the retraction's was the narrower — so a box the fallback had
-			// written was one nobody could clear again.
-			//
-			// A box the mapping is inside of, first: that is what a box
-			// answers about, the code inside its own input.
-			//
-			// Failing that, the only box there is, when no other box is the
-			// one the mapping is about. Reading a previous output back beside
-			// the repository that output was missing leaves exactly that: one
-			// box, from that output, and no box of its own for the fresh
-			// input. One box and nothing else the mapping could be about is a
-			// question with one answer. A second box means there is something
-			// to tell this one apart from, and writing anyway is how a box
-			// comes to claim code that lives somewhere else — which puts the
-			// code it did have out of reach of every page.
-			if !within(id, from) && (owned || len(boxes) > 1) {
-				continue
+		// One answer at a time. Naming an input is a replacement of whatever
+		// was said before, not an addition: leaving the old claim standing
+		// left two inputs saying they are this repository's code, and the map
+		// drew the one the operator had just stopped naming alongside the one
+		// they had just named.
+		for i := range g.Metadata.Inputs {
+			in := &g.Metadata.Inputs[i]
+			if in.Repository == repository {
+				in.Repository = ""
 			}
-			if !inputs[id] {
-				// Pointed at an element rather than an input: no code map, so
-				// the answer an earlier run wrote is retracted. On the boxes
-				// this mapping is about, which is the same set that would have
-				// been written had it named an input. Clearing only the boxes
-				// with nothing to say where they came from left the answer
-				// standing on every box read back out of a previous output —
-				// exactly the boxes an earlier run had written it on — and the
-				// atlas went on opening the input the operator had stopped
-				// naming.
-				delete(n.Attrs, AttrCodeInput)
-				continue
+			if inputs[id] && in.ID == id {
+				in.Repository = repository
 			}
-			set(n, id)
 		}
 	}
 
@@ -329,13 +290,6 @@ func sorted(set map[string]bool) []string {
 	return out
 }
 
-func set(n *core.Node, id string) {
-	if n.Attrs == nil {
-		n.Attrs = map[string]any{}
-	}
-	n.Attrs[AttrCodeInput] = id
-}
-
 // within reports whether an input id lies inside the input a node came from.
 //
 // An empty scope is a node this run made, or one that came in at the top
@@ -363,32 +317,29 @@ func lookup(byKey map[string]built, image string) (built, bool) {
 // target is the element the edge points at, and whether this invented it: the
 // one somebody wrote down, or a node for the repository itself.
 func (e Enricher) target(g *core.Graph, index boxIndex, inputs map[string]bool, running core.Node, b built) (string, bool, error) {
-	// The repository this graph already holds, found by what it is rather than
-	// by the id this run would give it.
+	// Somewhere in this graph, by name. An element mapping is only ever about
+	// where the edge lands; what the repository's code is, is recorded on the
+	// input and not here.
+	if id, ok := e.Repositories[b.repository]; ok && !inputs[id] {
+		return id, false, nil
+	}
+
+	// The box that speaks for the input the thing running it came from.
 	//
 	// A graph that ran this once is an input the next time, and everything in
-	// it arrives qualified with the scope it was read under — so the node is
-	// no longer at `repository:<name>`, while the repository is the same
-	// repository. Matching on the id alone missed it, and then invented a
-	// second box for the same thing: two boxes for one repository, disagreeing
-	// about whether it has code.
-	// The box that speaks for the input the thing running it came from.
-	// Several inputs combined leave a box apiece, all of them the same
-	// repository and none of them the same box — and the first in id order is
-	// a box some other input's workloads were joined to, so pointing here
-	// draws a deployment built from two repositories.
+	// it arrives qualified with the scope it was read under — so the box is no
+	// longer at `repository:<name>` while being the same repository. Several
+	// inputs combined leave a box apiece, and the first in id order is a box
+	// some other input's workloads were joined to, so pointing there draws a
+	// deployment built from two repositories.
 	//
-	// Speaks for, not equals. A box this enricher invented had no input
+	// Speaks for, not equals: a box this enricher invented had no input
 	// attribute, so reading that output back stamps it with the outer scope
-	// alone while the workload beside it keeps a nested one. Demanding the two
-	// be equal missed the box that was right there and invented a bare one
-	// next to it, which is the doubling this matching was added to stop. The
-	// most specific box that covers the workload wins; a box this run made
-	// covers everything, and is the last resort rather than the first.
-	// A workload that says nothing about where it came from is covered by any
-	// box there is: nothing tells it apart from them, and demanding a scope it
-	// does not have matched none of them and invented a second box beside the
-	// one that was already right there.
+	// alone while the workload beside it keeps a nested one. The most specific
+	// box that covers the workload wins. A workload that says nothing about
+	// where it came from is covered by any of them — nothing tells it apart —
+	// and demanding a scope it does not have matched none and invented a
+	// second box beside the one that was already here.
 	from, _ := running.Attrs["repository"].(string)
 	existing := index.nodes(g, b.repository)
 	var mine *core.Node
@@ -409,116 +360,26 @@ func (e Enricher) target(g *core.Graph, index boxIndex, inputs map[string]bool, 
 			mine = n
 		}
 	}
-	writable := mine
-	if mine == nil {
-		// The bare id, when a graph somebody handed in wears it while saying
-		// it came from an input that covers nothing here. Preferring it would
-		// have been wrong; refusing it is worse, and refusing it with "cannot
-		// be told apart" is not even true of it.
-		if n, ok := g.Node(NodeRepository + ":" + b.repository); ok &&
-			n.Type == NodeRepository && n.Name == b.repository {
-			mine, writable = n, n
-		}
-	}
-
-	// The input this repository is, when somebody said so. It goes on the node
-	// rather than on the edge because it is a fact about the repository and
-	// not about this build.
-	//
-	// Under its own key rather than `repository`. That one already means
-	// something else — combining inputs stamps every node with the input it
-	// came from — so a repository node arriving inside a previous output had
-	// this answer overwritten with the input it was read from, and the code
-	// map then drew that whole input's code.
-	of := ""
-	if id, ok := e.Repositories[b.repository]; ok {
-		// Whether some box here is the one the mapping is about. If one is, it
-		// was written before any of this, and nothing about the answer is
-		// decided by which workload happened to point where: the box the edge
-		// lands on is another input's box, and this input's code is not its.
-		// The edge still lands there — that is a different question.
-		for _, n := range existing {
-			if from, _ := n.Attrs["repository"].(string); within(id, from) {
-				writable = nil
-				break
-			}
-		}
-		if !inputs[id] {
-			// Pointed at an element instead. Whatever an earlier run wrote
-			// on the boxes this mapping is about was cleared before any of
-			// this, because it has to happen whether or not a record matched
-			// anything — and the box the edge lands on is cleared here, by
-			// the same selection that would have written it. Written by one
-			// rule and taken back by a narrower one is how an answer comes to
-			// be one nobody can retract.
-			if writable != nil {
-				delete(writable.Attrs, AttrCodeInput)
-			}
-			return id, false, nil
-		}
-		of = id
-	}
-
 	if mine != nil {
-		// The box this workload is inside of, and the edge points at it. What
-		// this run was told about the repository goes on it when it is saying
-		// nothing yet: it is this repository, the edge lands here, and a
-		// reader who clicked their own container and arrived at a box that
-		// opens nothing has been told less than this run knows. An answer
-		// already on it is its own and is left alone — which box a mapping
-		// replaces is decided before any of this, not by which workload
-		// happened to point here.
-		fill(writable, of)
 		return mine.ID, false, nil
 	}
 
 	id := NodeRepository + ":" + b.repository
 	if n, ok := g.Node(id); ok {
-		// Not a repository, and not this one: a different thing with the same
-		// name — the box that is this repository was taken above. Pointing the
-		// edge at it would answer "what built this" with somebody else's box,
-		// and nothing downstream could tell, because the graph would still
-		// validate.
+		// A different thing wearing the id this run would have used. Pointing
+		// the edge at it would answer "what built this" with somebody else's
+		// box, and nothing downstream could tell, because the graph would
+		// still validate.
 		return "", false, fmt.Errorf(
 			"%q is already here as %s %q: that and the repository the record names cannot be told apart",
 			id, n.Type, n.Name)
 	}
-	node := core.Node{
+	g.Nodes = append(g.Nodes, core.Node{
 		ID: id, Type: NodeRepository, Name: b.repository,
 		Claim: &core.Claim{Origin: core.OriginParser, Note: b.run.Label()},
-	}
-	// Said here too, even when a box already here says it. This box is that
-	// repository as well, and where that repository's code is does not change
-	// with which input a box came from.
-	//
-	// Keeping it off the second box was tried, to stop the same code map being
-	// drawn twice. It stopped the wrong thing: the box a fresh estate's
-	// workload points at is the one this run just made, so the reader who
-	// clicked their own container arrived at a box that opened nothing at all.
-	// Two boxes saying the same true thing is not the problem — drawing it
-	// twice was, and a page is named after the code it draws, so the two boxes
-	// are two doors into the one room.
-	if of != "" {
-		node.Attrs = map[string]any{AttrCodeInput: of}
-	}
-	g.Nodes = append(g.Nodes, node)
+	})
 	index.add(g, b.repository)
 	return id, true, nil
-}
-
-// fill says what this repository's code is on the box the edge lands on, when
-// that box is saying nothing. Replacing an answer is decided elsewhere, by
-// whether the mapping is about that box at all; this is only the blank being
-// filled in — and it is undone by the same selection, so an element mapping
-// can take back what it wrote.
-func fill(n *core.Node, of string) {
-	if of == "" || n == nil {
-		return
-	}
-	if was, _ := n.Attrs[AttrCodeInput].(string); was != "" {
-		return
-	}
-	set(n, of)
 }
 
 // boxIndex is where the repository nodes are, by name.

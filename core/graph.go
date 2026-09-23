@@ -371,9 +371,16 @@ type Metadata struct {
 // InputRef tells a consumer, including an AI adapter, which local inputs were
 // actually available when this graph was generated.
 type InputRef struct {
-	ID            string `json:"id"`
-	Path          string `json:"path"`
-	Kind          string `json:"kind,omitempty"`
+	ID   string `json:"id"`
+	Path string `json:"path"`
+	Kind string `json:"kind,omitempty"`
+
+	// Repository is the repository whose code this input is, when somebody
+	// has said so. A fact about the input rather than about any node: the
+	// repository may stand in the estate as one box, as a box per input it
+	// was read beside, or as no box at all, and where its code is does not
+	// change with that.
+	Repository    string `json:"repository,omitempty"`
 	SourceVersion string `json:"source_version,omitempty"`
 }
 

@@ -18,8 +18,8 @@ level:                 the estate: containers as boxes
 ```
 
 A container descends into the code it runs. A build record joins a workload to
-the repository that built it, and when somebody has said which input that
-repository is, the box opens as a **code map**: the functions of that
+the repository that built it, and when somebody has said which input is that
+repository's code, the box opens as a **code map**: the functions of that
 repository, what calls what, and what it imports. From there a function opens
 its own page and a file opens what it declares, so the descent from a running
 container to one function — or to one class — is a sequence of clicks. See
@@ -59,7 +59,7 @@ a tree like the one above:
 ```
 level:                                   the estate
   click the task definition   ->  detail:aws_ecs_task_definition.api
-  click the repository        ->  codemap:repo-2-checkout            what it runs, as code
+  click the repository        ->  codemap:acme/checkout              what it runs, as code
   click a function            ->  detail:…#HandleOrder               what it calls
   click a file                ->  detail:…/http.go                   what it declares
   click a type there          ->  detail:…#type:Order                drawn as a class
