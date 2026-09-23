@@ -356,10 +356,10 @@ func (e *enricher) applyDocument(g *core.Graph, ix *Index, doc *Document, tallie
 			if !ok {
 				continue
 			}
-			if !servesJoins(g, a, fn, op, report) {
+			if !servesJoins(a, fn, op, report) {
 				continue
 			}
-			edgeClaims.apply(g, fn, op, core.EdgeIACRef, relServes, false, claim)
+			edgeClaims.apply(g, fn.ID, op.ID, core.EdgeIACRef, relServes, false, claim)
 			report.Applied++
 
 		case AssertEdge, AssertEdgeSuppress:
@@ -403,9 +403,13 @@ func repeatedHop(walk []string) int {
 // one. Letting it through failed the whole command on a graph validation error
 // that named neither the overlay nor the assertion.
 func (e *enricher) participant(g *core.Graph, ix *Index, a Assertion, sel Selector, report *enrichers.Report) (string, bool) {
-	return e.existing(g, ix, a, sel, report,
+	n, ok := e.existing(g, ix, a, sel, report,
 		"no resource in this graph answers to it, and a hop of a route is never adopted: a route is about boxes that are already there",
 		"%q is a container, and a container does not call anything; name the thing inside it that does")
+	if !ok {
+		return "", false
+	}
+	return n.ID, true
 }
 
 // existing resolves a selector to a node the graph already has.
@@ -419,7 +423,12 @@ func (e *enricher) participant(g *core.Graph, ix *Index, a Assertion, sel Select
 //
 // The two refusals are the caller's sentences because why a container cannot
 // be one of these depends on what these are.
-func (e *enricher) existing(g *core.Graph, ix *Index, a Assertion, sel Selector, report *enrichers.Report, absent, container string) (string, bool) {
+//
+// It hands back the node rather than its id. Every caller wants to know what
+// it found — whether it is a function, whether it is an operation — and asking
+// the graph a second time for something this already has in hand is a walk of
+// every node apiece.
+func (e *enricher) existing(g *core.Graph, ix *Index, a Assertion, sel Selector, report *enrichers.Report, absent, container string) (*core.Node, bool) {
 	res := ix.Resolve(sel)
 	switch {
 	case len(res.Candidates) > 1:
@@ -428,7 +437,7 @@ func (e *enricher) existing(g *core.Graph, ix *Index, a Assertion, sel Selector,
 			Assert:     a.Assert,
 			Candidates: res.Candidates,
 		})
-		return "", false
+		return nil, false
 
 	case res.ID == "":
 		reason := absent
@@ -438,17 +447,18 @@ func (e *enricher) existing(g *core.Graph, ix *Index, a Assertion, sel Selector,
 		report.Unmatched = append(report.Unmatched, enrichers.Unmatched{
 			Selector: sel.asMap(), Assert: a.Assert, Reason: reason, Action: "dropped",
 		})
-		return "", false
+		return nil, false
 	}
 
-	if _, ok := g.Node(res.ID); !ok {
+	n, ok := g.Node(res.ID)
+	if !ok {
 		report.Unmatched = append(report.Unmatched, enrichers.Unmatched{
 			Selector: sel.asMap(), Assert: a.Assert, Action: "dropped",
 			Reason: fmt.Sprintf(container, res.ID),
 		})
-		return "", false
+		return nil, false
 	}
-	return res.ID, true
+	return n, true
 }
 
 // servesJoins refuses a claim whose two ends are not a function and an
@@ -461,20 +471,18 @@ func (e *enricher) existing(g *core.Graph, ix *Index, a Assertion, sel Selector,
 // are of the kind that line joins, so a claim that failed it would otherwise
 // be a line the map quietly declines to draw, for a reason nobody can see from
 // the file they wrote.
-func servesJoins(g *core.Graph, a Assertion, fn, op string, report *enrichers.Report) bool {
-	subject, _ := g.Node(fn)
-	operation, _ := g.Node(op)
+func servesJoins(a Assertion, subject, operation *core.Node, report *enrichers.Report) bool {
 	switch {
-	case subject == nil || subject.Type != typeCodeFunction:
+	case subject.Type != typeCodeFunction:
 		report.Unmatched = append(report.Unmatched, enrichers.Unmatched{
 			Selector: a.Subject.asMap(), Assert: a.Assert, Action: "dropped",
-			Reason: fmt.Sprintf("%q is %s, and only a %s serves an operation", fn, whatItIs(subject), typeCodeFunction),
+			Reason: fmt.Sprintf("%q is %s, and only a %s serves an operation", subject.ID, whatItIs(subject), typeCodeFunction),
 		})
 		return false
-	case operation == nil || operation.Type != typeAPIOperation:
+	case operation.Type != typeAPIOperation:
 		report.Unmatched = append(report.Unmatched, enrichers.Unmatched{
 			Selector: a.Operation.asMap(), Assert: a.Assert, Action: "dropped",
-			Reason: fmt.Sprintf("%q is %s, and what a function serves is an operation — read one with --api", op, whatItIs(operation)),
+			Reason: fmt.Sprintf("%q is %s, and what a function serves is an operation — read one with --api", operation.ID, whatItIs(operation)),
 		})
 		return false
 	}
@@ -482,9 +490,10 @@ func servesJoins(g *core.Graph, a Assertion, fn, op string, report *enrichers.Re
 }
 
 // whatItIs names a node's type for a refusal, so the sentence says what was
-// wrong rather than only that something was.
+// wrong rather than only that something was. A node with no type at all is a
+// graph somebody else wrote; core does not require one.
 func whatItIs(n *core.Node) string {
-	if n == nil || n.Type == "" {
+	if n.Type == "" {
 		return "of no type this graph records"
 	}
 	return "a " + n.Type
@@ -763,53 +772,82 @@ func newEdgeAssertionTracker(g *core.Graph) *edgeAssertionTracker {
 // relation on it — which is what suppressing a call is. Requiring a match
 // would have taken that away from every assertion already written.
 //
-// An assertion that gave one is more specific, and reaches a line of that
-// relation or a line of none. A line of another relation is a different fact
-// about the same two boxes and is left alone — that is what the relation is
-// for. A line of no relation is the *same* fact not yet named, which is the
-// whole of the second pass below: an edge.suppress written before the claim it
-// denies creates one, and the two have to be one line however the assertions
-// were ordered. Written the other way round they always were, and an overlay
-// whose meaning depends on the order of its own sentences is not a document
-// anybody can check.
+// An assertion that gave one reaches a line of that relation, and one other
+// thing: a line that exists only because somebody denied this one before
+// making it. An edge.suppress about an edge nothing had drawn yet invents one,
+// unnamed, and the claim that arrives afterwards has to be that same line —
+// otherwise the denial sits on a phantom and the claim is drawn undenied. The
+// other order always worked, and an overlay whose meaning depends on the order
+// of its own sentences is not a document anybody can check.
+//
+// Nothing else is adopted. A line of another relation is a different fact
+// about the same two boxes — that is what a relation is for — and an unnamed
+// line that somebody positively asserted is *their* claim: relabelling it
+// would put this assertion's meaning on a sentence another author wrote.
 func (tracker *edgeAssertionTracker) matching(g *core.Graph, from, to string, kind core.EdgeKind, relation string) *edgeAssertionHistory {
-	// Exactly, first. Otherwise which of the two a claim landed on would
-	// depend on the order the edges happen to be in.
-	for _, want := range []string{relation, ""} {
-		for i := range g.Edges {
-			edge := &g.Edges[i]
-			if edge.From != from || edge.To != to || edge.Kind != kind {
-				continue
-			}
-			if relation != "" && edge.Relation != want {
-				continue
-			}
-			key := core.EdgeKey(edge.From, edge.To, edge.Kind, edge.Relation)
-			if history := tracker.byKey[key]; history != nil {
-				return history
-			}
+	// The line it names, and only then the one it may adopt. Taking whichever
+	// came first in the slice would make the answer depend on the order the
+	// edges happen to be in, which is the thing this is here to remove.
+	var adoptable *edgeAssertionHistory
+	for i := range g.Edges {
+		edge := &g.Edges[i]
+		if edge.From != from || edge.To != to || edge.Kind != kind {
+			continue
 		}
-		if relation == "" {
-			break
+		history := tracker.byKey[core.EdgeKey(edge.From, edge.To, edge.Kind, edge.Relation)]
+		if history == nil {
+			continue
+		}
+		if relation == "" || edge.Relation == relation {
+			return history
+		}
+		if adoptable == nil && edge.Relation == "" && onlyDenied(history) {
+			adoptable = history
 		}
 	}
-	return nil
+	return adoptable
+}
+
+// onlyDenied reports whether a line is here for no reason but denial: nothing
+// drew it, and every assertion about it so far says it is not there.
+func onlyDenied(history *edgeAssertionHistory) bool {
+	if history.existedInitially || len(history.assertions) == 0 {
+		return false
+	}
+	for _, a := range history.assertions {
+		if !a.suppressed {
+			return false
+		}
+	}
+	return true
 }
 
 // name gives a line the meaning an assertion had for it, when the line was
 // made by one that had none.
 //
-// The key it is filed under is the edge's own, so renaming the edge means
-// re-filing it; leaving the old key behind would hand a later assertion about
-// the same line a history whose index now describes something else.
+// An edge is filed under a key made out of the edge, so renaming it means
+// re-filing it — and moving everything else filed the same way with it. A
+// conflict left behind names an edge that is no longer in the graph, which
+// core refuses: the command then fails on a validation error about a key,
+// having written nothing, because two assertions about one line were made in
+// an order nobody thought was significant.
 func (tracker *edgeAssertionTracker) name(g *core.Graph, history *edgeAssertionHistory, relation string) {
 	edge := &g.Edges[history.index]
 	if relation == "" || edge.Relation == relation {
 		return
 	}
-	delete(tracker.byKey, core.EdgeKey(edge.From, edge.To, edge.Kind, edge.Relation))
+	was := core.EdgeKey(edge.From, edge.To, edge.Kind, edge.Relation)
+	now := core.EdgeKey(edge.From, edge.To, edge.Kind, relation)
+
+	delete(tracker.byKey, was)
 	edge.Relation = relation
-	tracker.byKey[core.EdgeKey(edge.From, edge.To, edge.Kind, relation)] = history
+	tracker.byKey[now] = history
+
+	for i := range g.Conflicts {
+		if g.Conflicts[i].TargetKind == core.ConflictTargetEdge && g.Conflicts[i].Target == was {
+			g.Conflicts[i].Target = now
+		}
+	}
 }
 
 func (tracker *edgeAssertionTracker) create(g *core.Graph, from, to string, kind core.EdgeKind, relation string) *edgeAssertionHistory {

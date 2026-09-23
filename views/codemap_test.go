@@ -1490,3 +1490,55 @@ func TestTheDoorIntoTheEstateDoesNotStripALevel(t *testing.T) {
 		t.Error("the mapped repository's code is on the level and on the map both")
 	}
 }
+
+// A page reached from a code map shows its subject's neighbours, and a
+// neighbour can be anybody's: an operation's page draws every function said to
+// serve it, and a function's page draws what calls it across a repository
+// boundary. Neither is this map's code, and taking one off the level puts it
+// behind a box it is not behind.
+func TestAMapOnlyLiftsItsOwnRepositorysCode(t *testing.T) {
+	g := estateWithCode(t, true)
+	g.Metadata.Inputs = append(g.Metadata.Inputs,
+		core.InputRef{ID: "repo-3-other", Path: "../other", Kind: "repository"})
+	g.Nodes = append(g.Nodes,
+		core.Node{ID: "repo-3-other:file:b.go#Helper", Type: "code_function", Name: "Helper",
+			Attrs: map[string]any{"repository": "repo-3-other"}},
+		core.Node{ID: "repo-3-other:file:b.go#Other", Type: "code_function", Name: "Other",
+			Attrs: map[string]any{"repository": "repo-3-other"}})
+	g.Edges = append(g.Edges,
+		// The mapped repository calls into the one nobody placed.
+		core.Edge{From: "repo-2-svc:file:handler/http.go#Handle", To: "repo-3-other:file:b.go#Helper",
+			Kind: core.EdgeIACRef, Relation: "calls"},
+		core.Edge{From: "repo-3-other:file:b.go#Helper", To: "repo-3-other:file:b.go#Other",
+			Kind: core.EdgeIACRef, Relation: "calls"})
+	g.Normalize()
+	if err := g.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := BuildAtlas(g, AtlasOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pageOf(a, "codemap:repo-3-other") != nil {
+		t.Fatal("the second repository has a map; the test no longer asks anything")
+	}
+
+	onALevel := func(id string) bool {
+		for _, d := range a.Diagrams {
+			if strings.HasPrefix(d.ID, levelID("")) && draws(&d, id) {
+				return true
+			}
+		}
+		return false
+	}
+	// Both halves, or the call between them is a line with one end.
+	for _, id := range []string{"repo-3-other:file:b.go#Helper", "repo-3-other:file:b.go#Other"} {
+		if !onALevel(id) {
+			t.Errorf("%s was lifted onto a map its repository does not have", id)
+		}
+	}
+	if onALevel("repo-2-svc:file:handler/http.go#Handle") {
+		t.Error("the mapped repository's own code is on the level and on the map both")
+	}
+}

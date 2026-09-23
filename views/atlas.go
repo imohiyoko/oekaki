@@ -460,22 +460,24 @@ func (b *builder) liftCode() error {
 		// And the pages the map opens: what a mapped file declares is drawn
 		// there rather than on the map, and the map is the door to it.
 		//
-		// The code it opens, that is. An operation on this page opens its own
-		// detail page, and that page draws every function anybody said serves
-		// it — including functions of a repository with no map at all, which
-		// would then be taken off the level and put nowhere. The door is a way
-		// back into the estate rather than a delegation of this map's
-		// contents, and only a delegation is a reason to strip the level.
+		// Of that repository's own code, though, and not of everything those
+		// pages happen to draw. A page reached from here shows its subject's
+		// neighbours, and a neighbour can be anybody's — an operation's page
+		// draws every function said to serve it, a function's page draws what
+		// calls it across a repository boundary. Lifting one of those is the
+		// exact failure this exists to prevent, inverted: a box taken off the
+		// front page on the strength of a map it is not on, and which is not
+		// going to be built for it because nobody placed its repository.
+		of := b.scopesOf(strings.TrimPrefix(b.out[i].ID, codemapID("")))
 		for _, open := range b.out[i].Opens {
-			if n, ok := b.node(open.Element); !ok || !isCode(n.Type) {
-				continue
-			}
 			j, ok := at[open.Diagram]
 			if !ok {
 				continue
 			}
 			for _, n := range b.out[j].Graph.Nodes {
-				elsewhere[n.ID] = true
+				if from, _ := n.Attrs["repository"].(string); of[from] {
+					elsewhere[n.ID] = true
+				}
 			}
 		}
 	}
@@ -785,6 +787,23 @@ func (b *builder) codeFor(name string) []string {
 	return out
 }
 
+// scopesOf is the inputs whose code is this repository's: the ones somebody
+// said the repository is. It is the same question codeFor asks, kept apart
+// because what is behind a box is every node of those inputs and not only the
+// ones a line put on the map.
+func (b *builder) scopesOf(name string) map[string]bool {
+	of := map[string]bool{}
+	if name == "" || b.in.Metadata == nil {
+		return of
+	}
+	for _, in := range b.in.Metadata.Inputs {
+		if in.Repository == name {
+			of[in.ID] = true
+		}
+	}
+	return of
+}
+
 // repositoryNamed is the name of the repository a node stands for, when it
 // stands for one.
 func repositoryNamed(n *core.Node) (string, bool) {
@@ -842,12 +861,15 @@ func CodeOf(g *core.Graph, scope string) []string {
 		return nil
 	}
 	kind := map[string]string{}
-	// And every node's type, whatever input it came from. One end of a serves
-	// claim is an operation, which belongs to a document rather than to this
-	// repository, so the pairing below cannot be asked of the scope alone.
-	typeOf := make(map[string]string, len(g.Nodes))
+	// And the operations, whatever input they came from. One end of a serves
+	// claim belongs to a document rather than to this repository, so that
+	// pairing cannot be asked of the scope alone — and an operation is the
+	// only thing outside it any of these lines may reach.
+	operation := map[string]bool{}
 	for _, n := range g.Nodes {
-		typeOf[n.ID] = n.Type
+		if n.Type == apiOperation {
+			operation[n.ID] = true
+		}
 		if of, _ := n.Attrs["repository"].(string); of != scope {
 			continue
 		}
@@ -893,7 +915,7 @@ func CodeOf(g *core.Graph, scope string) []string {
 		// from outside the tree is where a request comes in, and the rule
 		// above can only see the ones something inside the tree calls.
 		case strings.EqualFold(e.Relation, relServes):
-			if kind[e.From] == codeFunction && typeOf[e.To] == apiOperation {
+			if kind[e.From] == codeFunction && operation[e.To] {
 				on[e.From] = true
 			}
 		}
@@ -1023,10 +1045,7 @@ func (b *builder) codemapPage(id string, open Opening) error {
 		if !ok {
 			continue
 		}
-		copied := *n
-		copied.Groups = nil
-		copied.Attrs = cloneAttrs(n.Attrs)
-		g.Nodes = append(g.Nodes, copied)
+		place(g, n)
 		present[member] = true
 	}
 	var lines []core.Edge
@@ -1068,10 +1087,7 @@ func (b *builder) codemapPage(id string, open Opening) error {
 		if !ok {
 			continue
 		}
-		copied := *n
-		copied.Groups = nil
-		copied.Attrs = cloneAttrs(n.Attrs)
-		g.Nodes = append(g.Nodes, copied)
+		place(g, n)
 		present[e.To] = true
 		served = append(served, e.To)
 	}
@@ -1139,6 +1155,19 @@ func (b *builder) codemapPage(id string, open Opening) error {
 	}
 	b.out = append(b.out, d)
 	return nil
+}
+
+// place copies a node onto a page.
+//
+// Without its group path: the page is not the estate the node was grouped in,
+// and a path naming a container that is not here fails validation. With its
+// own attrs rather than the graph's, because a page is a copy and a caller
+// that adjusts one box must not be editing the input.
+func place(g *core.Graph, n *core.Node) {
+	copied := *n
+	copied.Groups = nil
+	copied.Attrs = cloneAttrs(n.Attrs)
+	g.Nodes = append(g.Nodes, copied)
 }
 
 // levelOf is the page an element belongs under: the level of the container it

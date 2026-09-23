@@ -365,3 +365,71 @@ func TestAClaimDoesNotTakeOverALineThatMeansSomethingElse(t *testing.T) {
 		t.Fatalf("%d documents lines and %d serves lines: %+v", documents, serves, g.Edges)
 	}
 }
+
+// Three sentences about two boxes, and the graph still has to validate.
+//
+// A claim that renames a line renames what is filed under it. A conflict left
+// pointing at the line's old name is a conflict about nothing, which core
+// refuses — and the whole command then fails on a key, having written no
+// output, because of an order nobody thought was significant.
+func TestARenamedLineTakesItsConflictWithIt(t *testing.T) {
+	g, _ := serve(t, doc(`
+	  {"assert":"edge","from":{"node":"file:handler/http.go#HandleOrder"},
+	   "to":{"node":"api/checkout/get/orders/{id}"},"kind":"iac_ref","author":"auditor"},
+	  {"assert":"edge.suppress","from":{"node":"file:handler/http.go#HandleOrder"},
+	   "to":{"node":"api/checkout/get/orders/{id}"},"kind":"iac_ref"},
+	  {"assert":"serves","subject":{"node":"file:handler/http.go#HandleOrder"},
+	   "operation":{"node":"api/checkout/get/orders/{id}"}}`), Options{})
+
+	// serve validates; this says what the validation was about, so a failure
+	// reads as the finding rather than as a key nobody can decode.
+	for _, c := range g.Conflicts {
+		if c.TargetKind != core.ConflictTargetEdge {
+			continue
+		}
+		from, to, kind, relation, ok := core.ParseEdgeKey(c.Target)
+		if !ok {
+			t.Fatalf("conflict target %q is not an edge key", c.Target)
+		}
+		var found bool
+		for _, e := range g.Edges {
+			if e.From == from && e.To == to && e.Kind == kind && e.Relation == relation {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("a conflict is filed against a line that is not in the graph: relation %q", relation)
+		}
+	}
+}
+
+// A claim adopts a line nobody drew and everybody denied. It does not adopt a
+// line somebody asserted: that sentence is theirs, and relabelling it would
+// put this claim's meaning on their name.
+func TestAClaimDoesNotRelabelSomebodyElsesAssertion(t *testing.T) {
+	g, _ := serve(t, doc(`
+	  {"assert":"edge","from":{"node":"file:handler/http.go#HandleOrder"},
+	   "to":{"node":"api/checkout/get/orders/{id}"},"kind":"iac_ref",
+	   "author":"auditor","note":"read off a service map"},
+	  {"assert":"serves","subject":{"node":"file:handler/http.go#HandleOrder"},
+	   "operation":{"node":"api/checkout/get/orders/{id}"}}`), Options{})
+
+	var theirs, mine int
+	for _, e := range g.Edges {
+		if e.From != "file:handler/http.go#HandleOrder" {
+			continue
+		}
+		switch e.Relation {
+		case "":
+			theirs++
+			if e.Claim == nil || e.Claim.Author != "auditor" {
+				t.Errorf("their line now carries %+v", e.Claim)
+			}
+		case "serves":
+			mine++
+		}
+	}
+	if theirs != 1 || mine != 1 {
+		t.Fatalf("%d unnamed lines and %d serves lines: the claim took over the other one", theirs, mine)
+	}
+}
