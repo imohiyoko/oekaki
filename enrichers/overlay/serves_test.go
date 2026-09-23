@@ -433,3 +433,96 @@ func TestAClaimDoesNotRelabelSomebodyElsesAssertion(t *testing.T) {
 		t.Fatalf("%d unnamed lines and %d serves lines: the claim took over the other one", theirs, mine)
 	}
 }
+
+// Every pair of sentences about one line settles the same way whichever was
+// written first. The claim and a denial become one denied line; the claim and
+// somebody else's positive assertion stay two lines with their two names on
+// them.
+func TestTwoSentencesAboutOneLineSettleTheSameWayEitherOrder(t *testing.T) {
+	claim := `{"assert":"serves","subject":{"node":"file:handler/http.go#HandleOrder"},
+	   "operation":{"node":"api/checkout/get/orders/{id}"}}`
+	positive := `{"assert":"edge","from":{"node":"file:handler/http.go#HandleOrder"},
+	   "to":{"node":"api/checkout/get/orders/{id}"},"kind":"iac_ref","author":"auditor"}`
+	denial := `{"assert":"edge.suppress","from":{"node":"file:handler/http.go#HandleOrder"},
+	   "to":{"node":"api/checkout/get/orders/{id}"},"kind":"iac_ref"}`
+
+	lines := func(t *testing.T, body string) map[string]core.Edge {
+		t.Helper()
+		g, _ := serve(t, doc(body), Options{})
+		out := map[string]core.Edge{}
+		for _, e := range g.Edges {
+			if e.From == "file:handler/http.go#HandleOrder" {
+				out[e.Relation] = e
+			}
+		}
+		return out
+	}
+
+	t.Run("a claim and somebody else's assertion", func(t *testing.T) {
+		for _, body := range []string{positive + "," + claim, claim + "," + positive} {
+			got := lines(t, body)
+			if len(got) != 2 {
+				t.Fatalf("%d lines, not two: %+v", len(got), got)
+			}
+			if c := got["serves"].Claim; c == nil || c.Author != "operator" {
+				t.Errorf("the claim carries %+v; somebody else's name is on it", c)
+			}
+			if c := got[""].Claim; c == nil || c.Author != "auditor" {
+				t.Errorf("their assertion carries %+v", c)
+			}
+		}
+	})
+
+	t.Run("a claim and its denial", func(t *testing.T) {
+		for _, body := range []string{denial + "," + claim, claim + "," + denial} {
+			got := lines(t, body)
+			if len(got) != 1 {
+				t.Fatalf("%d lines, not one: %+v", len(got), got)
+			}
+			if e, ok := got["serves"]; !ok || !e.Suppressed {
+				t.Errorf("the denial did not land on the claim: %+v", got)
+			}
+		}
+	})
+}
+
+// A positive assertion with no relation still reaches a line a parser drew
+// with one. "A connection exists that no parser found" may put an author's
+// name on one a parser did find, and taking that away would change what every
+// overlay already written does.
+func TestAnAssertionWithNoRelationStillClaimsAParsersLine(t *testing.T) {
+	g := serving()
+	g.Edges = append(g.Edges, core.Edge{
+		From: "file:handler/http.go", To: "file:handler/http.go#HandleOrder",
+		Kind: core.EdgeIACRef, Relation: "contains",
+	})
+	g.Normalize()
+
+	d, err := Parse([]byte(doc(`
+	  {"assert":"edge","from":{"node":"file:handler/http.go"},
+	   "to":{"node":"file:handler/http.go#HandleOrder"},"kind":"iac_ref",
+	   "author":"auditor"}`)), "test.json")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if _, err := New([]*Document{d}, Options{}).Enrich(g); err != nil {
+		t.Fatalf("Enrich: %v", err)
+	}
+
+	var lines int
+	for _, e := range g.Edges {
+		if e.From != "file:handler/http.go" {
+			continue
+		}
+		lines++
+		if e.Relation != "contains" {
+			t.Errorf("a second line was made beside the parser's: %+v", e)
+		}
+		if e.Claim == nil || e.Claim.Author != "auditor" {
+			t.Errorf("the parser's line carries %+v", e.Claim)
+		}
+	}
+	if lines != 1 {
+		t.Fatalf("%d lines where the parser drew one", lines)
+	}
+}
