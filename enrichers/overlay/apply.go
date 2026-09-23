@@ -772,19 +772,28 @@ func newEdgeAssertionTracker(g *core.Graph) *edgeAssertionTracker {
 // relation on it — which is what suppressing a call is. Requiring a match
 // would have taken that away from every assertion already written.
 //
-// An assertion that gave one reaches a line of that relation, and one other
-// thing: a line that exists only because somebody denied this one before
-// making it. An edge.suppress about an edge nothing had drawn yet invents one,
-// unnamed, and the claim that arrives afterwards has to be that same line —
-// otherwise the denial sits on a phantom and the claim is drawn undenied. The
-// other order always worked, and an overlay whose meaning depends on the order
-// of its own sentences is not a document anybody can check.
+// Which line an assertion is about, and the whole of it is that an overlay
+// whose meaning depends on the order of its own sentences is not a document
+// anybody can check. Three rules, and each of them is a pair of assertions
+// that has to settle the same way whichever came first:
 //
-// Nothing else is adopted. A line of another relation is a different fact
-// about the same two boxes — that is what a relation is for — and an unnamed
-// line that somebody positively asserted is *their* claim: relabelling it
-// would put this assertion's meaning on a sentence another author wrote.
-func (tracker *edgeAssertionTracker) matching(g *core.Graph, from, to string, kind core.EdgeKind, relation string) *edgeAssertionHistory {
+//   - The relation it named. Nothing surprising.
+//   - No relation, and it is a denial: any line. "A connection a parser found
+//     is not real" is what edge.suppress is for, and a parser's lines are the
+//     ones that carry relations. A denial that could not reach them would
+//     mean nothing.
+//   - No relation, positively asserted: a line a parser drew, and not one
+//     another assertion made. "A connection exists that no parser found" can
+//     still put an author's name on one that a parser did find; what it must
+//     not do is land on a *claim*, because a serves line is somebody's
+//     sentence and taking it over replaces both its meaning and their name.
+//
+// And one adoption, in the other direction: a claim takes over a line that
+// exists only because somebody denied it before making it. A denial of an
+// edge nothing has drawn yet invents one, unnamed, and the claim arriving
+// afterwards has to be that same line — otherwise the denial sits on a
+// phantom and the claim is drawn undenied.
+func (tracker *edgeAssertionTracker) matching(g *core.Graph, from, to string, kind core.EdgeKind, relation string, suppressed bool) *edgeAssertionHistory {
 	// The line it names, and only then the one it may adopt. Taking whichever
 	// came first in the slice would make the answer depend on the order the
 	// edges happen to be in, which is the thing this is here to remove.
@@ -798,7 +807,8 @@ func (tracker *edgeAssertionTracker) matching(g *core.Graph, from, to string, ki
 		if history == nil {
 			continue
 		}
-		if relation == "" || edge.Relation == relation {
+		if edge.Relation == relation ||
+			(relation == "" && (suppressed || history.existedInitially)) {
 			return history
 		}
 		if adoptable == nil && edge.Relation == "" && onlyDenied(history) {
@@ -890,7 +900,7 @@ func trackedEdgeAssertionPreferred(candidate, current trackedEdgeAssertion) bool
 }
 
 func (tracker *edgeAssertionTracker) apply(g *core.Graph, from, to string, kind core.EdgeKind, relation string, suppressed bool, claim core.Claim) {
-	history := tracker.matching(g, from, to, kind, relation)
+	history := tracker.matching(g, from, to, kind, relation, suppressed)
 	if history == nil {
 		history = tracker.create(g, from, to, kind, relation)
 	} else {
