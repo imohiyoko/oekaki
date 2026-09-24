@@ -132,9 +132,15 @@ func (o Origin) Rank() int {
 
 // Claim is the provenance of one assertion.
 //
-// Absent means OriginParser. The overwhelmingly common case therefore costs no
-// bytes, and a graph with no overlays applied is almost byte-identical to one
-// produced before claims existed.
+// An absent claim means the parser: the field is omitted wherever nobody has
+// said anything, so the overwhelmingly common case costs no bytes and a graph
+// with no overlays applied is almost byte-identical to one produced before
+// claims existed.
+//
+// The origin inside one is always written. Valid and the schema both refuse an
+// empty one, because a claim that is here was made by somebody, and letting it
+// be blank would spell "the parser read it" and "whoever wrote this did not
+// say" the same way.
 type Claim struct {
 	Origin Origin `json:"origin"`
 	Author string `json:"author,omitempty"`
