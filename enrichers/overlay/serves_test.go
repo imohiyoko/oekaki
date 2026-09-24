@@ -868,63 +868,96 @@ func TestThreeSentencesAboutOnePairMeanOneThingInEveryOrder(t *testing.T) {
 }
 
 // The sentence a denial writes when there was nothing to deny survives the
-// graph being written out and read back.
+// graph being written out and read back — and is never handed to a line that
+// was really there.
 //
-// An earlier run's phantom comes back as an ordinary edge, so asking only
-// whether the line was in the input put the note on in the first run and took
-// it off in the second: the same two files said something different about the
-// same estate the second time somebody ran them. The note goes on at add time,
-// where what was in the input is the only thing knowable, and both directions
-// are settled once every document has been read.
+// By the second run the two cases look alike: an earlier run's phantom and a
+// parser line that run denied are both suppressed and both carry the denier's
+// claim. Asking only whether the line was in the input put the note on in the
+// first run and took it off in the second; asking only whether anything but a
+// denial has been said about it took the note off the phantom and gave it to
+// the parser's line instead. The sentence itself is what separates them, and
+// it is in the file.
 func TestTheDenialsOwnSentenceSurvivesBeingReadBack(t *testing.T) {
-	body := doc(`{"assert":"edge.suppress","from":{"node":"file:handler/http.go#HandleOrder"},
-	   "to":{"node":"api/checkout/get/orders/{id}"},"kind":"iac_ref"}`)
+	const deny = `{"assert":"edge.suppress","from":{"node":"file:handler/http.go#HandleOrder"},
+	   "to":{"node":"api/checkout/get/orders/{id}"},"kind":"iac_ref"}`
 
-	g := serving()
-	var said []string
-	for run := 1; run <= 3; run++ {
-		d, err := Parse([]byte(body), "test.json")
-		if err != nil {
-			t.Fatalf("run %d: Parse: %v", run, err)
-		}
-		if _, err := New([]*Document{d}, Options{}).Enrich(g); err != nil {
-			t.Fatalf("run %d: Enrich: %v", run, err)
-		}
-		if err := g.Validate(); err != nil {
-			t.Fatalf("run %d: the enriched graph does not validate: %v", run, err)
-		}
+	notes := func(t *testing.T, seed []core.Edge) []string {
+		t.Helper()
+		g := serving()
+		g.Edges = append(g.Edges, seed...)
+		g.Normalize()
 
-		var lines []core.Edge
-		for _, e := range g.Edges {
-			if e.From == "file:handler/http.go#HandleOrder" {
-				lines = append(lines, e)
+		var said []string
+		for run := 1; run <= 3; run++ {
+			d, err := Parse([]byte(doc(deny)), "test.json")
+			if err != nil {
+				t.Fatalf("run %d: Parse: %v", run, err)
+			}
+			if _, err := New([]*Document{d}, Options{}).Enrich(g); err != nil {
+				t.Fatalf("run %d: Enrich: %v", run, err)
+			}
+			if err := g.Validate(); err != nil {
+				t.Fatalf("run %d: the enriched graph does not validate: %v", run, err)
+			}
+
+			var lines []core.Edge
+			for _, e := range g.Edges {
+				if e.From == "file:handler/http.go#HandleOrder" {
+					lines = append(lines, e)
+				}
+			}
+			if len(lines) != 1 {
+				t.Fatalf("run %d drew %d lines: %+v", run, len(lines), lines)
+			}
+			if !lines[0].Suppressed {
+				t.Fatalf("run %d: the denial did not reach the line", run)
+			}
+			var note string
+			if lines[0].Claim != nil {
+				note = lines[0].Claim.Note
+			}
+			said = append(said, note)
+
+			// Out to a file and back in, which is the documented way of
+			// working: render to json, then render the json with the overlay
+			// beside it.
+			raw, err := json.Marshal(g)
+			if err != nil {
+				t.Fatalf("run %d: Marshal: %v", run, err)
+			}
+			g = &core.Graph{}
+			if err := json.Unmarshal(raw, g); err != nil {
+				t.Fatalf("run %d: Unmarshal: %v", run, err)
 			}
 		}
-		if len(lines) != 1 {
-			t.Fatalf("run %d drew %d lines: %+v", run, len(lines), lines)
-		}
-		if lines[0].Claim == nil {
-			t.Fatalf("run %d: the denial left no claim", run)
-		}
-		said = append(said, lines[0].Claim.Note)
-
-		// Out to a file and back in, which is the documented way of working.
-		raw, err := json.Marshal(g)
-		if err != nil {
-			t.Fatalf("run %d: Marshal: %v", run, err)
-		}
-		g = &core.Graph{}
-		if err := json.Unmarshal(raw, g); err != nil {
-			t.Fatalf("run %d: Unmarshal: %v", run, err)
-		}
+		return said
 	}
 
-	if said[0] == "" {
-		t.Fatalf("the first run said nothing, so the test is not asking what it means to")
-	}
-	for run, note := range said {
-		if note != said[0] {
-			t.Errorf("run %d says %q where the first said %q", run+1, note, said[0])
+	t.Run("a line nothing drew keeps the sentence", func(t *testing.T) {
+		said := notes(t, nil)
+		if said[0] == "" {
+			t.Fatalf("the first run said nothing, so the test is not asking what it means to")
 		}
-	}
+		for run, note := range said {
+			if note != said[0] {
+				t.Errorf("run %d says %q where the first said %q", run+1, note, said[0])
+			}
+		}
+	})
+
+	// A parser found this one. It is denied, and being denied is all the next
+	// run can see about it — but "no such edge was found" is false, and it is
+	// the sentence a reader is shown when they hover the line.
+	t.Run("a line the parser drew never gains it", func(t *testing.T) {
+		for run, note := range notes(t, []core.Edge{{
+			From: "file:handler/http.go#HandleOrder", To: "api/checkout/get/orders/{id}",
+			Kind: core.EdgeIACRef, Relation: "serves",
+			Claim: &core.Claim{Origin: core.OriginParser, Note: "mux.HandleFunc"},
+		}}) {
+			if strings.Contains(note, "no such edge was found") {
+				t.Errorf("run %d tells the parser's line that nothing drew it: %q", run+1, note)
+			}
+		}
+	})
 }

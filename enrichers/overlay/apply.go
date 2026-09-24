@@ -770,7 +770,26 @@ type edgeAssertionHistory struct {
 	index            int
 	existedInitially bool
 
+	// drawn says the input had this line as something other than a denial's
+	// own invention. See phantom: by the second run a denied parser line and
+	// an invented one are both suppressed and both carry the denier's claim,
+	// and without this the second run tells the parser's line that nothing
+	// drew it.
+	drawn bool
+
 	assertions []trackedEdgeAssertion
+}
+
+// phantom reports whether an input line is one a denial invented rather than
+// one anything drew.
+//
+// The graph a run writes out is the next run's input, and the sentence a
+// denial writes when there was nothing to deny is the only thing in the file
+// that separates the two cases. It is put there by exactly this rule and
+// taken off by it, so a run reading its own output reaches the same answer as
+// the run that wrote it.
+func phantom(edge *core.Edge) bool {
+	return edge.Suppressed && edge.Claim != nil && edge.Claim.Note == deniedNote
 }
 
 type edgeAssertionTracker struct {
@@ -801,6 +820,9 @@ func newEdgeAssertionTracker(g *core.Graph) *edgeAssertionTracker {
 		if history == nil {
 			history = &edgeAssertionHistory{index: i, existedInitially: true}
 			tracker.byKey[key] = history
+		}
+		if !phantom(edge) {
+			history.drawn = true
 		}
 		history.add(trackedEdgeAssertion{
 			suppressed: edge.Suppressed,
@@ -921,7 +943,12 @@ func onlyDenied(history *edgeAssertionHistory) bool {
 	// anything at all say this line is there. The seeded history of an input
 	// edge carries its own suppressed flag, so a line somebody drew and did
 	// not deny answers no by the loop below.
-	if len(history.assertions) == 0 {
+	//
+	// What the input said is asked separately, because a suppression is not
+	// undone when it is written out: a parser line this run's denial reaches
+	// comes back suppressed, and its seeded history then says nothing but
+	// denial has ever been said about it. The line was drawn all the same.
+	if history.drawn || len(history.assertions) == 0 {
 		return false
 	}
 	for _, a := range history.assertions {
