@@ -566,6 +566,24 @@ func TestAnAssertionWithNoRelationSignsWhatNobodyElseHas(t *testing.T) {
 		}
 	})
 
+	// A claim with no origin. core reads a missing one as the parser — it is
+	// what claimOrParser does — and this package is handed graphs it did not
+	// validate, so the rule has to fall that way on its own rather than on an
+	// invariant somebody else checks.
+	t.Run("a claim whose origin nobody wrote", func(t *testing.T) {
+		got := signed(t, core.Edge{
+			From: "file:handler/http.go#HandleOrder", To: "api/checkout/get/orders/{id}",
+			Kind: core.EdgeIACRef, Relation: "serves",
+			Claim: &core.Claim{Note: "the router says so"},
+		})
+		if len(got) != 1 {
+			t.Fatalf("%d lines where the graph had one: %+v", len(got), got)
+		}
+		if got[0].Claim == nil || got[0].Claim.Author != "auditor" {
+			t.Errorf("the line carries %+v", got[0].Claim)
+		}
+	})
+
 	// And a serves line a reader wrote rather than an author is a reading like
 	// any other. The router parser this is waiting on will draw them.
 	t.Run("a serves line a parser drew", func(t *testing.T) {

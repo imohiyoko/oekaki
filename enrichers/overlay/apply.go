@@ -854,7 +854,16 @@ var assertedRelations = map[string]bool{relServes: true}
 // as of the word, because the parser that comes to read routers will write
 // serves lines of its own, and a reading is a reading whatever it is about.
 func theirs(edge *core.Edge) bool {
-	if edge.Claim == nil || edge.Claim.Origin == core.OriginParser {
+	// Said positively — a signature is a person or a model — rather than as
+	// "not the parser". This package does not validate the graph it is handed
+	// and an origin's zero value is a missing one, which core reads as the
+	// parser everywhere else (claimOrParser, just below). Spelling the rule
+	// the other way round made an unsigned line look signed and drew a second
+	// one beside it.
+	if edge.Claim == nil {
+		return false
+	}
+	if edge.Claim.Origin != core.OriginHuman && edge.Claim.Origin != core.OriginAI {
 		return false
 	}
 	return assertedRelations[strings.ToLower(edge.Relation)]
