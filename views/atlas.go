@@ -108,7 +108,8 @@ const (
 // never chosen. Both questions are asked here — CodeOf chooses, joins draws —
 // and the next relation to land on a map (a router registration, a gRPC
 // service) is a row rather than an edit in two places that have to agree.
-var codeLines = []struct {
+// codeLineRow is one kind of line a code map draws.
+type codeLineRow struct {
 	relation string
 	from, to string
 
@@ -116,7 +117,9 @@ var codeLines = []struct {
 	// is not: an operation belongs to the document that declared it, and the
 	// map draws it as what a line runs to rather than as one of its own boxes.
 	ours bool
-}{
+}
+
+var codeLines = []codeLineRow{
 	{relation: relImports, from: codeFile, to: codePackage, ours: true},
 	{relation: relCalls, from: codeFunction, to: codeFunction, ours: true},
 	{relation: relServes, from: codeFunction, to: apiOperation},
@@ -124,7 +127,9 @@ var codeLines = []struct {
 
 // farType is the kinds of box a code line may reach outside the repository it
 // is drawn for, derived from the table so the two cannot drift.
-var farType = func() map[string]bool {
+var farType = farTypes()
+
+func farTypes() map[string]bool {
 	out := map[string]bool{}
 	for _, l := range codeLines {
 		if !l.ours {
@@ -132,7 +137,7 @@ var farType = func() map[string]bool {
 		}
 	}
 	return out
-}()
+}
 
 // codeLine is the row a relation is drawn by, if it is drawn at all. Folded,
 // because a graph is a document and somebody else may have written it.
@@ -1124,7 +1129,12 @@ func (b *builder) codemapPage(id string, open Opening) error {
 	// it never brings a box with it, because a box on the page because of a
 	// line somebody denied is the page arguing with itself.
 	for _, e := range lines {
-		if !strings.EqualFold(e.Relation, relServes) || e.Suppressed || !present[e.From] || present[e.To] {
+		// Which end is the far one is the table's to say, not this loop's. A
+		// second line that crosses — a gRPC service, a router's registration —
+		// would otherwise be chosen by CodeOf and drawn by joins and have no
+		// box at this end, and the page would drop it for want of one.
+		i, ok := codeLine(e.Relation)
+		if !ok || codeLines[i].ours || e.Suppressed || !present[e.From] || present[e.To] {
 			continue
 		}
 		n, ok := b.node(e.To)

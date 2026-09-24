@@ -281,6 +281,18 @@ Claims are written by enrichers, from overlay documents. See
 separately: this schema freezes at 1.0 and the overlay vocabulary has to keep
 growing past that.
 
+That vocabulary is still 0.1, and it has narrowed once: `kind` is required on
+`edge` and `edge.suppress`, where it used to default to `observed` — which
+meant a denial written without one landed on an observed line nothing drew
+rather than on the line its author meant. The number did not move with it,
+which is the opposite of the rule above and is a decision rather than an
+oversight. Keeping the old contract alive for documents that declare 0.1 would
+keep every one of them in the trap the change exists to close, so the two
+contracts cannot both be honoured whatever the number says; and bumping it
+instead would reject every overlay in existence, including the ones that were
+always right, to spare the ones that were not a message naming the property
+they are missing. It moves at 1.0, with the rest of the freeze.
+
 ## Coverage
 
 A node may carry what is known about its log collection:
