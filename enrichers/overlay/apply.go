@@ -859,7 +859,18 @@ func (tracker *edgeAssertionTracker) matching(g *core.Graph, from, to string, ki
 // onlyDenied reports whether a line is here for no reason but denial: nothing
 // drew it, and every assertion about it so far says it is not there.
 func onlyDenied(history *edgeAssertionHistory) bool {
-	if history.existedInitially || len(history.assertions) == 0 {
+	// Whether the line was in the input graph is not the question. A denial
+	// applied by an earlier run writes its phantom out, and reading that file
+	// back is the documented way of working — render to json, then render the
+	// json with the overlay beside it. Asking for a line this run invented
+	// meant the claim made a second, undenied one the moment the denial
+	// arrived from the file rather than from the document.
+	//
+	// What is asked instead is the same thing the one-run case asks: does
+	// anything at all say this line is there. The seeded history of an input
+	// edge carries its own suppressed flag, so a line somebody drew and did
+	// not deny answers no by the loop below.
+	if len(history.assertions) == 0 {
 		return false
 	}
 	for _, a := range history.assertions {
