@@ -769,11 +769,38 @@ type trackedEdgeAssertion struct {
 type edgeAssertionHistory struct {
 	index            int
 	existedInitially bool
-	assertions       []trackedEdgeAssertion
+
+	// theirs says this line's meaning is somebody's sentence rather than a
+	// reading nobody signed: it carries a relation and a claim. A positive
+	// assertion that named no relation may put an author on a line a parser
+	// drew — that is what "a connection exists that no parser found" has
+	// always also been used for, and the parser signed nothing — but it must
+	// not land on a serves claim, whose author and meaning it would replace.
+	//
+	// Read from the graph rather than from what happened in this run, because
+	// the run may be the second one: a claim written out and read back in is
+	// a relation with a claim on it either way.
+	theirs     bool
+	assertions []trackedEdgeAssertion
 }
 
 type edgeAssertionTracker struct {
 	byKey map[string]*edgeAssertionHistory
+
+	// denials are the suppressions that named no relation, kept so they can
+	// be asked again once every document has been read. See settleDenials.
+	denials []deniedPair
+
+	// settling stops that second pass recording its own work as new denials.
+	settling bool
+}
+
+// deniedPair is one "the connection between these two is not real", which is
+// about the pair rather than about whichever lines existed when it was read.
+type deniedPair struct {
+	from, to string
+	kind     core.EdgeKind
+	claim    core.Claim
 }
 
 func newEdgeAssertionTracker(g *core.Graph) *edgeAssertionTracker {
@@ -783,7 +810,11 @@ func newEdgeAssertionTracker(g *core.Graph) *edgeAssertionTracker {
 		key := core.EdgeKey(edge.From, edge.To, edge.Kind, edge.Relation)
 		history := tracker.byKey[key]
 		if history == nil {
-			history = &edgeAssertionHistory{index: i, existedInitially: true}
+			history = &edgeAssertionHistory{
+				index:            i,
+				existedInitially: true,
+				theirs:           edge.Relation != "" && edge.Claim != nil,
+			}
 			tracker.byKey[key] = history
 		}
 		history.add(trackedEdgeAssertion{
@@ -822,7 +853,7 @@ func newEdgeAssertionTracker(g *core.Graph) *edgeAssertionTracker {
 // phantom and the claim is drawn undenied.
 func (tracker *edgeAssertionTracker) matching(g *core.Graph, from, to string, kind core.EdgeKind, relation string, suppressed bool) []*edgeAssertionHistory {
 	var found []*edgeAssertionHistory
-	var adoptable *edgeAssertionHistory
+	var unsigned, adoptable *edgeAssertionHistory
 	for i := range g.Edges {
 		edge := &g.Edges[i]
 		if edge.From != from || edge.To != to || edge.Kind != kind {
@@ -843,14 +874,23 @@ func (tracker *edgeAssertionTracker) matching(g *core.Graph, from, to string, ki
 		// arrow there, with the denial reaching only one of them.
 		case strings.EqualFold(edge.Relation, relation):
 			return []*edgeAssertionHistory{history}
+		// A line somebody drew and nobody signed. An assertion that named no
+		// relation is not saying what the line means, so putting its author
+		// on the parser's line is what it has always done — and making a
+		// second, unlabelled line beside it instead loses the provenance and
+		// draws the same fact twice.
+		case relation == "" && !history.theirs && unsigned == nil:
+			unsigned = history
 		case relation != "" && edge.Relation == "" && adoptable == nil && onlyDenied(history):
 			adoptable = history
 		}
 	}
-	if len(found) > 0 {
+	switch {
+	case len(found) > 0:
 		return found
-	}
-	if adoptable != nil {
+	case unsigned != nil:
+		return []*edgeAssertionHistory{unsigned}
+	case adoptable != nil:
 		return []*edgeAssertionHistory{adoptable}
 	}
 	return nil
@@ -895,6 +935,7 @@ func (tracker *edgeAssertionTracker) name(g *core.Graph, history *edgeAssertionH
 	if relation == "" || edge.Relation != "" {
 		return
 	}
+	history.theirs = true
 	was := core.EdgeKey(edge.From, edge.To, edge.Kind, edge.Relation)
 	now := core.EdgeKey(edge.From, edge.To, edge.Kind, relation)
 
@@ -911,7 +952,7 @@ func (tracker *edgeAssertionTracker) name(g *core.Graph, history *edgeAssertionH
 
 func (tracker *edgeAssertionTracker) create(g *core.Graph, from, to string, kind core.EdgeKind, relation string) *edgeAssertionHistory {
 	g.Edges = append(g.Edges, core.Edge{From: from, To: to, Kind: kind, Relation: relation})
-	history := &edgeAssertionHistory{index: len(g.Edges) - 1}
+	history := &edgeAssertionHistory{index: len(g.Edges) - 1, theirs: relation != ""}
 	tracker.byKey[core.EdgeKey(from, to, kind, relation)] = history
 	return history
 }
@@ -949,6 +990,9 @@ func trackedEdgeAssertionPreferred(candidate, current trackedEdgeAssertion) bool
 }
 
 func (tracker *edgeAssertionTracker) apply(g *core.Graph, from, to string, kind core.EdgeKind, relation string, suppressed bool, claim core.Claim) {
+	if suppressed && relation == "" && !tracker.settling {
+		tracker.denials = append(tracker.denials, deniedPair{from: from, to: to, kind: kind, claim: claim})
+	}
 	histories := tracker.matching(g, from, to, kind, relation, suppressed)
 	if len(histories) == 0 {
 		histories = []*edgeAssertionHistory{tracker.create(g, from, to, kind, relation)}
@@ -1000,6 +1044,26 @@ const deniedNote = "asserted not to exist; no such edge was found"
 // note in the conflict — where the reader is shown what each side said — and
 // left it off the edge only by the accident of which claim ranked highest.
 func (tracker *edgeAssertionTracker) settleDenials(g *core.Graph) {
+	// First the denials themselves, against the lines that were not there
+	// when they were read.
+	//
+	// A denial names two boxes and a kind and says the connection is not
+	// real. Which lines carry that connection is not settled until every
+	// sentence has been read: a claim written after the denial makes one, and
+	// asking only what existed at the time left it drawn undenied — so the
+	// same three sentences meant three different pictures depending on the
+	// order somebody happened to type them in.
+	//
+	// In the order they were written, each against the edges in index order,
+	// so the second pass is as reproducible as the first. Applying one twice
+	// to the same line is a no-op: a history keeps one entry per distinct
+	// claim.
+	tracker.settling = true
+	for _, denial := range tracker.denials {
+		tracker.apply(g, denial.from, denial.to, denial.kind, "", true, denial.claim)
+	}
+	tracker.settling = false
+
 	for _, history := range tracker.byKey {
 		if history.index >= len(g.Edges) {
 			continue

@@ -415,11 +415,13 @@ func runRender(ctx context.Context, env Env, args []string) error {
 	if err := applyOverlays(env, g, f.overlay); err != nil {
 		return err
 	}
-	// Only when this run draws a box that can be opened. The mapping still
-	// joins the workload to its repository in every format; what it also says
-	// — that the box opens onto this input's code — is drawn by an atlas and
-	// by nothing else, so refusing a single drawing over a denied code graph
-	// left the SVG unwritten for a page that was never going to show it.
+	// Every interactive page, whether or not it draws an atlas. The mapping
+	// still joins the workload to its repository in every format; what it
+	// also says — that the box opens onto this input's code — is shown by the
+	// interactive page and by nothing else, so refusing an SVG over a denied
+	// code graph left it unwritten for a drawing that was never going to show
+	// it. Gating this on --atlas as well left a plain `-f html` run checked
+	// nowhere at all.
 	//
 	// Of the estate, before the view. A drawing is not carried anywhere, so
 	// what it is asked is whether the mapping is good — and `--view
@@ -431,7 +433,7 @@ func runRender(ctx context.Context, env Env, args []string) error {
 	//
 	// A run that writes the graph itself asks further down instead, of the
 	// graph it is about to write.
-	if f.atlas && format == "html" {
+	if format == "html" {
 		if err := checkCodeMaps(g, placed); err != nil {
 			return err
 		}

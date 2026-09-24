@@ -847,6 +847,15 @@ func TestAViewDoesNotTurnAGoodMappingIntoAnError(t *testing.T) {
 		}
 	}
 
+	// A plain page, with no atlas, is asked the same question: it is the
+	// drawing the mapping is about, and gating the check on --atlas left it
+	// asked nowhere.
+	if r := run(t, "", "render", file, "-f", "html",
+		"-o", filepath.Join(t.TempDir(), "estate.html"),
+		"--builds", buildsFile(t, buildRecord), "--build-repo", "acme/checkout=repo-2-svc"); r.code != 0 {
+		t.Errorf("a page without --atlas refused a good mapping:\n%s", r.stderr)
+	}
+
 	// A page told to write its graph beside it is writing a document somebody
 	// else will read, and that document really does record a mapping it has
 	// no code for. That one is still refused — the two halves are different
