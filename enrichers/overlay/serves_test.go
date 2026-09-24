@@ -1,6 +1,7 @@
 package overlay
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -486,55 +487,82 @@ func TestTwoSentencesAboutOneLineSettleTheSameWayEitherOrder(t *testing.T) {
 	})
 }
 
-// A positive assertion with no relation makes its own line rather than taking
-// over one that means something.
+// A positive assertion that named no relation reaches a line somebody drew
+// and nobody signed, and puts its author on it. It does not reach one that
+// carries a relation *and* a claim: that is somebody's sentence, and a second
+// author's name on it replaces both the name and the meaning.
 //
-// The rule used to be "a line a parser drew may be claimed, a line an
-// assertion made may not", which reads well and does not survive the graph
-// being written out and read back in: on the second run every line was in the
-// input, and a plain edge assertion would take the serves claim's name off it.
-// An overlay has to mean the same thing against the plan and against the graph
-// the last run wrote.
-func TestAnAssertionWithNoRelationDoesNotClaimALineThatMeansSomething(t *testing.T) {
-	g := serving()
-	g.Edges = append(g.Edges, core.Edge{
-		From: "file:handler/http.go", To: "file:handler/http.go#HandleOrder",
-		Kind: core.EdgeIACRef, Relation: "contains",
+// The rule has been wrong twice in this branch. First it was "a line a parser
+// drew may be claimed, a line an assertion made may not", which does not
+// survive the graph being written out and read back — on the second run every
+// line was in the input. Then it was "only a line with no relation", which
+// protected claims by making a second, unlabelled line beside every parser
+// line an overlay signs, losing the parser line's provenance and drawing the
+// same fact twice. What tells the two apart in the file itself, on any run, is
+// whether anybody signed it.
+func TestAnAssertionWithNoRelationSignsWhatNobodyElseHas(t *testing.T) {
+	signed := func(t *testing.T, line core.Edge) []core.Edge {
+		t.Helper()
+		g := serving()
+		g.Edges = append(g.Edges, line)
+		g.Normalize()
+
+		d, err := Parse([]byte(doc(`
+		  {"assert":"edge","from":{"node":"`+line.From+`"},
+		   "to":{"node":"`+line.To+`"},"kind":"iac_ref","author":"auditor"}`)), "test.json")
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if _, err := New([]*Document{d}, Options{}).Enrich(g); err != nil {
+			t.Fatalf("Enrich: %v", err)
+		}
+		var out []core.Edge
+		for _, e := range g.Edges {
+			if e.From == line.From && e.To == line.To {
+				out = append(out, e)
+			}
+		}
+		return out
+	}
+
+	t.Run("a parser's line, which nobody signed", func(t *testing.T) {
+		got := signed(t, core.Edge{
+			From: "file:handler/http.go", To: "file:handler/http.go#HandleOrder",
+			Kind: core.EdgeIACRef, Relation: "contains",
+		})
+		if len(got) != 1 {
+			t.Fatalf("%d lines where the parser drew one: %+v", len(got), got)
+		}
+		if got[0].Relation != "contains" {
+			t.Errorf("the line was renamed %q", got[0].Relation)
+		}
+		if got[0].Claim == nil || got[0].Claim.Author != "auditor" {
+			t.Errorf("the line carries %+v", got[0].Claim)
+		}
 	})
-	g.Normalize()
 
-	d, err := Parse([]byte(doc(`
-	  {"assert":"edge","from":{"node":"file:handler/http.go"},
-	   "to":{"node":"file:handler/http.go#HandleOrder"},"kind":"iac_ref",
-	   "author":"auditor"}`)), "test.json")
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
-	if _, err := New([]*Document{d}, Options{}).Enrich(g); err != nil {
-		t.Fatalf("Enrich: %v", err)
-	}
-
-	var theirs, contains int
-	for _, e := range g.Edges {
-		if e.From != "file:handler/http.go" || e.To != "file:handler/http.go#HandleOrder" {
-			continue
+	t.Run("a claim somebody signed", func(t *testing.T) {
+		got := signed(t, core.Edge{
+			From: "file:handler/http.go#HandleOrder", To: "api/checkout/get/orders/{id}",
+			Kind: core.EdgeIACRef, Relation: "serves",
+			Claim: &core.Claim{Origin: core.OriginHuman, Author: "operator", Note: "the router says so"},
+		})
+		if len(got) != 2 {
+			t.Fatalf("%d lines: the assertion landed on somebody else's sentence: %+v", len(got), got)
 		}
-		switch e.Relation {
-		case "contains":
-			contains++
-			if e.Claim != nil {
-				t.Errorf("the parser's line was claimed: %+v", e.Claim)
-			}
-		case "":
-			theirs++
-			if e.Claim == nil || e.Claim.Author != "auditor" {
-				t.Errorf("their line carries %+v", e.Claim)
+		for _, e := range got {
+			switch e.Relation {
+			case "serves":
+				if e.Claim == nil || e.Claim.Author != "operator" {
+					t.Errorf("the claim now carries %+v", e.Claim)
+				}
+			case "":
+				if e.Claim == nil || e.Claim.Author != "auditor" {
+					t.Errorf("their own line carries %+v", e.Claim)
+				}
 			}
 		}
-	}
-	if contains != 1 || theirs != 1 {
-		t.Fatalf("%d contains lines and %d asserted lines", contains, theirs)
-	}
+	})
 }
 
 // A denial that names no relation is about every line between those two ends,
@@ -743,5 +771,57 @@ func TestAClaimDoesNotAdoptALineTheGraphDraws(t *testing.T) {
 	}
 	if theirs != 1 || mine != 1 {
 		t.Fatalf("%d unnamed lines and %d serves lines", theirs, mine)
+	}
+}
+
+// Three sentences about one pair, in every order, mean one thing.
+//
+// Two of them are not about a line that exists when they are read: a denial
+// names a pair, and the claim that makes the line may be written after it.
+// Settling the denials once every document has been read is what makes the
+// six orders agree; asking only what existed at the time gave three different
+// pictures, one of which drew a claim its author had denied.
+func TestThreeSentencesAboutOnePairMeanOneThingInEveryOrder(t *testing.T) {
+	said := map[string]string{
+		"asserted": `{"assert":"edge","from":{"node":"file:handler/http.go#HandleOrder"},
+		  "to":{"node":"api/checkout/get/orders/{id}"},"kind":"iac_ref","author":"auditor"}`,
+		"denied": `{"assert":"edge.suppress","from":{"node":"file:handler/http.go#HandleOrder"},
+		  "to":{"node":"api/checkout/get/orders/{id}"},"kind":"iac_ref","author":"security"}`,
+		"served": `{"assert":"serves","subject":{"node":"file:handler/http.go#HandleOrder"},
+		  "operation":{"node":"api/checkout/get/orders/{id}"}}`,
+	}
+	orders := [][]string{
+		{"asserted", "denied", "served"}, {"asserted", "served", "denied"},
+		{"denied", "asserted", "served"}, {"denied", "served", "asserted"},
+		{"served", "asserted", "denied"}, {"served", "denied", "asserted"},
+	}
+
+	seen := map[string][]string{}
+	for _, order := range orders {
+		g, _ := serve(t, doc(said[order[0]]+","+said[order[1]]+","+said[order[2]]), Options{})
+		var drawn []string
+		for _, e := range g.Edges {
+			if e.From == "file:handler/http.go#HandleOrder" {
+				drawn = append(drawn, fmt.Sprintf("%s suppressed=%v", e.Relation, e.Suppressed))
+			}
+		}
+		key := strings.Join(drawn, ", ")
+		seen[key] = append(seen[key], strings.Join(order, "→"))
+	}
+	if len(seen) != 1 {
+		for outcome, orders := range seen {
+			t.Logf("%-42s from %v", outcome, orders)
+		}
+		t.Fatalf("one set of sentences, %d pictures", len(seen))
+	}
+	for outcome := range seen {
+		// Both lines denied: the author said the connection is not there, and
+		// said nothing about which of the two lines carries it.
+		if !strings.Contains(outcome, "serves suppressed=true") {
+			t.Errorf("the claim is drawn undenied: %s", outcome)
+		}
+		if strings.Contains(outcome, " suppressed=false") {
+			t.Errorf("a line the denial is about is still drawn: %s", outcome)
+		}
 	}
 }

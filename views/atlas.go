@@ -983,15 +983,17 @@ func CodeOf(g *core.Graph, scope string) []string {
 	return out
 }
 
-// codemap builds one repository's code as a map: what calls what, and what it
-// imports.
+// codemap builds one repository's code as a map: what calls what, what it
+// imports, and which of its functions somebody said answer an API operation.
 //
-// What is drawn is what the parser recorded and nothing beside it. A function
-// nothing in the tree calls is where a request can come in, the calls are what
-// happens next, and an imported package is a way out — but no line is drawn
-// between those readings and the estate around the box. Which function serves
-// which API operation, and which import carries which outbound call, is
-// written down nowhere; see docs/code.md for what the reading refuses.
+// What is drawn is what the parser recorded, plus what somebody signed for. A
+// function nothing in the tree calls is where a request can come in, the calls
+// are what happens next, and an imported package is a way out. One line
+// crosses to the estate around the box: an operation appears beside the
+// function a serves claim says answers it, because neither reader can make
+// that join on its own and somebody wrote it down — see docs/api.md. Which
+// import carries which outbound call is still written down by nothing; see
+// docs/code.md for what the reading refuses.
 func (b *builder) codemap(id string, open Opening) error {
 	if err := b.codemapPage(id, open); err != nil {
 		return err
