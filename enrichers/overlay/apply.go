@@ -1078,19 +1078,53 @@ func (tracker *edgeAssertionTracker) settleDenials(g *core.Graph) {
 		if history.index >= len(g.Edges) {
 			continue
 		}
-		var asserted bool
+		// Whether the sentence is true of the finished run. It goes on at add
+		// time, where the only thing knowable is what was in the input, so
+		// both directions are settled here: taken off a line a claim turned
+		// out to have made, and put on one that is here for no reason but the
+		// denial — which is what a phantom an earlier run wrote out is, and
+		// it arrives as an ordinary edge with nothing to say for itself.
+		onlyDenial := onlyDenied(history)
+
+		var moved bool
+		kept := history.assertions[:0]
 		for _, a := range history.assertions {
-			if !a.suppressed {
-				asserted = true
+			if a.suppressed {
+				switch {
+				case onlyDenial && a.claim.Note == "":
+					a.claim.Note = deniedNote
+					moved = true
+				case !onlyDenial && a.claim.Note == deniedNote:
+					a.claim.Note = ""
+					moved = true
+				}
+			}
+			// Two sentences that differed only in the part just changed are
+			// one sentence now.
+			var seen bool
+			for _, other := range kept {
+				if other.suppressed == a.suppressed && other.explicit == a.explicit && claimsEqual(other.claim, a.claim) {
+					seen = true
+				}
+			}
+			if !seen {
+				kept = append(kept, a)
 			}
 		}
-		if !asserted {
-			continue
-		}
+		history.assertions = kept
+
 		edge := &g.Edges[history.index]
-		if edge.Claim != nil && edge.Claim.Note == deniedNote {
-			edge.Claim = cloneClaim(edge.Claim)
-			edge.Claim.Note = ""
+		if moved {
+			winner := history.winner()
+			edge.Suppressed = winner.suppressed
+			if winner.explicit {
+				edge.Claim = cloneClaim(&winner.claim)
+			} else {
+				edge.Claim = nil
+			}
+		}
+		if onlyDenial {
+			continue
 		}
 		// And where the disagreement is written down. A line with a denial and
 		// a claim on it records both, and the reader is shown the sentence

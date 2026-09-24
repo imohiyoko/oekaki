@@ -124,10 +124,12 @@ says nothing about it, and it reaches the claim whichever of the two was
 written first, and it reaches every line between those two ends rather than
 whichever sorts first. `kind` is required on both edge assertions: it used to
 default to `observed`, which meant a denial written without one landed on an
-observed line nobody drew rather than on the claim it was about. A denied claim never puts the operation on a code map — a box
-there because of a line somebody denied would be the page arguing with
-itself — so the line is drawn, faintly, only where the operation is on the page
-for a claim nobody denied.
+observed line nobody drew rather than on the claim it was about.
+
+A denied claim never puts the operation on a code map — a box there because of
+a line somebody denied would be the page arguing with itself — so the line is
+drawn, faintly, only where the operation is on the page for a claim nobody
+denied.
 
 What it is for is the descent. A reader who arrived from a running container,
 went behind it to the repository and is looking at its code map can now see

@@ -1,6 +1,7 @@
 package overlay
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -862,6 +863,68 @@ func TestThreeSentencesAboutOnePairMeanOneThingInEveryOrder(t *testing.T) {
 		}
 		if strings.Contains(outcome, " suppressed=false") {
 			t.Errorf("a line the denial is about is still drawn: %s", outcome)
+		}
+	}
+}
+
+// The sentence a denial writes when there was nothing to deny survives the
+// graph being written out and read back.
+//
+// An earlier run's phantom comes back as an ordinary edge, so asking only
+// whether the line was in the input put the note on in the first run and took
+// it off in the second: the same two files said something different about the
+// same estate the second time somebody ran them. The note goes on at add time,
+// where what was in the input is the only thing knowable, and both directions
+// are settled once every document has been read.
+func TestTheDenialsOwnSentenceSurvivesBeingReadBack(t *testing.T) {
+	body := doc(`{"assert":"edge.suppress","from":{"node":"file:handler/http.go#HandleOrder"},
+	   "to":{"node":"api/checkout/get/orders/{id}"},"kind":"iac_ref"}`)
+
+	g := serving()
+	var said []string
+	for run := 1; run <= 3; run++ {
+		d, err := Parse([]byte(body), "test.json")
+		if err != nil {
+			t.Fatalf("run %d: Parse: %v", run, err)
+		}
+		if _, err := New([]*Document{d}, Options{}).Enrich(g); err != nil {
+			t.Fatalf("run %d: Enrich: %v", run, err)
+		}
+		if err := g.Validate(); err != nil {
+			t.Fatalf("run %d: the enriched graph does not validate: %v", run, err)
+		}
+
+		var lines []core.Edge
+		for _, e := range g.Edges {
+			if e.From == "file:handler/http.go#HandleOrder" {
+				lines = append(lines, e)
+			}
+		}
+		if len(lines) != 1 {
+			t.Fatalf("run %d drew %d lines: %+v", run, len(lines), lines)
+		}
+		if lines[0].Claim == nil {
+			t.Fatalf("run %d: the denial left no claim", run)
+		}
+		said = append(said, lines[0].Claim.Note)
+
+		// Out to a file and back in, which is the documented way of working.
+		raw, err := json.Marshal(g)
+		if err != nil {
+			t.Fatalf("run %d: Marshal: %v", run, err)
+		}
+		g = &core.Graph{}
+		if err := json.Unmarshal(raw, g); err != nil {
+			t.Fatalf("run %d: Unmarshal: %v", run, err)
+		}
+	}
+
+	if said[0] == "" {
+		t.Fatalf("the first run said nothing, so the test is not asking what it means to")
+	}
+	for run, note := range said {
+		if note != said[0] {
+			t.Errorf("run %d says %q where the first said %q", run+1, note, said[0])
 		}
 	}
 }
