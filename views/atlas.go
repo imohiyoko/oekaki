@@ -499,26 +499,20 @@ func (b *builder) liftCode() error {
 		if b.out[i].Kind != KindCodemap {
 			continue
 		}
-		mine := map[string]bool{}
 		for _, n := range b.out[i].Graph.Nodes {
 			elsewhere[n.ID] = true
-			if isCode(n.Type) {
-				mine[n.ID] = true
-			}
 		}
 		// And the pages the map opens: what a mapped file declares is drawn
-		// there rather than on the map, and the map is the door to it.
+		// there rather than on the map, and the map is the door to it. Every
+		// one of those doors is a member's — the map gives an operation none —
+		// so the walk below is over this repository's own pages.
 		//
-		// The pages of its own boxes, and on them, everything that is not
-		// somebody else's code.
-		//
-		// Both halves are load-bearing. A page reached from here shows its
-		// subject's neighbours, and a neighbour can be anybody's: an
-		// operation's page draws every function said to serve it, and a
-		// function's page draws what calls it across a repository boundary.
-		// Lifting one of those is this pass inverted — a box taken off the
-		// front page on the strength of a map it is not on, and which will
-		// never be built for it because nobody placed its repository.
+		// On them, everything that is not somebody else's code. A page reached
+		// from here shows its subject's neighbours, and a neighbour can be
+		// anybody's: a function's page draws what calls it across a repository
+		// boundary. Lifting one of those is this pass inverted — a box taken
+		// off the front page on the strength of a map it is not on, and which
+		// will never be built for it because nobody placed its repository.
 		//
 		// Not of *another* input, rather than of this one: a code node with no
 		// input stamped on it is nowhere else to be found, so it belongs
@@ -528,9 +522,6 @@ func (b *builder) liftCode() error {
 		// about.
 		of := b.scopesOf(strings.TrimPrefix(b.out[i].ID, codemapID("")))
 		for _, open := range b.out[i].Opens {
-			if !mine[open.Element] {
-				continue
-			}
 			j, ok := at[open.Diagram]
 			if !ok {
 				continue

@@ -639,3 +639,91 @@ func TestADeniedClaimIsNotToldItWasNeverThere(t *testing.T) {
 		}
 	}
 }
+
+// The documented way of working is two runs: write the graph out, then apply
+// an overlay to the file. A denial the first run applied is in that file as a
+// line nothing drew, and the claim in the second run has to be that same line
+// — otherwise the denial sits on a phantom and the claim is drawn beside it,
+// undenied, which is the picture the author wrote the denial to prevent.
+func TestAClaimAdoptsThePhantomAnEarlierRunWroteOut(t *testing.T) {
+	g := serving()
+	g.Edges = append(g.Edges, core.Edge{
+		From: "file:handler/http.go#HandleOrder", To: "api/checkout/get/orders/{id}",
+		Kind: core.EdgeIACRef, Suppressed: true,
+		Claim: &core.Claim{Origin: core.OriginHuman, Author: "operator",
+			Note: "asserted not to exist; no such edge was found"},
+	})
+	g.Normalize()
+
+	d, err := Parse([]byte(doc(`
+	  {"assert":"edge.suppress","from":{"node":"file:handler/http.go#HandleOrder"},
+	   "to":{"node":"api/checkout/get/orders/{id}"},"kind":"iac_ref"},
+	  {"assert":"serves","subject":{"node":"file:handler/http.go#HandleOrder"},
+	   "operation":{"node":"api/checkout/get/orders/{id}"}}`)), "test.json")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if _, err := New([]*Document{d}, Options{}).Enrich(g); err != nil {
+		t.Fatalf("Enrich: %v", err)
+	}
+	if err := g.Validate(); err != nil {
+		t.Fatalf("the enriched graph does not validate: %v", err)
+	}
+
+	var lines []core.Edge
+	for _, e := range g.Edges {
+		if e.From == "file:handler/http.go#HandleOrder" {
+			lines = append(lines, e)
+		}
+	}
+	if len(lines) != 1 {
+		t.Fatalf("the second run made %d lines where one run makes 1: %+v", len(lines), lines)
+	}
+	if lines[0].Relation != "serves" || !lines[0].Suppressed {
+		t.Errorf("the line is %q, suppressed=%v", lines[0].Relation, lines[0].Suppressed)
+	}
+}
+
+// And it adopts only a phantom. A line the input graph draws without denying
+// it is somebody's, whoever they were, and a claim that renamed it would be
+// putting its meaning on their sentence — the same rule within a run and
+// across two, which is the point of not asking where the line came from.
+func TestAClaimDoesNotAdoptALineTheGraphDraws(t *testing.T) {
+	g := serving()
+	g.Edges = append(g.Edges, core.Edge{
+		From: "file:handler/http.go#HandleOrder", To: "api/checkout/get/orders/{id}",
+		Kind: core.EdgeIACRef,
+		Claim: &core.Claim{Origin: core.OriginHuman, Author: "auditor",
+			Note: "read off a service map"},
+	})
+	g.Normalize()
+
+	d, err := Parse([]byte(doc(`
+	  {"assert":"serves","subject":{"node":"file:handler/http.go#HandleOrder"},
+	   "operation":{"node":"api/checkout/get/orders/{id}"}}`)), "test.json")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if _, err := New([]*Document{d}, Options{}).Enrich(g); err != nil {
+		t.Fatalf("Enrich: %v", err)
+	}
+
+	var theirs, mine int
+	for _, e := range g.Edges {
+		if e.From != "file:handler/http.go#HandleOrder" {
+			continue
+		}
+		switch e.Relation {
+		case "":
+			theirs++
+			if e.Claim == nil || e.Claim.Author != "auditor" {
+				t.Errorf("their line now carries %+v", e.Claim)
+			}
+		case "serves":
+			mine++
+		}
+	}
+	if theirs != 1 || mine != 1 {
+		t.Fatalf("%d unnamed lines and %d serves lines", theirs, mine)
+	}
+}

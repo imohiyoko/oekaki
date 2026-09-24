@@ -833,16 +833,30 @@ func TestAViewDoesNotTurnAGoodMappingIntoAnError(t *testing.T) {
 	g.Normalize()
 
 	file := graphFile(t, g)
-	for _, view := range []string{"", "code-dependency"} {
-		args := []string{"render", file, "--atlas", "-f", "html", "--external-assets",
+	page := func(t *testing.T, extra ...string) result {
+		t.Helper()
+		args := append([]string{"render", file, "--atlas", "-f", "html",
 			"-o", filepath.Join(t.TempDir(), "estate.html"),
-			"--builds", buildsFile(t, buildRecord), "--build-repo", "acme/checkout=repo-2-svc"}
-		if view != "" {
-			args = append(args, "--view", view)
+			"--builds", buildsFile(t, buildRecord), "--build-repo", "acme/checkout=repo-2-svc"}, extra...)
+		return run(t, "", args...)
+	}
+
+	for _, view := range [][]string{nil, {"--view", "code-dependency"}} {
+		if r := page(t, view...); r.code != 0 {
+			t.Errorf("%v refused a mapping the same file accepts without it:\n%s", view, r.stderr)
 		}
-		if r := run(t, "", args...); r.code != 0 {
-			t.Errorf("--view %q refused a mapping the same file accepts without one:\n%s", view, r.stderr)
-		}
+	}
+
+	// A page told to write its graph beside it is writing a document somebody
+	// else will read, and that document really does record a mapping it has
+	// no code for. That one is still refused — the two halves are different
+	// questions about different artefacts.
+	r := page(t, "--external-assets", "--view", "code-dependency")
+	if r.code == 0 {
+		t.Error("a graph was written beside the page recording a mapping it does not support")
+	}
+	if !strings.Contains(r.stderr, "no code map to draw") {
+		t.Errorf("the error does not say why:\n%s", r.stderr)
 	}
 }
 

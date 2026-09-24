@@ -415,21 +415,23 @@ func runRender(ctx context.Context, env Env, args []string) error {
 	if err := applyOverlays(env, g, f.overlay); err != nil {
 		return err
 	}
-	// Only when this run draws a box that can be opened or hands the document
-	// on. The mapping still joins the workload to its repository in every
-	// format; what it also says — that the box opens onto this input's code —
-	// is drawn by an atlas and by nothing else, so refusing a single drawing
-	// over a denied code graph left the SVG unwritten for a page that was
-	// never going to show it.
+	// Only when this run draws a box that can be opened. The mapping still
+	// joins the workload to its repository in every format; what it also says
+	// — that the box opens onto this input's code — is drawn by an atlas and
+	// by nothing else, so refusing a single drawing over a denied code graph
+	// left the SVG unwritten for a page that was never going to show it.
 	//
-	// Once, and of the estate rather than of a view of it. Asking again after
-	// the view meant one run inspecting two graphs, and the second answer was
-	// wrong: `--view code-dependency` keeps the code and drops the operations,
-	// so a repository whose code is reached through a serves claim had no map
-	// in that projection and the whole render failed — on a mapping that is
-	// correct, and that the same command without --view accepts. What a reader
-	// narrows a drawing to is not a verdict on the document they narrowed.
-	if carriesGraph(format) {
+	// Of the estate, before the view. A drawing is not carried anywhere, so
+	// what it is asked is whether the mapping is good — and `--view
+	// code-dependency` keeps the code and drops the operations, so a
+	// repository whose code is reached through a serves claim had no map in
+	// that projection and the whole render failed, on a mapping the same
+	// command without --view accepts. What a reader narrows a drawing to is
+	// not a verdict on the document they narrowed.
+	//
+	// A run that writes the graph itself asks further down instead, of the
+	// graph it is about to write.
+	if f.atlas && format == "html" {
 		if err := checkCodeMaps(g, placed); err != nil {
 			return err
 		}
@@ -462,6 +464,23 @@ func runRender(ctx context.Context, env Env, args []string) error {
 	}
 	if f.overlay.hide {
 		g = hideSuppressed(g)
+	}
+	// A run that hands the graph on rather than a picture of it asks here,
+	// where the graph is the one that will be written. `--view`, `--root` and
+	// `--depth` narrow a document as well as a drawing: a mapping recorded on
+	// a repository whose code the file does not contain is a claim the file
+	// does not support, and the run said it was applied.
+	//
+	// An interactive page carries the document inside it, and that copy is
+	// not asked about here: the page is a drawing, it was asked about the
+	// estate before the view, and asking again made one run inspect two
+	// graphs and reject the narrower one. A page told to write the graph
+	// beside it is writing a document somebody else will read, and that one
+	// is asked.
+	if writesGraph(format, f.externalAssets) {
+		if err := checkCodeMaps(g, placed); err != nil {
+			return err
+		}
 	}
 	// Folding comes after the view and the suppression, because it is about
 	// how much is left to draw. Folding first would spend the budget on boxes
@@ -1479,15 +1498,15 @@ func repositoryScope(path string, index int) string {
 	return fmt.Sprintf("repo-%d-%s", index+1, name)
 }
 
-// carriesGraph reports whether a run writes the document itself rather than a
-// picture of it.
+// writesGraph reports whether a run leaves the document itself on disk for
+// something else to read, rather than only a picture of it.
 //
-// The property rather than a list of formats. An interactive page carries the
-// whole document inside it — that is what makes it interactive — and writes it
-// beside the page instead when asked to; listing the formats that hand a
-// document on had only `-f json` in it, and then only `--external-assets`.
-func carriesGraph(format string) bool {
-	return format == "json" || format == "html"
+// The property rather than a list of formats. `-f json` is one; so is an
+// interactive page told to keep its graph in a file beside it, which is the
+// same bytes under another name. A self-contained page is not: its copy is
+// read by the page, which was asked about the estate before the view.
+func writesGraph(format string, externalAssets bool) bool {
+	return format == "json" || (format == "html" && externalAssets)
 }
 
 // qualifyInputAttrs rewrites what a node says about which input it came from,
