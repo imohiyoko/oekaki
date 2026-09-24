@@ -682,6 +682,24 @@ func TestAClaimAdoptsThePhantomAnEarlierRunWroteOut(t *testing.T) {
 	if lines[0].Relation != "serves" || !lines[0].Suppressed {
 		t.Errorf("the line is %q, suppressed=%v", lines[0].Relation, lines[0].Suppressed)
 	}
+	// And the sentence the denial wrote when there was nothing to deny is
+	// taken back here too. It came in from the file rather than from this
+	// document, and it is as false either way.
+	if lines[0].Claim != nil && strings.Contains(lines[0].Claim.Note, "no such edge was found") {
+		t.Errorf("the line says nothing made it: %q", lines[0].Claim.Note)
+	}
+	var recorded int
+	for _, c := range g.Conflicts {
+		for _, value := range c.Claims {
+			recorded++
+			if strings.Contains(value.Claim.Note, "no such edge was found") {
+				t.Errorf("the disagreement says nothing made the line: %q", value.Claim.Note)
+			}
+		}
+	}
+	if recorded == 0 {
+		t.Error("no conflict was recorded, so this is not asking what it means to")
+	}
 }
 
 // And it adopts only a phantom. A line the input graph draws without denying
