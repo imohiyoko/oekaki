@@ -992,9 +992,16 @@ const deniedNote = "asserted not to exist; no such edge was found"
 // the line. Settled here rather than when the denial was applied, because
 // until every document has been read the answer depends on the order they
 // were written in.
+//
+// Of every line, including the ones the input graph already had. A phantom
+// written out by an earlier run comes back as an ordinary edge carrying that
+// sentence, and the claim that adopts it on the second run makes the sentence
+// false in exactly the way it is false on the first. Skipping those left the
+// note in the conflict — where the reader is shown what each side said — and
+// left it off the edge only by the accident of which claim ranked highest.
 func (tracker *edgeAssertionTracker) settleDenials(g *core.Graph) {
 	for _, history := range tracker.byKey {
-		if history.existedInitially || history.index >= len(g.Edges) {
+		if history.index >= len(g.Edges) {
 			continue
 		}
 		var asserted bool
