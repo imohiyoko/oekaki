@@ -1550,3 +1550,48 @@ func TestAMapOnlyLiftsItsOwnRepositorysCode(t *testing.T) {
 		t.Error("the mapped repository's own code is on the level and on the map both")
 	}
 }
+
+// Which end of a crossing line is the far one is the table's to say. Only one
+// relation crosses today and the placement loop asked for that one by name, so
+// the second the table describes would be chosen by CodeOf and drawn by joins
+// and arrive at a box that was never placed — and the page would drop the line
+// for want of one, leaving a function whose only reason to be there is gone.
+func TestTheSecondLineThatCrossesGetsItsFarEndToo(t *testing.T) {
+	lines, far := codeLines, farType
+	t.Cleanup(func() { codeLines, farType = lines, far })
+	codeLines = append(codeLines[:len(codeLines):len(codeLines)],
+		codeLineRow{relation: "publishes", from: codeFunction, to: "queue"})
+	farType = farTypes()
+
+	g := estateWithCode(t, true)
+	g.Nodes = append(g.Nodes, core.Node{ID: "queue:orders", Type: "queue", Name: "orders"})
+	g.Edges = append(g.Edges, core.Edge{
+		From: "repo-2-svc:file:handler/http.go#Handle", To: "queue:orders",
+		Kind: core.EdgeIACRef, Relation: "publishes",
+	})
+	g.Normalize()
+	if err := g.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := BuildAtlas(g, AtlasOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := pageOf(a, "codemap:acme/checkout")
+	if page == nil {
+		t.Fatal("there is no code map")
+	}
+	if !draws(page, "queue:orders") {
+		t.Errorf("the far end of the second crossing line was never placed: %v", idsOf(page))
+	}
+	var drawn bool
+	for _, e := range page.Graph.Edges {
+		if e.Relation == "publishes" {
+			drawn = true
+		}
+	}
+	if !drawn {
+		t.Error("the line itself was dropped with it")
+	}
+}

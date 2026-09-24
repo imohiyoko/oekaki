@@ -770,17 +770,6 @@ type edgeAssertionHistory struct {
 	index            int
 	existedInitially bool
 
-	// theirs says this line's meaning is somebody's sentence rather than a
-	// reading nobody signed: it carries a relation and a claim. A positive
-	// assertion that named no relation may put an author on a line a parser
-	// drew — that is what "a connection exists that no parser found" has
-	// always also been used for, and the parser signed nothing — but it must
-	// not land on a serves claim, whose author and meaning it would replace.
-	//
-	// Read from the graph rather than from what happened in this run, because
-	// the run may be the second one: a claim written out and read back in is
-	// a relation with a claim on it either way.
-	theirs     bool
 	assertions []trackedEdgeAssertion
 }
 
@@ -810,11 +799,7 @@ func newEdgeAssertionTracker(g *core.Graph) *edgeAssertionTracker {
 		key := core.EdgeKey(edge.From, edge.To, edge.Kind, edge.Relation)
 		history := tracker.byKey[key]
 		if history == nil {
-			history = &edgeAssertionHistory{
-				index:            i,
-				existedInitially: true,
-				theirs:           edge.Relation != "" && edge.Claim != nil,
-			}
+			history = &edgeAssertionHistory{index: i, existedInitially: true}
 			tracker.byKey[key] = history
 		}
 		history.add(trackedEdgeAssertion{
@@ -824,6 +809,33 @@ func newEdgeAssertionTracker(g *core.Graph) *edgeAssertionTracker {
 		})
 	}
 	return tracker
+}
+
+// assertedRelations are the relations an overlay writes itself. Every other
+// word on a line — calls, imports, built_from, reachable, exposes — is one a
+// reader took out of a document, and putting an author on one of those is what
+// "a connection exists that no parser found" has always also been used for.
+//
+// A table rather than "it carries a relation and a claim", which was tried and
+// is wrong: the enrichers sign their own lines too — builds names the run that
+// built the image — so that reading made a positive assertion miss the line it
+// has always landed on and draw a second, unlabelled one beside it.
+var assertedRelations = map[string]bool{relServes: true}
+
+// theirs says this line's meaning is somebody's sentence rather than a reading
+// nobody signed: a relation only an assertion writes, with that author's name
+// still on it.
+//
+// Read from the graph rather than from what happened in this run, because the
+// run may be the second one: a claim written out and read back in is the same
+// relation with the same name on it either way. And asked of the name as well
+// as of the word, because the parser that comes to read routers will write
+// serves lines of its own, and a reading is a reading whatever it is about.
+func theirs(edge *core.Edge) bool {
+	if edge.Claim == nil || edge.Claim.Origin == core.OriginParser {
+		return false
+	}
+	return assertedRelations[strings.ToLower(edge.Relation)]
 }
 
 // matching finds the lines an assertion is about.
@@ -838,13 +850,12 @@ func newEdgeAssertionTracker(g *core.Graph) *edgeAssertionTracker {
 //     edge.suppress is for, a parser's lines are the ones carrying relations,
 //     and a denial that reached only the first of them would leave the rest
 //     drawn — differently depending on how the edges happened to be sorted.
-//   - No relation, positively asserted: the line that has no relation either.
-//     "A connection exists that no parser found" must not land on a line that
-//     means something — a serves claim is somebody's sentence, and taking it
-//     over replaces their meaning and their name. Telling a parser's line from
-//     an assertion's was tried and is not a distinction that survives being
-//     written out and read back in: on the second run every line was in the
-//     input.
+//   - No relation, positively asserted: any line but one an assertion named.
+//     Putting an author on a line a parser or an enricher drew is what this
+//     has always also been used for, and making a second unlabelled line
+//     beside it instead loses the provenance and draws the fact twice. A
+//     serves claim is the exception: that is somebody's sentence, and taking
+//     it over replaces their meaning and their name.
 //
 // And one adoption, in the other direction: a claim takes over a line that
 // exists only because somebody denied it before making it. A denial of an
@@ -874,12 +885,12 @@ func (tracker *edgeAssertionTracker) matching(g *core.Graph, from, to string, ki
 		// arrow there, with the denial reaching only one of them.
 		case strings.EqualFold(edge.Relation, relation):
 			return []*edgeAssertionHistory{history}
-		// A line somebody drew and nobody signed. An assertion that named no
-		// relation is not saying what the line means, so putting its author
-		// on the parser's line is what it has always done — and making a
-		// second, unlabelled line beside it instead loses the provenance and
-		// draws the same fact twice.
-		case relation == "" && !history.theirs && unsigned == nil:
+		// A line somebody read out of a document rather than wrote. An
+		// assertion that named no relation is not saying what the line means,
+		// so putting its author on the reading is what it has always done —
+		// and making a second, unlabelled line beside it instead loses the
+		// provenance and draws the same fact twice.
+		case relation == "" && !theirs(edge) && unsigned == nil:
 			unsigned = history
 		case relation != "" && edge.Relation == "" && adoptable == nil && onlyDenied(history):
 			adoptable = history
@@ -935,7 +946,6 @@ func (tracker *edgeAssertionTracker) name(g *core.Graph, history *edgeAssertionH
 	if relation == "" || edge.Relation != "" {
 		return
 	}
-	history.theirs = true
 	was := core.EdgeKey(edge.From, edge.To, edge.Kind, edge.Relation)
 	now := core.EdgeKey(edge.From, edge.To, edge.Kind, relation)
 
@@ -952,7 +962,7 @@ func (tracker *edgeAssertionTracker) name(g *core.Graph, history *edgeAssertionH
 
 func (tracker *edgeAssertionTracker) create(g *core.Graph, from, to string, kind core.EdgeKind, relation string) *edgeAssertionHistory {
 	g.Edges = append(g.Edges, core.Edge{From: from, To: to, Kind: kind, Relation: relation})
-	history := &edgeAssertionHistory{index: len(g.Edges) - 1, theirs: relation != ""}
+	history := &edgeAssertionHistory{index: len(g.Edges) - 1}
 	tracker.byKey[core.EdgeKey(from, to, kind, relation)] = history
 	return history
 }

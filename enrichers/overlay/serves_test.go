@@ -492,14 +492,19 @@ func TestTwoSentencesAboutOneLineSettleTheSameWayEitherOrder(t *testing.T) {
 // carries a relation *and* a claim: that is somebody's sentence, and a second
 // author's name on it replaces both the name and the meaning.
 //
-// The rule has been wrong twice in this branch. First it was "a line a parser
-// drew may be claimed, a line an assertion made may not", which does not
-// survive the graph being written out and read back — on the second run every
-// line was in the input. Then it was "only a line with no relation", which
-// protected claims by making a second, unlabelled line beside every parser
-// line an overlay signs, losing the parser line's provenance and drawing the
-// same fact twice. What tells the two apart in the file itself, on any run, is
-// whether anybody signed it.
+// The rule has been wrong three times in this branch. First it was "a line a
+// parser drew may be claimed, a line an assertion made may not", which does
+// not survive the graph being written out and read back — on the second run
+// every line was in the input. Then it was "only a line with no relation",
+// which protected claims by making a second, unlabelled line beside every
+// parser line an overlay signs, losing the parser line's provenance and
+// drawing the same fact twice. Then it was "a line carrying a relation and a
+// claim", which forgot that the enrichers sign their own readings: builds puts
+// the run that built the image on its line, so that rule brought the doubling
+// back for every one of them.
+//
+// What tells the two apart in the file itself, on any run, is the word: a
+// relation an overlay writes, with an author rather than a reader behind it.
 func TestAnAssertionWithNoRelationSignsWhatNobodyElseHas(t *testing.T) {
 	signed := func(t *testing.T, line core.Edge) []core.Edge {
 		t.Helper()
@@ -509,7 +514,7 @@ func TestAnAssertionWithNoRelationSignsWhatNobodyElseHas(t *testing.T) {
 
 		d, err := Parse([]byte(doc(`
 		  {"assert":"edge","from":{"node":"`+line.From+`"},
-		   "to":{"node":"`+line.To+`"},"kind":"iac_ref","author":"auditor"}`)), "test.json")
+		   "to":{"node":"`+line.To+`"},"kind":"`+string(line.Kind)+`","author":"auditor"}`)), "test.json")
 		if err != nil {
 			t.Fatalf("Parse: %v", err)
 		}
@@ -535,6 +540,41 @@ func TestAnAssertionWithNoRelationSignsWhatNobodyElseHas(t *testing.T) {
 		}
 		if got[0].Relation != "contains" {
 			t.Errorf("the line was renamed %q", got[0].Relation)
+		}
+		if got[0].Claim == nil || got[0].Claim.Author != "auditor" {
+			t.Errorf("the line carries %+v", got[0].Claim)
+		}
+	})
+
+	// An enricher's line is a reading too, and it signs it: builds names the
+	// run that built the image. Refusing those is how the doubling came back.
+	t.Run("an enricher's line, signed with what it read", func(t *testing.T) {
+		got := signed(t, core.Edge{
+			From: "service/shop/checkout", To: "file:handler/http.go",
+			Kind: core.EdgeObserved, Relation: "built_from",
+			Claim: &core.Claim{Origin: core.OriginParser, Note: "checkout #41"},
+		})
+		if len(got) != 1 {
+			t.Fatalf("%d lines where the enricher drew one: %+v", len(got), got)
+		}
+		if got[0].Relation != "built_from" {
+			t.Errorf("the line was renamed %q", got[0].Relation)
+		}
+		if got[0].Claim == nil || got[0].Claim.Author != "auditor" {
+			t.Errorf("the line carries %+v", got[0].Claim)
+		}
+	})
+
+	// And a serves line a reader wrote rather than an author is a reading like
+	// any other. The router parser this is waiting on will draw them.
+	t.Run("a serves line a parser drew", func(t *testing.T) {
+		got := signed(t, core.Edge{
+			From: "file:handler/http.go#HandleOrder", To: "api/checkout/get/orders/{id}",
+			Kind: core.EdgeIACRef, Relation: "serves",
+			Claim: &core.Claim{Origin: core.OriginParser, Note: "mux.HandleFunc"},
+		})
+		if len(got) != 1 {
+			t.Fatalf("%d lines where the parser drew one: %+v", len(got), got)
 		}
 		if got[0].Claim == nil || got[0].Claim.Author != "auditor" {
 			t.Errorf("the line carries %+v", got[0].Claim)
