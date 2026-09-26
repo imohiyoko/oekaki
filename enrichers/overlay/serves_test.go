@@ -732,15 +732,39 @@ func TestADeniedClaimIsNotToldItWasNeverThere(t *testing.T) {
 // line nothing drew, and the claim in the second run has to be that same line
 // — otherwise the denial sits on a phantom and the claim is drawn beside it,
 // undenied, which is the picture the author wrote the denial to prevent.
+// wroteOut is the graph an earlier run left behind: the document applied, and
+// the result written to a file and read back.
+//
+// Built by running it rather than by hand. What a phantom looks like in the
+// file has been wrong three times, and a fixture spelling it out is a fixture
+// that agrees with whatever the code believed on the day it was written.
+func wroteOut(t *testing.T, g *core.Graph, body string) *core.Graph {
+	t.Helper()
+	d, err := Parse([]byte(doc(body)), "earlier.json")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if _, err := New([]*Document{d}, Options{}).Enrich(g); err != nil {
+		t.Fatalf("Enrich: %v", err)
+	}
+	if err := g.Validate(); err != nil {
+		t.Fatalf("the earlier run left a graph that does not validate: %v", err)
+	}
+	raw, err := json.Marshal(g)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	out := &core.Graph{}
+	if err := json.Unmarshal(raw, out); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	return out
+}
+
 func TestAClaimAdoptsThePhantomAnEarlierRunWroteOut(t *testing.T) {
-	g := serving()
-	g.Edges = append(g.Edges, core.Edge{
-		From: "file:handler/http.go#HandleOrder", To: "api/checkout/get/orders/{id}",
-		Kind: core.EdgeIACRef, Suppressed: true,
-		Claim: &core.Claim{Origin: core.OriginHuman, Author: "operator",
-			Note: "asserted not to exist; no such edge was found"},
-	})
-	g.Normalize()
+	g := wroteOut(t, serving(), `
+	  {"assert":"edge.suppress","from":{"node":"file:handler/http.go#HandleOrder"},
+	   "to":{"node":"api/checkout/get/orders/{id}"},"kind":"iac_ref"}`)
 
 	d, err := Parse([]byte(doc(`
 	  {"assert":"edge.suppress","from":{"node":"file:handler/http.go#HandleOrder"},
@@ -978,4 +1002,63 @@ func TestTheDenialsOwnSentenceSurvivesBeingReadBack(t *testing.T) {
 			}
 		}
 	})
+}
+
+// What a line means is settled from the input and then left alone.
+//
+// The run rewrites a line's claim as it applies sentences to it, so asking the
+// edge mid-flight asks a different question each time: a denial reaching a
+// parser's serves line puts the denier's name on it, and the affirmation that
+// came next then saw an author where a reader had been and drew a second line
+// beside it. Both orders are one picture, which is the whole of the rule the
+// denials were rearranged for.
+func TestWhatALineMeansIsNotDecidedByTheSentenceBeingApplied(t *testing.T) {
+	const (
+		deny = `{"assert":"edge.suppress","from":{"node":"file:handler/http.go#HandleOrder"},
+		  "to":{"node":"api/checkout/get/orders/{id}"},"kind":"iac_ref"}`
+		affirm = `{"assert":"edge","from":{"node":"file:handler/http.go#HandleOrder"},
+		  "to":{"node":"api/checkout/get/orders/{id}"},"kind":"iac_ref"}`
+	)
+	for _, order := range []struct {
+		name string
+		body string
+	}{
+		{"denied first", deny + "," + affirm},
+		{"affirmed first", affirm + "," + deny},
+	} {
+		t.Run(order.name, func(t *testing.T) {
+			g := serving()
+			// A parser found it. Nobody signed the reading.
+			g.Edges = append(g.Edges, core.Edge{
+				From: "file:handler/http.go#HandleOrder", To: "api/checkout/get/orders/{id}",
+				Kind: core.EdgeIACRef, Relation: "serves",
+				Claim: &core.Claim{Origin: core.OriginParser, Note: "mux.HandleFunc"},
+			})
+			g.Normalize()
+
+			d, err := Parse([]byte(doc(order.body)), "test.json")
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			if _, err := New([]*Document{d}, Options{}).Enrich(g); err != nil {
+				t.Fatalf("Enrich: %v", err)
+			}
+			if err := g.Validate(); err != nil {
+				t.Fatalf("the enriched graph does not validate: %v", err)
+			}
+
+			var lines []core.Edge
+			for _, e := range g.Edges {
+				if e.From == "file:handler/http.go#HandleOrder" {
+					lines = append(lines, e)
+				}
+			}
+			if len(lines) != 1 {
+				t.Fatalf("%d lines where the parser drew one: %+v", len(lines), lines)
+			}
+			if lines[0].Relation != "serves" {
+				t.Errorf("the parser's line was left behind; this one is %q", lines[0].Relation)
+			}
+		})
+	}
 }
