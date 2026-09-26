@@ -60,3 +60,36 @@ func TestParsePreservesStructuredContextNeeds(t *testing.T) {
 		t.Fatalf("structured need was lost: %+v", d.Needs)
 	}
 }
+
+// A relation the model named is the model's sentence, and the line says so.
+// Without that, an overlay assertion that names no relation lands on it and
+// replaces the model's name, its confidence and its note, and nothing records
+// that it did — both are positive, so there is no disagreement to write down.
+func TestACandidatesRelationIsRecordedAsTheModelsOwn(t *testing.T) {
+	g := core.New()
+	g.Nodes = []core.Node{
+		{ID: "a", Type: "service", Name: "a"},
+		{ID: "b", Type: "service", Name: "b"},
+	}
+	d, err := Parse([]byte(`{"kind":"oekaki.ai-candidates","version":"1","candidates":[
+	  {"from":"a","to":"b","relation":"calls","confidence":0.6,"note":"looks like a call"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (Enricher{Docs: []*Document{d}}).Enrich(g); err != nil {
+		t.Fatalf("Enrich: %v", err)
+	}
+	var found bool
+	for _, e := range g.Edges {
+		if e.Relation != "calls" {
+			continue
+		}
+		found = true
+		if !e.RelationAsserted {
+			t.Error("the model's own word is recorded as something it read")
+		}
+	}
+	if !found {
+		t.Fatal("no candidate edge was drawn")
+	}
+}
