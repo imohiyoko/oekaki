@@ -726,3 +726,33 @@ func TestAnAbsenceThatIsNotDeniedIsRefused(t *testing.T) {
 		t.Fatalf("Validate() = %v, want it to refuse the pair", err)
 	}
 }
+
+// Folding takes the claim off the reading that drew the line, not only the
+// flag. A representative invented by a denial says "no such edge was found",
+// which is false of a line something drew.
+func TestFoldingTakesTheClaimFromWhatDrewTheLine(t *testing.T) {
+	invented := &Claim{Origin: OriginHuman, Author: "x", Note: "asserted not to exist; no such edge was found"}
+	real := &Claim{Origin: OriginHuman, Author: "y", Note: "denied a real one"}
+	for _, order := range []struct {
+		name string
+		a, b Edge
+	}{
+		{"invented first",
+			Edge{From: "a", To: "b", Kind: EdgeObserved, Suppressed: true, AssertedAbsent: true, Claim: invented},
+			Edge{From: "a", To: "b", Kind: EdgeObserved, Suppressed: true, Claim: real}},
+		{"drawn first",
+			Edge{From: "a", To: "b", Kind: EdgeObserved, Suppressed: true, Claim: real},
+			Edge{From: "a", To: "b", Kind: EdgeObserved, Suppressed: true, AssertedAbsent: true, Claim: invented}},
+	} {
+		t.Run(order.name, func(t *testing.T) {
+			a := order.a
+			(&Graph{}).mergeEdge(&a, order.b)
+			if a.AssertedAbsent {
+				t.Error("the folded line says nothing drew it")
+			}
+			if a.Claim != nil && strings.Contains(a.Claim.Note, "no such edge was found") {
+				t.Errorf("the folded line says %q about an edge that was found", a.Claim.Note)
+			}
+		})
+	}
+}

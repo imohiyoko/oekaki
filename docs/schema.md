@@ -387,7 +387,14 @@ than waved through: 0.8 adds `asserted_absent` to an edge, and a 0.7 document
 recorded the same fact in the sentence the denial wrote on the line. That
 sentence is read on the way in and the flag is set from it, because dropping
 it would tell the next claim that a line nothing drew was one a parser drew
-and somebody denied. Each is still checked against the
+and somebody denied.
+
+Not all of it comes back. A 0.7 denial that carried the author's own note
+never got that sentence, and such a line is indistinguishable in a 0.7 file
+from a reference somebody denied — the Terraform parser names no relation on
+the edges it draws, so even that is not a difference. Not having recorded it
+is what 0.8 is for, and a document written before the fix cannot be read as
+though it had been. Each is still checked against the
 contract it declares and re-stamped rather than waved through, because "shaped
 like the current version" and "declared as it" are different claims and only the
 second one has been checked.
