@@ -1119,8 +1119,9 @@ func (tracker *edgeAssertionTracker) settleDenials(g *core.Graph) {
 		onlyDenial := onlyDenied(history)
 
 		var moved bool
-		kept := history.assertions[:0]
-		for _, a := range history.assertions {
+		said := history.assertions
+		history.assertions = nil
+		for _, a := range said {
 			if a.suppressed {
 				switch {
 				case onlyDenial && a.claim.Note == "":
@@ -1132,18 +1133,11 @@ func (tracker *edgeAssertionTracker) settleDenials(g *core.Graph) {
 				}
 			}
 			// Two sentences that differed only in the part just changed are
-			// one sentence now.
-			var seen bool
-			for _, other := range kept {
-				if other.suppressed == a.suppressed && other.explicit == a.explicit && claimsEqual(other.claim, a.claim) {
-					seen = true
-				}
-			}
-			if !seen {
-				kept = append(kept, a)
-			}
+			// one sentence now. Asked of add rather than written out again
+			// here, so that what counts as the same sentence is decided in
+			// one place.
+			history.add(a)
 		}
-		history.assertions = kept
 
 		edge := &g.Edges[history.index]
 

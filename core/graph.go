@@ -51,6 +51,16 @@ const deniedNoteV07 = "asserted not to exist; no such edge was found"
 // Dropping that on the way in would tell the next claim that a line nothing
 // drew was a line a parser drew and somebody denied — which is the disagreement
 // between one run and two that the field exists to end.
+//
+// It recovers what those versions recorded, which is not all of it. A denial
+// carrying the author's own note never got this sentence, so such a line is
+// indistinguishable in a 0.7 file from a reference a parser drew and somebody
+// denied — the Terraform parser names no relation on the edges it draws, so
+// even that is not a difference. Not having recorded it is the defect 0.8
+// exists to fix; a document written before the fix cannot be read as though
+// it had been. A claim about such a pair draws its own line, once, and every
+// run after this one agrees with it, because the graph is re-stamped on the
+// way through.
 func (g *Graph) migrateAssertedAbsent() {
 	for i := range g.Edges {
 		edge := &g.Edges[i]
@@ -987,6 +997,21 @@ func (g *Graph) Normalize() {
 // not — so that disagreement is recorded rather than resolved into silence.
 // Two sources merely both finding the edge is agreement, not conflict.
 func (g *Graph) mergeEdge(a *Edge, b Edge) {
+	// Being here for no reason but a denial is a property of the pair, not of
+	// whichever duplicate sorted first: if either source drew the connection,
+	// something drew it. And the claim has to come off the reading that drew
+	// it — settled before the competition below, because an invented line's
+	// claim says "no such edge was found", which is false of a line something
+	// drew, and it would otherwise win on rank and say it anyway.
+	if a.AssertedAbsent != b.AssertedAbsent {
+		if a.AssertedAbsent {
+			a.Claim = b.Claim
+		} else {
+			b.Claim = a.Claim
+		}
+		a.AssertedAbsent, b.AssertedAbsent = false, false
+	}
+
 	// Suppression is fail-safe: once any source marks an edge as not real, a
 	// duplicate positive assertion cannot silently re-enable it. Keep the best
 	// claim among assertions for the effective value so the edge still carries
@@ -997,11 +1022,6 @@ func (g *Graph) mergeEdge(a *Edge, b Edge) {
 	} else if a.Suppressed == b.Suppressed && edgeClaimLess(b, *a) {
 		a.Claim = b.Claim
 	}
-	// Being here for no reason but a denial is a property of the pair, not of
-	// whichever duplicate sorted first: if either source drew the connection,
-	// something drew it. Folded rather than inherited, because inheriting it
-	// is how a parser's line came to be told that nothing drew it.
-	a.AssertedAbsent = a.AssertedAbsent && b.AssertedAbsent
 	a.Attrs = mergeAttrs(a.Attrs, b.Attrs)
 }
 

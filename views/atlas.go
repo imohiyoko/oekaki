@@ -125,18 +125,17 @@ var codeLines = []codeLineRow{
 	{relation: relServes, from: codeFunction, to: apiOperation},
 }
 
-// farType is the kinds of box a code line may reach outside the repository it
-// is drawn for, derived from the table so the two cannot drift.
-var farType = farTypes()
-
-func farTypes() map[string]bool {
-	out := map[string]bool{}
+// farType reports whether a box of this type is one a code line may reach
+// outside the repository it is drawn for. Asked of the table each time rather
+// than derived into a map beside it: the table has three rows, and a copy is
+// a second thing to keep in step with it.
+func farType(t string) bool {
 	for _, l := range codeLines {
-		if !l.ours {
-			out[l.to] = true
+		if !l.ours && l.to == t {
+			return true
 		}
 	}
-	return out
+	return false
 }
 
 // codeLine is the row a relation is drawn by, if it is drawn at all. Folded,
@@ -926,7 +925,7 @@ func CodeOf(g *core.Graph, scope string) []string {
 	// that declared it, so that pairing cannot be asked of the scope alone.
 	elsewhere := map[string]string{}
 	for _, n := range g.Nodes {
-		if farType[n.Type] {
+		if farType(n.Type) {
 			elsewhere[n.ID] = n.Type
 		}
 		if of, _ := n.Attrs["repository"].(string); of != scope {
@@ -1834,6 +1833,13 @@ func liftEdges(in []core.Edge, at map[string]string) []core.Edge {
 		absent := e.AssertedAbsent
 		if standing != nil {
 			absent = absent && standing.AssertedAbsent
+			// The claim has to come off the reading that drew it, not just
+			// the flag: a representative invented by a denial says "no such
+			// edge was found" about a group one of whose references a parser
+			// drew.
+			if standing.AssertedAbsent && !e.AssertedAbsent {
+				standing.Claim = e.Claim
+			}
 			standing.AssertedAbsent = absent
 			if !standing.Suppressed || e.Suppressed {
 				continue

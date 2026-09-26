@@ -1557,11 +1557,16 @@ func TestAMapOnlyLiftsItsOwnRepositorysCode(t *testing.T) {
 // and arrive at a box that was never placed — and the page would drop the line
 // for want of one, leaving a function whose only reason to be there is gone.
 func TestTheSecondLineThatCrossesGetsItsFarEndToo(t *testing.T) {
-	lines, far := codeLines, farType
-	t.Cleanup(func() { codeLines, farType = lines, far })
+	// The table is swapped rather than a second crossing relation being
+	// invented in the production one, because there is only one today and the
+	// bug is precisely that the loop read past the table to name it. Nothing
+	// derives from codeLines any more — farType asks it directly — so this is
+	// the only thing to put back. It also means this test must not become
+	// parallel: the table is package state.
+	lines := codeLines
+	t.Cleanup(func() { codeLines = lines })
 	codeLines = append(codeLines[:len(codeLines):len(codeLines)],
 		codeLineRow{relation: "publishes", from: codeFunction, to: "queue"})
-	farType = farTypes()
 
 	g := estateWithCode(t, true)
 	g.Nodes = append(g.Nodes, core.Node{ID: "queue:orders", Type: "queue", Name: "orders"})
