@@ -1,7 +1,6 @@
 package views
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/imohiyoko/oekaki/core"
@@ -609,9 +608,9 @@ func TestAGroupedLineFoldsWhatItsReferencesSay(t *testing.T) {
 			if out[0].RelationAsserted {
 				t.Error("a relation a reader also used is recorded as one author's sentence")
 			}
-			if out[0].Claim != nil && strings.Contains(out[0].Claim.Note, "no such edge") {
-				t.Errorf("the group line says %q about a reference that was drawn", out[0].Claim.Note)
-			}
+			// What the line says about that is core's to settle, once, when
+			// the graph is normalized — which every caller of liftEdges does
+			// next. See core.settleDeniedNotes.
 		})
 	}
 }

@@ -941,23 +941,14 @@ func (g *Graph) Normalize() {
 			} else {
 				positive = true
 			}
-			// Of the line the merge produced, not of the copy this assertion
-			// arrived on. A conflict is only recorded where something said
-			// the edge is real, and a line somebody positively asserted is
-			// one something drew — so by the time these claims are read, the
-			// denial's sentence about nothing having drawn it is false here
-			// as much as it is on the edge, and this is where a reader is
-			// shown what each side said.
-			WithdrawDeniedNote(&assertion)
 			claims = append(claims, ClaimedValue{
 				Value: boolValue(assertion.Suppressed), Claim: claimOrParser(assertion.Claim),
 			})
 		}
-		// Sentences that differed only in the part just removed are one
-		// sentence now. Deduped by uniqueClaimedValues below rather than
-		// here: a ClaimedValue holds a *float64, so == compares the address
-		// of a confidence rather than the number, and two claims that say
-		// the same thing never matched.
+		// Sentences that settleDeniedNotes makes identical are folded by
+		// uniqueClaimedValues below rather than here: a ClaimedValue holds a
+		// *float64, so == compares the address of a confidence rather than
+		// the number, and two claims that say the same thing never matched.
 		if positive && suppressed {
 			first := assertions[0]
 			g.Conflicts = append(g.Conflicts, Conflict{
@@ -982,6 +973,7 @@ func (g *Graph) Normalize() {
 	}
 	recordAssertions()
 	g.Edges = deduped
+	g.settleDeniedNotes()
 
 	for i := range g.Nodes {
 		if len(g.Nodes[i].Groups) == 0 {
@@ -1064,18 +1056,55 @@ func (g *Graph) Normalize() {
 	}
 }
 
-// WithdrawDeniedNote takes DeniedNote off a claim, leaving everything else.
-// The author still denied the line; what is no longer true is that nothing
-// drew it. Call it wherever an invented line is folded into one something
-// drew — Normalize does, and so does the atlas when it lifts edges onto
-// groups.
-func WithdrawDeniedNote(e *Edge) {
-	if !e.AssertedAbsent || e.Claim == nil || e.Claim.Note != DeniedNote {
+// settleDeniedNotes makes the sentence agree with the flag.
+//
+// DeniedNote is not a fact the graph carries; AssertedAbsent is. The sentence
+// is how that fact is put to a reader, and it is derived here — once, after
+// the merging is done — rather than written by whoever created the line and
+// then taken back off by everybody who folds one.
+//
+// It was the other way round and it did not hold. Every place two lines
+// become one had to withdraw the sentence by hand: Normalize's merge, the
+// conflict it records, the atlas lifting edges onto groups, and the enricher
+// settling its own denials. Four call sites, two of which were written
+// wrong the first time and one of which was forgotten twice — because each
+// was added next to a flag that was already being folded correctly, one
+// function away from the other copy.
+//
+// An author's own words are left alone. The sentence is what a denial says
+// when it has nothing else to say, so it goes on a claim with no note and
+// comes off one that says only this.
+func (g *Graph) settleDeniedNotes() {
+	absent := map[string]bool{}
+	for i := range g.Edges {
+		edge := &g.Edges[i]
+		absent[EdgeKey(edge.From, edge.To, edge.Kind, edge.Relation)] = edge.AssertedAbsent
+		settleDeniedNote(edge.Claim, edge.AssertedAbsent)
+	}
+	// And where the disagreement is written down. A conflict is built from
+	// the copies that arrived rather than from the line they became, so the
+	// sentence a reader is shown there has to be settled against the line as
+	// well. Claims that become identical are folded by the dedup below.
+	for i := range g.Conflicts {
+		if g.Conflicts[i].TargetKind != ConflictTargetEdge {
+			continue
+		}
+		for j := range g.Conflicts[i].Claims {
+			settleDeniedNote(&g.Conflicts[i].Claims[j].Claim, absent[g.Conflicts[i].Target])
+		}
+	}
+}
+
+func settleDeniedNote(c *Claim, absent bool) {
+	if c == nil {
 		return
 	}
-	withdrawn := *e.Claim
-	withdrawn.Note = ""
-	e.Claim = &withdrawn
+	switch {
+	case absent && c.Note == "":
+		c.Note = DeniedNote
+	case !absent && c.Note == DeniedNote:
+		c.Note = ""
+	}
 }
 
 // mergeEdge folds b into a. Suppression is the one field where the two can
@@ -1087,15 +1116,9 @@ func (g *Graph) mergeEdge(a *Edge, b Edge) {
 	// whichever duplicate sorted first: if either source drew the connection,
 	// something drew it.
 	//
-	// And the sentence the denial wrote about that becomes false, so it comes
-	// off — the sentence alone. Taking the whole claim from the side that
-	// drew the line was tried and loses the denier: a parser's edge carries
-	// no claim at all, so the merged line came out suppressed by nobody.
-	if a.AssertedAbsent != b.AssertedAbsent {
-		WithdrawDeniedNote(a)
-		WithdrawDeniedNote(&b)
-		a.AssertedAbsent, b.AssertedAbsent = false, false
-	}
+	// The sentence the denial wrote about that becomes false with it, and is
+	// settled once for the whole graph afterwards; see settleDeniedNotes.
+	a.AssertedAbsent = a.AssertedAbsent && b.AssertedAbsent
 
 	// And a relation two readings share is not one author's sentence: if a
 	// parser drew the same line, the word is a reading too. Folded the same

@@ -146,6 +146,10 @@ say where the line came from.
 
 `asserted_absent` says the edge is here for no reason but that denial: nothing
 drew the connection, and the sentence denying it needed something to be about.
+The claim on such a line says so in words — "asserted not to exist; no such
+edge was found" — unless its author wrote a note of their own. That sentence
+is derived from the flag rather than stored beside it, so a file where the two
+disagree is put right on the way in.
 
 `relation_asserted` says the relation on the line is somebody's sentence
 rather than a word a reader took out of a document — an overlay saying which
