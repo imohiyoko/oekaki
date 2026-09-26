@@ -837,3 +837,172 @@ func TestTheConflictDoesNotKeepASentenceTheEdgeGaveUp(t *testing.T) {
 		t.Fatal("no conflict was recorded, so the test is not asking what it means to")
 	}
 }
+
+// A 0.7 document is read the way it was written. Those versions recorded
+// nothing about who named a relation and were applied with a reading — a
+// relation only an overlay writes, under a claim with an author. Applying it
+// once at the boundary keeps such a document meaning what it meant; after the
+// re-stamp the answer is recorded rather than read off the line.
+func TestWhoNamedARelationIsRecoveredFromAnOlderVersion(t *testing.T) {
+	const older = `{"version":"0.7","axes":[],"groups":[],
+	  "nodes":[{"id":"f","type":"code_function","name":"H"},{"id":"op","type":"api","name":"GET /x"},
+	           {"id":"g","type":"code_function","name":"G"}],
+	  "edges":[
+	    {"from":"f","to":"op","kind":"iac_ref","relation":"serves",
+	     "claim":{"origin":"human","author":"alice"}},
+	    {"from":"g","to":"op","kind":"iac_ref","relation":"serves",
+	     "claim":{"origin":"parser","note":"mux.HandleFunc"}}]}`
+
+	g, err := Decode(strings.NewReader(older))
+	if err != nil {
+		t.Fatalf("Decode 0.7: %v", err)
+	}
+	got := map[string]bool{}
+	for _, e := range g.Edges {
+		got[e.From] = e.RelationAsserted
+	}
+	if !got["f"] {
+		t.Error("an author's sentence came back as a reading")
+	}
+	// A reader's line is not turned into somebody's sentence by being read.
+	if got["g"] {
+		t.Error("the parser's reading came back as somebody's sentence")
+	}
+}
+
+// Whose sentence a relation is cannot be answered by half a line.
+func TestASentenceWithNoRelationOrNoAuthorIsRefused(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		edge Edge
+	}{
+		{"no relation", Edge{From: "a", To: "b", Kind: EdgeObserved, RelationAsserted: true,
+			Claim: &Claim{Origin: OriginHuman, Author: "x"}}},
+		{"no claim", Edge{From: "a", To: "b", Kind: EdgeObserved, RelationAsserted: true, Relation: "serves"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			g := &Graph{
+				Version: Version,
+				Axes:    []Axis{{ID: AxisNetwork}},
+				Nodes:   []Node{{ID: "a", Type: "x", Name: "a"}, {ID: "b", Type: "x", Name: "b"}},
+				Edges:   []Edge{c.edge},
+			}
+			g.Normalize()
+			err := g.Validate()
+			if err == nil || !strings.Contains(err.Error(), "relation_asserted needs a relation and a claim") {
+				t.Fatalf("Validate() = %v, want it to refuse", err)
+			}
+		})
+	}
+}
+
+// A relation two readings share is not one author's sentence.
+func TestFoldingARelationTwoReadingsShareIsNotOneAuthors(t *testing.T) {
+	sentence := Edge{From: "a", To: "b", Kind: EdgeObserved, Relation: "serves", RelationAsserted: true,
+		Claim: &Claim{Origin: OriginHuman, Author: "alice"}}
+	reading := Edge{From: "a", To: "b", Kind: EdgeObserved, Relation: "serves",
+		Claim: &Claim{Origin: OriginParser}}
+	for _, order := range []struct {
+		name string
+		a, b Edge
+	}{
+		{"sentence first", sentence, reading},
+		{"reading first", reading, sentence},
+	} {
+		t.Run(order.name, func(t *testing.T) {
+			a := order.a
+			(&Graph{}).mergeEdge(&a, order.b)
+			if a.RelationAsserted {
+				t.Error("a relation a parser also drew is recorded as one author's sentence")
+			}
+		})
+	}
+}
+
+// Settling the sentence does not reach back into the graph it was given.
+//
+// views hands the same *Claim to every page it derives — liftEdges copies the
+// edge but not the claim behind it — so writing the sentence through that
+// pointer put it back on a drawing somebody had already been handed. The same
+// goes for a conflict's claims, whose array is shared by carry.
+func TestSettlingTheSentenceLeavesTheGivenGraphAlone(t *testing.T) {
+	shared := &Claim{Origin: OriginHuman, Author: "auditor"}
+	in := &Graph{
+		Version: Version, Axes: []Axis{{ID: AxisNetwork}},
+		Nodes: []Node{{ID: "a", Type: "x", Name: "a"}, {ID: "b", Type: "x", Name: "b"}},
+		Edges: []Edge{{From: "a", To: "b", Kind: EdgeObserved,
+			Suppressed: true, AssertedAbsent: true, Claim: shared}},
+	}
+	in.Normalize()
+	if shared.Note != "" {
+		t.Errorf("the claim the caller still holds was written through: %q", shared.Note)
+	}
+
+	// And the other way: a claim already carrying the sentence, on a line
+	// nothing says was invented, is not edited where its owner can see it.
+	owned := &Claim{Origin: OriginHuman, Author: "auditor", Note: DeniedNote}
+	out := &Graph{
+		Version: Version, Axes: []Axis{{ID: AxisNetwork}},
+		Nodes: []Node{{ID: "a", Type: "x", Name: "a"}, {ID: "b", Type: "x", Name: "b"}},
+		Edges: []Edge{{From: "a", To: "b", Kind: EdgeObserved, Suppressed: true, Claim: owned}},
+	}
+	out.Normalize()
+	if owned.Note != DeniedNote {
+		t.Errorf("the caller's claim was cleared: %q", owned.Note)
+	}
+	if got := out.Edges[0].Claim.Note; got != "" {
+		t.Errorf("the graph's own copy still says %q", got)
+	}
+}
+
+// An author who wrote their own words about a denial keeps them, whichever
+// duplicate the ordering happened to prefer. The note is part of that
+// ordering, and an empty one sorts first — so settling it after the merge let
+// a claim with nothing to say win and then be handed this sentence.
+func TestAnAuthorsOwnWordsSurviveTheOrdering(t *testing.T) {
+	g := &Graph{
+		Version: Version, Axes: []Axis{{ID: AxisNetwork}},
+		Nodes: []Node{{ID: "a", Type: "x", Name: "a"}, {ID: "b", Type: "x", Name: "b"}},
+		Edges: []Edge{
+			{From: "a", To: "b", Kind: EdgeObserved, Suppressed: true, AssertedAbsent: true,
+				Claim: &Claim{Origin: OriginHuman, Author: "auditor", Note: "already removed"}},
+			{From: "a", To: "b", Kind: EdgeObserved, Suppressed: true, AssertedAbsent: true,
+				Claim: &Claim{Origin: OriginHuman, Author: "auditor"}},
+		},
+	}
+	g.Normalize()
+	if len(g.Edges) != 1 {
+		t.Fatalf("%d lines: %+v", len(g.Edges), g.Edges)
+	}
+	if got := g.Edges[0].Claim.Note; got != "already removed" {
+		t.Errorf("the line says %q where its author wrote \"already removed\"", got)
+	}
+}
+
+// A conflict's positive side has not denied anything, so it is not handed the
+// denial's sentence.
+func TestOnlyTheDenyingSideOfADisagreementSaysIt(t *testing.T) {
+	g := &Graph{
+		Version: Version, Axes: []Axis{{ID: AxisNetwork}},
+		Nodes: []Node{{ID: "a", Type: "x", Name: "a"}, {ID: "b", Type: "x", Name: "b"}},
+		Edges: []Edge{
+			{From: "a", To: "b", Kind: EdgeObserved, Suppressed: true, AssertedAbsent: true,
+				Claim: &Claim{Origin: OriginHuman, Author: "auditor"}},
+			{From: "a", To: "b", Kind: EdgeObserved,
+				Claim: &Claim{Origin: OriginHuman, Author: "bob"}},
+		},
+	}
+	g.Normalize()
+	var saw int
+	for _, c := range g.Conflicts {
+		for _, v := range c.Claims {
+			saw++
+			if v.Value == "false" && v.Claim.Note != "" {
+				t.Errorf("the side that says the edge is real says %q", v.Claim.Note)
+			}
+		}
+	}
+	if saw == 0 {
+		t.Fatal("no conflict was recorded, so the test is not asking what it means to")
+	}
+}
