@@ -801,15 +801,9 @@ func authored(claim *core.Claim) bool {
 }
 
 // phantom reports whether an input line is one a denial invented rather than
-// one anything drew.
-//
-// The graph a run writes out is the next run's input, and the sentence a
-// denial writes when there was nothing to deny is the only thing in the file
-// that separates the two cases. It is put there by exactly this rule and
-// taken off by it, so a run reading its own output reaches the same answer as
-// the run that wrote it.
+// one anything drew. The graph says so itself; see core.Edge.AssertedAbsent.
 func phantom(edge *core.Edge) bool {
-	return edge.Suppressed && edge.Claim != nil && edge.Claim.Note == deniedNote
+	return edge.AssertedAbsent
 }
 
 type edgeAssertionTracker struct {
@@ -997,8 +991,11 @@ func (tracker *edgeAssertionTracker) name(g *core.Graph, history *edgeAssertionH
 	}
 }
 
-func (tracker *edgeAssertionTracker) create(g *core.Graph, from, to string, kind core.EdgeKind, relation string) *edgeAssertionHistory {
-	g.Edges = append(g.Edges, core.Edge{From: from, To: to, Kind: kind, Relation: relation})
+func (tracker *edgeAssertionTracker) create(g *core.Graph, from, to string, kind core.EdgeKind, relation string, suppressed bool) *edgeAssertionHistory {
+	g.Edges = append(g.Edges, core.Edge{
+		From: from, To: to, Kind: kind, Relation: relation,
+		AssertedAbsent: suppressed,
+	})
 	history := &edgeAssertionHistory{
 		index:  len(g.Edges) - 1,
 		theirs: assertedRelations[strings.ToLower(relation)],
@@ -1045,7 +1042,7 @@ func (tracker *edgeAssertionTracker) apply(g *core.Graph, from, to string, kind 
 	}
 	histories := tracker.matching(g, from, to, kind, relation, suppressed)
 	if len(histories) == 0 {
-		histories = []*edgeAssertionHistory{tracker.create(g, from, to, kind, relation)}
+		histories = []*edgeAssertionHistory{tracker.create(g, from, to, kind, relation, suppressed)}
 	}
 	for _, history := range histories {
 		tracker.name(g, history, relation)
@@ -1154,6 +1151,12 @@ func (tracker *edgeAssertionTracker) settleDenials(g *core.Graph) {
 		history.assertions = kept
 
 		edge := &g.Edges[history.index]
+
+		// The mark goes the same way as the sentence. A line a claim turned
+		// out to have made is not one that is here for want of anything else,
+		// however the denial that reached it first made it look.
+		edge.AssertedAbsent = onlyDenial
+
 		if moved {
 			winner := history.winner()
 			edge.Suppressed = winner.suppressed

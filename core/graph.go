@@ -17,21 +17,23 @@ import (
 )
 
 // Version is the IR schema version this package reads and writes.
-const Version = "0.7"
+const Version = "0.8"
 
 // The versions Decode still reads. Each is validated against the frozen
 // contract it was written to before it is migrated, so a document that was
 // invalid then does not become valid by being read now.
 //
 // 0.4 carries untyped conflict targets, which are resolved against the graph.
-// 0.5 differs only by not having paths, so reading one is a change of version
-// string and nothing else — but it is still listed rather than waved through,
-// because "shaped like the current version" and "declared as it" are different
-// claims and only the second one is checked.
+// 0.5 differs only by not having paths, and 0.7 only by not having an edge's
+// asserted_absent, so reading either is a change of version string and nothing
+// else — but they are still listed rather than waved through, because "shaped
+// like the current version" and "declared as it" are different claims and only
+// the second one is checked.
 const (
 	legacyV04 = "0.4"
 	legacyV05 = "0.5"
 	legacyV06 = "0.6"
+	legacyV07 = "0.7"
 )
 
 // GroupSeparator joins group ids into the paths stored on Node.Groups.
@@ -456,6 +458,22 @@ type Edge struct {
 	// wrong" and "this never existed" are different facts, and only the first
 	// one is true. Renderers draw it faintly; nothing throws it away.
 	Suppressed bool `json:"suppressed,omitempty"`
+
+	// AssertedAbsent marks an edge that is here for no reason but the denial
+	// on it: nothing drew the connection, and the sentence saying it is not
+	// real needed something to be about.
+	//
+	// Recorded rather than worked out later. The graph one run writes is the
+	// next run's input, and by then an invented line and a real one somebody
+	// denied look alike — both suppressed, both carrying the denier's claim.
+	// Three ways of telling them apart were tried and each had a
+	// counterexample: the sentence the denial leaves is absent when the
+	// author wrote a note of their own, an empty relation is what the
+	// Terraform parser writes for every edge it draws, and having no conflict
+	// is shared by every line nobody argued about. So it is written down.
+	//
+	// Written by enrichers, like Suppressed.
+	AssertedAbsent bool `json:"asserted_absent,omitempty"`
 }
 
 // EdgeKey names an edge for a Conflict target. Each component is independently

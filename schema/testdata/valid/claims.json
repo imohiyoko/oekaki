@@ -1,5 +1,5 @@
 {
-  "version": "0.7",
+  "version": "0.8",
   "metadata": {
     "overlays": [
       { "source": "console.json", "origin": "ai", "author": "assistant", "window": "2026-08 review" }

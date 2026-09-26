@@ -1062,3 +1062,57 @@ func TestWhatALineMeansIsNotDecidedByTheSentenceBeingApplied(t *testing.T) {
 		})
 	}
 }
+
+// A denial carrying the author's own words is still a denial.
+//
+// The sentence this package writes for a line nothing drew is not written when
+// the author wrote one, so it cannot be what tells the next run that the line
+// was invented. Reading it that way made the claim miss the phantom and draw a
+// second line — one run and two runs saying different things about the same
+// two files.
+func TestAPhantomIsKnownByWhatWasRecordedNotByWhatItSays(t *testing.T) {
+	const (
+		deny = `{"assert":"edge.suppress","from":{"node":"file:handler/http.go#HandleOrder"},
+		  "to":{"node":"api/checkout/get/orders/{id}"},"kind":"iac_ref","note":"checked; it is gone"}`
+		serves = `{"assert":"serves","subject":{"node":"file:handler/http.go#HandleOrder"},
+		  "operation":{"node":"api/checkout/get/orders/{id}"}}`
+	)
+	lines := func(t *testing.T, g *core.Graph, body string) []core.Edge {
+		t.Helper()
+		d, err := Parse([]byte(doc(body)), "test.json")
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if _, err := New([]*Document{d}, Options{}).Enrich(g); err != nil {
+			t.Fatalf("Enrich: %v", err)
+		}
+		if err := g.Validate(); err != nil {
+			t.Fatalf("the enriched graph does not validate: %v", err)
+		}
+		var out []core.Edge
+		for _, e := range g.Edges {
+			if e.From == "file:handler/http.go#HandleOrder" {
+				out = append(out, e)
+			}
+		}
+		return out
+	}
+
+	once := lines(t, serving(), deny+","+serves)
+	twice := lines(t, wroteOut(t, serving(), deny), deny+","+serves)
+
+	if len(once) != 1 {
+		t.Fatalf("one run drew %d lines: %+v", len(once), once)
+	}
+	if len(twice) != len(once) {
+		t.Fatalf("the second run drew %d lines where one run draws %d: %+v", len(twice), len(once), twice)
+	}
+	if twice[0].Relation != once[0].Relation || twice[0].Suppressed != once[0].Suppressed {
+		t.Errorf("the second run drew %q suppressed=%v where one run draws %q suppressed=%v",
+			twice[0].Relation, twice[0].Suppressed, once[0].Relation, once[0].Suppressed)
+	}
+	// And the author's words are not replaced by this package's.
+	if twice[0].Claim == nil || twice[0].Claim.Note != "checked; it is gone" {
+		t.Errorf("the line says %+v", twice[0].Claim)
+	}
+}

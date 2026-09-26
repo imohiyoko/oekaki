@@ -33,8 +33,8 @@ const ObservationsID = "https://raw.githubusercontent.com/imohiyoko/oekaki/main/
 //go:embed graph.schema.json
 var GraphSchema []byte
 
-// LegacyGraphSchema and LegacyGraphSchemaV05 are the frozen contracts of the
-// versions Decode still reads, used to validate an input before core migrates
+// The LegacyGraphSchema variables are the frozen contracts of the versions
+// Decode still reads, used to validate an input before core migrates
 // it. Keeping the exact old schema prevents Go's omitempty behavior from
 // laundering invalid legacy fields while re-encoding the migrated document.
 //
@@ -46,6 +46,9 @@ var LegacyGraphSchemaV05 []byte
 
 //go:embed graph-v0.6.schema.json
 var LegacyGraphSchemaV06 []byte
+
+//go:embed graph-v0.7.schema.json
+var LegacyGraphSchemaV07 []byte
 
 //go:embed ai-candidates.schema.json
 var AICandidatesSchema []byte
@@ -82,6 +85,10 @@ var compileLegacyGraphV05 = sync.OnceValues(func() (*jsonschema.Schema, error) {
 
 var compileLegacyGraphV06 = sync.OnceValues(func() (*jsonschema.Schema, error) {
 	return compileFrozen(LegacyGraphSchemaV06, "0.6")
+})
+
+var compileLegacyGraphV07 = sync.OnceValues(func() (*jsonschema.Schema, error) {
+	return compileFrozen(LegacyGraphSchemaV07, "0.7")
 })
 
 func compileFrozen(doc []byte, version string) (*jsonschema.Schema, error) {
@@ -180,6 +187,8 @@ func ValidateLegacyGraph(version string, doc []byte) error {
 		compile = compileLegacyGraphV05
 	case "0.6":
 		compile = compileLegacyGraphV06
+	case "0.7":
+		compile = compileLegacyGraphV07
 	default:
 		return fmt.Errorf("IR %s is not a version this build can read", version)
 	}
