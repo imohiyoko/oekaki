@@ -955,28 +955,62 @@ func TestSettlingTheSentenceLeavesTheGivenGraphAlone(t *testing.T) {
 	}
 }
 
-// An author who wrote their own words about a denial keeps them, whichever
-// duplicate the ordering happened to prefer. The note is part of that
-// ordering, and an empty one sorts first — so settling it after the merge let
-// a claim with nothing to say win and then be handed this sentence.
+// An author who wrote their own words about a denial keeps them, whatever
+// letter they start with and whatever the folding does to the flag.
+//
+// The note is part of the ordering and the comparison is alphabetical, so
+// "already removed" survived and "checked; it is gone" did not — the sentence
+// this package derives begins with "asserted", and which author kept their
+// words depended on their first letter. Both comparators now rank a claim
+// that says something of its own ahead of one that says nothing or only that
+// sentence; see core.NoteRank.
 func TestAnAuthorsOwnWordsSurviveTheOrdering(t *testing.T) {
-	g := &Graph{
-		Version: Version, Axes: []Axis{{ID: AxisNetwork}},
-		Nodes: []Node{{ID: "a", Type: "x", Name: "a"}, {ID: "b", Type: "x", Name: "b"}},
-		Edges: []Edge{
-			{From: "a", To: "b", Kind: EdgeObserved, Suppressed: true, AssertedAbsent: true,
-				Claim: &Claim{Origin: OriginHuman, Author: "auditor", Note: "already removed"}},
-			{From: "a", To: "b", Kind: EdgeObserved, Suppressed: true, AssertedAbsent: true,
-				Claim: &Claim{Origin: OriginHuman, Author: "auditor"}},
-		},
+	two := func(t *testing.T, note string, absent1, absent2 bool) Edge {
+		t.Helper()
+		g := &Graph{
+			Version: Version, Axes: []Axis{{ID: AxisNetwork}},
+			Nodes: []Node{{ID: "a", Type: "x", Name: "a"}, {ID: "b", Type: "x", Name: "b"}},
+			Edges: []Edge{
+				{From: "a", To: "b", Kind: EdgeObserved, Suppressed: true, AssertedAbsent: absent1,
+					Claim: &Claim{Origin: OriginHuman, Author: "auditor", Note: note}},
+				{From: "a", To: "b", Kind: EdgeObserved, Suppressed: true, AssertedAbsent: absent2,
+					Claim: &Claim{Origin: OriginHuman, Author: "auditor"}},
+			},
+		}
+		g.Normalize()
+		if len(g.Edges) != 1 {
+			t.Fatalf("%d lines: %+v", len(g.Edges), g.Edges)
+		}
+		return g.Edges[0]
 	}
-	g.Normalize()
-	if len(g.Edges) != 1 {
-		t.Fatalf("%d lines: %+v", len(g.Edges), g.Edges)
+
+	for _, c := range []struct {
+		name string
+		note string
+	}{
+		// Before and after the derived sentence in the alphabet. The second
+		// is the one that was being lost.
+		{"before \"asserted\"", "already removed"},
+		{"after \"asserted\"", "checked; it is gone"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := two(t, c.note, true, true).Claim.Note; got != c.note {
+				t.Errorf("the line says %q where its author wrote %q", got, c.note)
+			}
+		})
 	}
-	if got := g.Edges[0].Claim.Note; got != "already removed" {
-		t.Errorf("the line says %q where its author wrote \"already removed\"", got)
-	}
+
+	// And when folding takes the flag off, the words stay: the sentence goes
+	// because it is no longer true, not the author's.
+	t.Run("folded with one something drew", func(t *testing.T) {
+		got := two(t, "checked the flow logs", false, true)
+		if got.AssertedAbsent {
+			t.Error("the folded line says nothing drew it")
+		}
+		if got.Claim.Note != "checked the flow logs" {
+			t.Errorf("the line says %q", got.Claim.Note)
+		}
+	})
 }
 
 // A conflict's positive side has not denied anything, so it is not handed the
