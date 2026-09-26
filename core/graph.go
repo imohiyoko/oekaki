@@ -36,6 +36,29 @@ const (
 	legacyV07 = "0.7"
 )
 
+// deniedNoteV07 is how a line invented by a denial was recognised before 0.8
+// gave it a field: the sentence the denial wrote on it. Kept here, frozen and
+// copied rather than shared with the enricher that still writes the sentence,
+// because this one is part of the 0.7 contract. If the wording changes
+// tomorrow, what a 0.7 document says must not change with it.
+const deniedNoteV07 = "asserted not to exist; no such edge was found"
+
+// migrateAssertedAbsent recovers, from a document written before 0.8, which
+// edges were invented by a denial.
+//
+// Older versions have no field for it and were read by looking at the note.
+// Dropping that on the way in would tell the next claim that a line nothing
+// drew was a line a parser drew and somebody denied — which is the disagreement
+// between one run and two that the field exists to end.
+func (g *Graph) migrateAssertedAbsent() {
+	for i := range g.Edges {
+		edge := &g.Edges[i]
+		if edge.Suppressed && edge.Claim != nil && edge.Claim.Note == deniedNoteV07 {
+			edge.AssertedAbsent = true
+		}
+	}
+}
+
 // GroupSeparator joins group ids into the paths stored on Node.Groups.
 const GroupSeparator = "/"
 
@@ -973,6 +996,11 @@ func (g *Graph) mergeEdge(a *Edge, b Edge) {
 	} else if a.Suppressed == b.Suppressed && edgeClaimLess(b, *a) {
 		a.Claim = b.Claim
 	}
+	// Being here for no reason but a denial is a property of the pair, not of
+	// whichever duplicate sorted first: if either source drew the connection,
+	// something drew it. Folded rather than inherited, because inheriting it
+	// is how a parser's line came to be told that nothing drew it.
+	a.AssertedAbsent = a.AssertedAbsent && b.AssertedAbsent
 	a.Attrs = mergeAttrs(a.Attrs, b.Attrs)
 }
 
@@ -1348,6 +1376,13 @@ func (g *Graph) Validate() error {
 		problems = append(problems, checkClaim(o.Evidence, where)...)
 	}
 	for _, e := range g.Edges {
+		// An edge cannot be here only because somebody denied it and also not
+		// be denied. The pair is one fact said twice, and a document with
+		// half of it is a line nothing accounts for.
+		if e.AssertedAbsent && !e.Suppressed {
+			problems = append(problems, fmt.Sprintf(
+				"edge %s -> %s: asserted_absent without suppressed; a line that is here only because somebody denied it is denied", e.From, e.To))
+		}
 		problems = append(problems, checkClaim(e.Claim, fmt.Sprintf("edge %s -> %s", e.From, e.To))...)
 	}
 	for _, grp := range g.Groups {

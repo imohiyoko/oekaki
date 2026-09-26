@@ -1826,12 +1826,23 @@ func liftEdges(in []core.Edge, at map[string]string) []core.Edge {
 		// representative while nothing else has been seen for this pair, and
 		// is replaced by the first real one that arrives.
 		standing := merged[k]
-		if standing != nil && (!standing.Suppressed || e.Suppressed) {
-			continue
+
+		// One line standing for several is here for no reason but a denial
+		// only if every reference under it is. Copying the flag off whichever
+		// reference happened to represent the group would put "nothing drew
+		// this" on a line a parser drew.
+		absent := e.AssertedAbsent
+		if standing != nil {
+			absent = absent && standing.AssertedAbsent
+			standing.AssertedAbsent = absent
+			if !standing.Suppressed || e.Suppressed {
+				continue
+			}
 		}
 		lifted := e
 		lifted.From, lifted.To = from, to
 		lifted.Attrs = cloneAttrs(e.Attrs)
+		lifted.AssertedAbsent = absent
 		if standing == nil {
 			order = append(order, k)
 		}

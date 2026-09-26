@@ -548,3 +548,34 @@ func TestACoverageSinkOffThePageDoesNotStopTheRender(t *testing.T) {
 		}
 	}
 }
+
+// A line standing for several references is here for no reason but a denial
+// only if every one of them is. The flag was copied off whichever reference
+// represented the group, which put "nothing drew this" on a group line one of
+// whose references a parser drew.
+func TestAGroupedLineDoesNotInheritAnAbsenceFromOneReference(t *testing.T) {
+	at := map[string]string{"a1": "A", "a2": "A", "b1": "B", "b2": "B"}
+	for _, order := range []struct {
+		name string
+		in   []core.Edge
+	}{
+		{"invented first", []core.Edge{
+			{From: "a1", To: "b1", Kind: core.EdgeObserved, Suppressed: true, AssertedAbsent: true},
+			{From: "a2", To: "b2", Kind: core.EdgeObserved, Suppressed: true},
+		}},
+		{"drawn first", []core.Edge{
+			{From: "a1", To: "b1", Kind: core.EdgeObserved, Suppressed: true},
+			{From: "a2", To: "b2", Kind: core.EdgeObserved, Suppressed: true, AssertedAbsent: true},
+		}},
+	} {
+		t.Run(order.name, func(t *testing.T) {
+			out := liftEdges(order.in, at)
+			if len(out) != 1 {
+				t.Fatalf("%d lines where the group has one: %+v", len(out), out)
+			}
+			if out[0].AssertedAbsent {
+				t.Error("the group line says nothing drew it, and one reference was drawn")
+			}
+		})
+	}
+}
