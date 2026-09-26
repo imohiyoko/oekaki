@@ -1835,13 +1835,6 @@ func liftEdges(in []core.Edge, at map[string]string) []core.Edge {
 		if standing != nil {
 			absent = absent && standing.AssertedAbsent
 			asserted = asserted && standing.RelationAsserted
-			// And the sentence the denial wrote about nothing having drawn
-			// it becomes false. The sentence alone: taking the whole claim
-			// from the side that drew the line loses the denier, because a
-			// parser's reference carries no claim at all.
-			if standing.AssertedAbsent && !e.AssertedAbsent {
-				core.WithdrawDeniedNote(standing)
-			}
 			standing.AssertedAbsent, standing.RelationAsserted = absent, asserted
 			if !standing.Suppressed || e.Suppressed {
 				continue
@@ -1850,12 +1843,6 @@ func liftEdges(in []core.Edge, at map[string]string) []core.Edge {
 		lifted := e
 		lifted.From, lifted.To = from, to
 		lifted.Attrs = cloneAttrs(e.Attrs)
-		// Before the flag goes, not after: the sentence is withdrawn from a
-		// claim that is still on an invented line, which is how the helper
-		// knows there is one to withdraw.
-		if absent != e.AssertedAbsent {
-			core.WithdrawDeniedNote(&lifted)
-		}
 		lifted.AssertedAbsent, lifted.RelationAsserted = absent, asserted
 		if standing == nil {
 			order = append(order, k)
