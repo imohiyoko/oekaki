@@ -186,7 +186,15 @@
     "edge": {
       "type": "object",
       "required": ["from", "to", "kind"],
-      "dependentRequired": { "asserted_absent": ["suppressed"] },
+      "if": {
+        "properties": { "asserted_absent": { "const": true } },
+        "required": ["asserted_absent"]
+      },
+      "then": {
+        "properties": { "suppressed": { "const": true } },
+        "required": ["suppressed"],
+        "$comment": "The value, not the key. dependentRequired was tried and only asks whether asserted_absent is present, which let asserted_absent: true sit beside suppressed: false — accepted here and refused by Validate, so the published contract and the Go one disagreed — while refusing asserted_absent: false on its own, which says nothing and is fine."
+      },
       "additionalProperties": false,
       "properties": {
         "from": {

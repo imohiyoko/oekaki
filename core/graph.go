@@ -24,11 +24,12 @@ const Version = "0.8"
 // invalid then does not become valid by being read now.
 //
 // 0.4 carries untyped conflict targets, which are resolved against the graph.
-// 0.5 differs only by not having paths, and 0.7 only by not having an edge's
-// asserted_absent, so reading either is a change of version string and nothing
-// else — but they are still listed rather than waved through, because "shaped
-// like the current version" and "declared as it" are different claims and only
-// the second one is checked.
+// 0.5 and 0.6 differ only by not having paths and notes, so reading one is a
+// change of version string and nothing else — but they are still listed rather
+// than waved through, because "shaped like the current version" and "declared
+// as it" are different claims and only the second one is checked. 0.7 has an
+// edge's asserted_absent to recover: it recorded the same fact in the sentence
+// the denial wrote, and migrateAssertedAbsent reads it back.
 const (
 	legacyV04 = "0.4"
 	legacyV05 = "0.5"

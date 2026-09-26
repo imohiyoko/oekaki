@@ -635,8 +635,9 @@ func TestRoundTrip(t *testing.T) {
 	}
 }
 
-// A 0.7 document still reads. It differs from the current shape only by not
-// having an edge's asserted_absent, so there is nothing to migrate — but it is
+// A 0.7 document still reads. What it has to say about an edge's
+// asserted_absent is recovered from the note the denial left — see
+// TestAnInventedLineSurvivesBeingReadFromAnOlderVersion — and the document is
 // checked against the contract it declares before being re-stamped, because
 // "shaped like the current version" and "declared as it" are different claims.
 func TestADocumentFromBeforeTheMarkStillReads(t *testing.T) {
