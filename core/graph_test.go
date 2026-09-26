@@ -293,15 +293,15 @@ func TestDecodeEnforcesThePublishedSchema(t *testing.T) {
 	}{
 		{
 			name: "missing required collection",
-			doc:  `{"version":"0.7","axes":[],"nodes":[],"edges":[]}`,
+			doc:  `{"version":"0.8","axes":[],"nodes":[],"edges":[]}`,
 		},
 		{
 			name: "observation missing metric",
-			doc:  `{"version":"0.7","axes":[],"nodes":[{"id":"app","type":"service","name":"app"}],"edges":[],"groups":[],"observations":[{"subject":"app"}]}`,
+			doc:  `{"version":"0.8","axes":[],"nodes":[{"id":"app","type":"service","name":"app"}],"edges":[],"groups":[],"observations":[{"subject":"app"}]}`,
 		},
 		{
 			name: "unknown threshold operator",
-			doc:  `{"version":"0.7","axes":[],"nodes":[{"id":"app","type":"service","name":"app"}],"edges":[],"groups":[],"observations":[{"subject":"app","metric":"latency","threshold":{"operator":"about","value":1}}]}`,
+			doc:  `{"version":"0.8","axes":[],"nodes":[{"id":"app","type":"service","name":"app"}],"edges":[],"groups":[],"observations":[{"subject":"app","metric":"latency","threshold":{"operator":"about","value":1}}]}`,
 		},
 	}
 	for _, tt := range tests {
@@ -457,14 +457,14 @@ func TestDecodeMigratesAnOlderVersionAndEncodeWritesOnlyTheCurrentOne(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(encoded), `"version": "0.7"`) {
+	if !strings.Contains(string(encoded), `"version": "0.8"`) {
 		t.Fatalf("migrated encoding did not contain the current version:\n%s", encoded)
 	}
 	if err := schema.Validate(encoded); err != nil {
 		t.Fatalf("migrated encoding does not satisfy the current schema: %v", err)
 	}
 	g.Version = legacyV04
-	if _, err := g.MarshalIndent(); err == nil || !strings.Contains(err.Error(), "want \"0.7\"") {
+	if _, err := g.MarshalIndent(); err == nil || !strings.Contains(err.Error(), "want \"0.8\"") {
 		t.Fatalf("Encode legacy version error = %v", err)
 	}
 }
@@ -632,5 +632,25 @@ func TestRoundTrip(t *testing.T) {
 	}
 	if string(out) != string(again) {
 		t.Errorf("round trip changed the bytes:\n%s\n---\n%s", out, again)
+	}
+}
+
+// A 0.7 document still reads. It differs from the current shape only by not
+// having an edge's asserted_absent, so there is nothing to migrate — but it is
+// checked against the contract it declares before being re-stamped, because
+// "shaped like the current version" and "declared as it" are different claims.
+func TestADocumentFromBeforeTheMarkStillReads(t *testing.T) {
+	const older = `{"version":"0.7","axes":[],"nodes":[],"edges":[],"groups":[]}`
+	g, err := Decode(strings.NewReader(older))
+	if err != nil {
+		t.Fatalf("Decode 0.7: %v", err)
+	}
+	if g.Version != Version {
+		t.Errorf("read as %q, want %q", g.Version, Version)
+	}
+	// And one that was invalid then does not become valid by being read now.
+	const broken = `{"version":"0.7","axes":[],"nodes":[],"edges":[]}`
+	if _, err := Decode(strings.NewReader(broken)); err == nil {
+		t.Error("a 0.7 document missing a required collection was accepted")
 	}
 }

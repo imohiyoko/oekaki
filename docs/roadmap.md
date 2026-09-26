@@ -125,12 +125,6 @@ Still ahead in this line of work:
 - A reader for router registrations, which is the same fact written in the
   source. It lands the same edge `serves` does, so what is left is the reading:
   one per framework
-- A field saying why a line is in the graph. A denial of a connection nothing
-  drew invents one for the sentence to be about, and nothing in the file then
-  says that is what it is — three readings were tried and each has a
-  counterexample, so the second run over the same two files can disagree with
-  the first. `suppressed` is the precedent: an enricher's statement about an
-  edge, written as a field of the edge. See [api.md](api.md#which-function-serves-it)
 - A gRPC reader. A `.proto` service declares the same shape an OpenAPI
   document does — these operations exist — and lands as the same entity, so
   what is left is the reading rather than the design. See

@@ -131,17 +131,12 @@ a line somebody denied would be the page arguing with itself — so the line is
 drawn, faintly, only where the operation is on the page for a claim nobody
 denied.
 
-One thing a second run does not get right yet. A denial of a connection
-nothing drew invents a line for the sentence to be about, and the claim that
-arrives afterwards has to be that same line rather than a second one beside
-it. Which line that is, is worked out from the sentence the denial leaves on
-it — and a denial carrying the author's own `note` never gets that sentence,
-so after the graph has been written out and read back the claim draws its own
-line instead. One run and two runs then say different things about the same
-two files. The fix is to record why a line is there rather than to read it
-off what the line says, which is a field the IR does not have yet. Until it
-does, write the denial without a `note` if a `serves` claim about the same
-pair is coming.
+A denial of a connection nothing drew invents a line for the sentence to be
+about, and a claim arriving afterwards has to be that same line rather than a
+second one beside it — in a later run as much as in the same one. The graph
+says which lines those are: `asserted_absent` on the edge, written when the
+denial invents it and taken off again when something turns out to have drawn
+it. See [schema.md](schema.md#edges).
 
 What it is for is the descent. A reader who arrived from a running container,
 went behind it to the repository and is looking at its code map can now see

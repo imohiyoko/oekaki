@@ -5,13 +5,13 @@ them know about each other; they only agree on this. The machine-readable
 version is [`schema/graph.schema.json`](../schema/graph.schema.json), which is
 also embedded in the binary and printed by `oekaki schema`.
 
-Current version: **0.7**. It will change again before v1.0 freezes it.
+Current version: **0.8**. It will change again before v1.0 freezes it.
 
 ## Shape
 
 ```json
 {
-  "version": "0.7",
+  "version": "0.8",
   "metadata": { "generator": "oekaki/0.2.0", "source": "terraform" },
   "axes":   [ … ],
   "nodes":  [ … ],
@@ -111,8 +111,8 @@ diagram, and this file is meant to be reviewed as a diff.
 `metrics`, `coverage` and `claim` are owned by enrichers. **Parsers must not
 write to them.** This is the one hard rule about who writes what, and it is what
 allows an enricher and a parser to be written by different people who never
-talk. The same rule covers `suppressed` on an edge and the top-level
-`conflicts`.
+talk. The same rule covers `suppressed` and `asserted_absent` on an edge and
+the top-level `conflicts`.
 
 `source` is optional and only appears when `--source-dir` is given, since a plan
 file contains no source locations.
@@ -140,6 +140,14 @@ actually measured along this path" is already what `observed` means.
 
 Either end may name a **node or a group**. Edges are sorted by
 `(kind, from, to)` and de-duplicated.
+
+`suppressed` says somebody asserted the edge is not real, and
+`asserted_absent` says the edge is here for no reason but that: nothing drew
+the connection, and the sentence denying it needed something to be about. The
+two are separate because a denial of a reference a parser found is a
+disagreement worth drawing, while a denial of one nobody found is a statement
+standing on its own — and by the time the graph has been written out and read
+back, nothing else in the file tells them apart.
 
 ### Containment is usually not an edge
 
@@ -368,7 +376,9 @@ From 0.4 it migrates unambiguous conflict targets, rejecting an old target that
 could name both an entity and an edge (or more than one edge) instead of
 guessing. From 0.5 there is nothing to migrate: 0.6 adds `paths` and changes
 nothing else, so a 0.5 document is already the right shape. From 0.6 there is
-likewise nothing to migrate: 0.7 adds `notes`. Each is still checked against the
+likewise nothing to migrate: 0.7 adds `notes`. From 0.7 there is nothing to
+migrate either: 0.8 adds `asserted_absent` to an edge, and an edge without one
+was not invented by a denial. Each is still checked against the
 contract it declares and re-stamped rather than waved through, because "shaped
 like the current version" and "declared as it" are different claims and only the
 second one has been checked.
@@ -377,6 +387,10 @@ The version moved for `paths`, and again for `notes`, because the top-level shap
 published schema says `additionalProperties: false`. A 0.5 validator shown a
 document carrying routes would reject it, so the two shapes cannot share a
 version number, however additive the change looks from inside this repository.
+
+It moved again for `asserted_absent`, which is a field of an edge rather than
+a top-level collection — `additionalProperties: false` is on the edge too, so
+the same argument applies one level down.
 
 ## metadata.overlays
 
