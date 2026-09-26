@@ -779,26 +779,15 @@ type edgeAssertionHistory struct {
 	drawn bool
 
 	// theirs says this line's meaning is somebody's sentence rather than a
-	// reading nobody signed. Settled from the input and then left alone: the
-	// run rewrites a line's claim as it applies assertions to it, so asking
-	// the edge halfway through asks a different question each time — a denial
-	// reaching a parser's serves line puts the denier's name on it, and the
-	// affirmation that came next then saw an author where a reader had been
-	// and drew a second line beside it.
+	// reading nobody signed — which the graph says of itself, in
+	// core.Edge.RelationAsserted. Read from the record rather than worked out
+	// from how the line looks: a run that signs a reader's line writes the
+	// author onto it, so by the next run over its own output the line looks
+	// like one an author named, and the same two files said something
+	// different the second time they were read.
 	theirs bool
 
 	assertions []trackedEdgeAssertion
-}
-
-// authored reports whether a claim is a person's or a model's rather than a
-// reading. Said positively — this package does not validate the graph it is
-// handed, and an origin's zero value is a missing one, which core reads as
-// the parser everywhere else (claimOrParser, below).
-func authored(claim *core.Claim) bool {
-	if claim == nil {
-		return false
-	}
-	return claim.Origin == core.OriginHuman || claim.Origin == core.OriginAI
 }
 
 type edgeAssertionTracker struct {
@@ -833,7 +822,7 @@ func newEdgeAssertionTracker(g *core.Graph) *edgeAssertionTracker {
 		if !edge.AssertedAbsent {
 			history.drawn = true
 		}
-		if authored(edge.Claim) && assertedRelations[strings.ToLower(edge.Relation)] {
+		if edge.RelationAsserted {
 			history.theirs = true
 		}
 		history.add(trackedEdgeAssertion{
@@ -844,17 +833,6 @@ func newEdgeAssertionTracker(g *core.Graph) *edgeAssertionTracker {
 	}
 	return tracker
 }
-
-// assertedRelations are the relations an overlay writes itself. Every other
-// word on a line — calls, imports, built_from, reachable, exposes — is one a
-// reader took out of a document, and putting an author on one of those is what
-// "a connection exists that no parser found" has always also been used for.
-//
-// A table rather than "it carries a relation and a claim", which was tried and
-// is wrong: the enrichers sign their own lines too — builds names the run that
-// built the image — so that reading made a positive assertion miss the line it
-// has always landed on and draw a second, unlabelled one beside it.
-var assertedRelations = map[string]bool{relServes: true}
 
 // matching finds the lines an assertion is about.
 //
@@ -967,9 +945,8 @@ func (tracker *edgeAssertionTracker) name(g *core.Graph, history *edgeAssertionH
 	if relation == "" || edge.Relation != "" {
 		return
 	}
-	if assertedRelations[strings.ToLower(relation)] {
-		history.theirs = true
-	}
+	history.theirs = true
+	edge.RelationAsserted = true
 	was := core.EdgeKey(edge.From, edge.To, edge.Kind, edge.Relation)
 	now := core.EdgeKey(edge.From, edge.To, edge.Kind, relation)
 
@@ -987,12 +964,10 @@ func (tracker *edgeAssertionTracker) name(g *core.Graph, history *edgeAssertionH
 func (tracker *edgeAssertionTracker) create(g *core.Graph, from, to string, kind core.EdgeKind, relation string, suppressed bool) *edgeAssertionHistory {
 	g.Edges = append(g.Edges, core.Edge{
 		From: from, To: to, Kind: kind, Relation: relation,
-		AssertedAbsent: suppressed,
+		AssertedAbsent:   suppressed,
+		RelationAsserted: relation != "",
 	})
-	history := &edgeAssertionHistory{
-		index:  len(g.Edges) - 1,
-		theirs: assertedRelations[strings.ToLower(relation)],
-	}
+	history := &edgeAssertionHistory{index: len(g.Edges) - 1, theirs: relation != ""}
 	tracker.byKey[core.EdgeKey(from, to, kind, relation)] = history
 	return history
 }

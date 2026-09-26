@@ -43,6 +43,7 @@ func Decode(r io.Reader) (*Graph, error) {
 			}
 		}
 		g.migrateAssertedAbsent()
+		g.migrateRelationAsserted()
 		g.Version = Version
 		migrated, err := json.Marshal(&g)
 		if err != nil {

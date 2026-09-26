@@ -600,12 +600,31 @@ func TestAnAssertionWithNoRelationSignsWhatNobodyElseHas(t *testing.T) {
 		}
 	})
 
+	// And not on somebody's sentence. Built by making one rather than by
+	// spelling out what one looks like: what an assertion's line looks like
+	// in the file has been the wrong question five times, and a fixture that
+	// writes it out by hand agrees with whatever the code believed that day.
 	t.Run("a claim somebody signed", func(t *testing.T) {
-		got := signed(t, core.Edge{
-			From: "file:handler/http.go#HandleOrder", To: "api/checkout/get/orders/{id}",
-			Kind: core.EdgeIACRef, Relation: "serves",
-			Claim: &core.Claim{Origin: core.OriginHuman, Author: "operator", Note: "the router says so"},
-		})
+		g := wroteOut(t, serving(), `
+		  {"assert":"serves","subject":{"node":"file:handler/http.go#HandleOrder"},
+		   "operation":{"node":"api/checkout/get/orders/{id}"},"author":"operator"}`)
+
+		d, err := Parse([]byte(doc(`
+		  {"assert":"edge","from":{"node":"file:handler/http.go#HandleOrder"},
+		   "to":{"node":"api/checkout/get/orders/{id}"},"kind":"iac_ref","author":"auditor"}`)), "test.json")
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if _, err := New([]*Document{d}, Options{}).Enrich(g); err != nil {
+			t.Fatalf("Enrich: %v", err)
+		}
+
+		var got []core.Edge
+		for _, e := range g.Edges {
+			if e.From == "file:handler/http.go#HandleOrder" {
+				got = append(got, e)
+			}
+		}
 		if len(got) != 2 {
 			t.Fatalf("%d lines: the assertion landed on somebody else's sentence: %+v", len(got), got)
 		}
@@ -1121,5 +1140,54 @@ func TestAPhantomIsKnownByWhatWasRecordedNotByWhatItSays(t *testing.T) {
 	if twice[0].AssertedAbsent || once[0].AssertedAbsent {
 		t.Errorf("a line a claim draws still says nothing drew it: once=%v twice=%v",
 			once[0].AssertedAbsent, twice[0].AssertedAbsent)
+	}
+}
+
+// Signing a reader's line is idempotent: doing it again to the graph it
+// produced changes nothing.
+//
+// This is the case the guessing could never get right. The first run puts the
+// signer's name on the parser's line, so by the second run the line carries a
+// relation and an author and looks exactly like one an author named — and the
+// assertion that had landed on it drew a second line beside it instead. What
+// the line looks like cannot answer the question, because the first run is
+// what changed how it looks. The graph records the answer; see
+// core.Edge.RelationAsserted.
+func TestSigningAReadersLineSaysTheSameThingEveryRun(t *testing.T) {
+	const sign = `{"assert":"edge","from":{"node":"file:handler/http.go#HandleOrder"},
+	   "to":{"node":"api/checkout/get/orders/{id}"},"kind":"iac_ref","author":"auditor"}`
+
+	g := serving()
+	// A parser read the router and drew this. Nobody signed the reading.
+	g.Edges = append(g.Edges, core.Edge{
+		From: "file:handler/http.go#HandleOrder", To: "api/checkout/get/orders/{id}",
+		Kind: core.EdgeIACRef, Relation: "serves",
+		Claim: &core.Claim{Origin: core.OriginParser, Note: "mux.HandleFunc"},
+	})
+	g.Normalize()
+
+	for run := 1; run <= 3; run++ {
+		g = wroteOut(t, g, sign)
+
+		var lines []core.Edge
+		for _, e := range g.Edges {
+			if e.From == "file:handler/http.go#HandleOrder" {
+				lines = append(lines, e)
+			}
+		}
+		if len(lines) != 1 {
+			t.Fatalf("run %d drew %d lines where the parser drew one: %+v", run, len(lines), lines)
+		}
+		if lines[0].Relation != "serves" {
+			t.Errorf("run %d: the parser's line was left behind; this one is %q", run, lines[0].Relation)
+		}
+		if lines[0].Claim == nil || lines[0].Claim.Author != "auditor" {
+			t.Errorf("run %d: the line carries %+v", run, lines[0].Claim)
+		}
+		// And signing it does not make the reading into the signer's
+		// sentence: the parser named the relation, and still has.
+		if lines[0].RelationAsserted {
+			t.Errorf("run %d: the parser's reading is recorded as somebody's sentence", run)
+		}
 	}
 }

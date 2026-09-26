@@ -756,3 +756,84 @@ func TestFoldingTakesTheClaimFromWhatDrewTheLine(t *testing.T) {
 		})
 	}
 }
+
+// A 0.7 document is read the way it was written. Those versions recorded
+// nothing about who named a relation and were applied with a reading — a
+// relation only an overlay writes, under a claim with an author. Applying it
+// once at the boundary keeps such a document meaning what it meant; after the
+// re-stamp the answer is recorded rather than read off the line.
+func TestWhoNamedARelationIsRecoveredFromAnOlderVersion(t *testing.T) {
+	const older = `{"version":"0.7","axes":[],"groups":[],
+	  "nodes":[{"id":"f","type":"code_function","name":"H"},{"id":"op","type":"api","name":"GET /x"},
+	           {"id":"g","type":"code_function","name":"G"}],
+	  "edges":[
+	    {"from":"f","to":"op","kind":"iac_ref","relation":"serves",
+	     "claim":{"origin":"human","author":"alice"}},
+	    {"from":"g","to":"op","kind":"iac_ref","relation":"serves",
+	     "claim":{"origin":"parser","note":"mux.HandleFunc"}}]}`
+
+	g, err := Decode(strings.NewReader(older))
+	if err != nil {
+		t.Fatalf("Decode 0.7: %v", err)
+	}
+	got := map[string]bool{}
+	for _, e := range g.Edges {
+		got[e.From] = e.RelationAsserted
+	}
+	if !got["f"] {
+		t.Error("an author's sentence came back as a reading")
+	}
+	// A reader's line is not turned into somebody's sentence by being read.
+	if got["g"] {
+		t.Error("the parser's reading came back as somebody's sentence")
+	}
+}
+
+// Whose sentence a relation is cannot be answered by half a line.
+func TestASentenceWithNoRelationOrNoAuthorIsRefused(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		edge Edge
+	}{
+		{"no relation", Edge{From: "a", To: "b", Kind: EdgeObserved, RelationAsserted: true,
+			Claim: &Claim{Origin: OriginHuman, Author: "x"}}},
+		{"no claim", Edge{From: "a", To: "b", Kind: EdgeObserved, RelationAsserted: true, Relation: "serves"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			g := &Graph{
+				Version: Version,
+				Axes:    []Axis{{ID: AxisNetwork}},
+				Nodes:   []Node{{ID: "a", Type: "x", Name: "a"}, {ID: "b", Type: "x", Name: "b"}},
+				Edges:   []Edge{c.edge},
+			}
+			g.Normalize()
+			err := g.Validate()
+			if err == nil || !strings.Contains(err.Error(), "relation_asserted needs a relation and a claim") {
+				t.Fatalf("Validate() = %v, want it to refuse", err)
+			}
+		})
+	}
+}
+
+// A relation two readings share is not one author's sentence.
+func TestFoldingARelationTwoReadingsShareIsNotOneAuthors(t *testing.T) {
+	sentence := Edge{From: "a", To: "b", Kind: EdgeObserved, Relation: "serves", RelationAsserted: true,
+		Claim: &Claim{Origin: OriginHuman, Author: "alice"}}
+	reading := Edge{From: "a", To: "b", Kind: EdgeObserved, Relation: "serves",
+		Claim: &Claim{Origin: OriginParser}}
+	for _, order := range []struct {
+		name string
+		a, b Edge
+	}{
+		{"sentence first", sentence, reading},
+		{"reading first", reading, sentence},
+	} {
+		t.Run(order.name, func(t *testing.T) {
+			a := order.a
+			(&Graph{}).mergeEdge(&a, order.b)
+			if a.RelationAsserted {
+				t.Error("a relation a parser also drew is recorded as one author's sentence")
+			}
+		})
+	}
+}
