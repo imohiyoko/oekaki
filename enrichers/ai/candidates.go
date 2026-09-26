@@ -137,7 +137,15 @@ func (e Enricher) Enrich(g *core.Graph) (*enrichers.Report, error) {
 				continue
 			}
 			cl := &core.Claim{Origin: core.OriginAI, Confidence: c.Confidence, Note: c.Note}
-			g.Edges = append(g.Edges, core.Edge{From: c.From, To: c.To, Kind: core.EdgeObserved, Relation: c.Relation, Claim: cl})
+			// The relation is the model's word, not one it read out of a
+			// document, so the line says whose sentence it is — otherwise an
+			// overlay assertion that names no relation lands on it and
+			// replaces the model's name, its confidence and its note, with
+			// nothing recording that it did.
+			g.Edges = append(g.Edges, core.Edge{
+				From: c.From, To: c.To, Kind: core.EdgeObserved, Relation: c.Relation,
+				RelationAsserted: c.Relation != "", Claim: cl,
+			})
 			r.Applied++
 		}
 	}

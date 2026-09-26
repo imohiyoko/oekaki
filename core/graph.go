@@ -37,39 +37,33 @@ const (
 	legacyV07 = "0.7"
 )
 
-// deniedNoteV07 is how a line invented by a denial was recognised before 0.8
-// gave it a field: the sentence the denial wrote on it. Kept here, frozen and
-// copied rather than shared with the enricher that still writes the sentence,
-// because this one is part of the 0.7 contract. If the wording changes
-// tomorrow, what a 0.7 document says must not change with it.
-const deniedNoteV07 = "asserted not to exist; no such edge was found"
+// DeniedNote is what a denial says about a line nothing drew. The enricher
+// writes it; core reads it in two places — recovering AssertedAbsent from a
+// document written before 0.8 had a field for it, and taking the sentence
+// back off a line that turns out to have been drawn after all.
+//
+// One definition, because the two readings must agree. Changing the wording
+// changes what a document from before 0.8 is understood to say, so it is a
+// decision for a version boundary rather than an edit.
+const DeniedNote = "asserted not to exist; no such edge was found"
 
-// migrateAssertedAbsent recovers, from a document written before 0.8, which
-// edges were invented by a denial.
-//
-// Older versions have no field for it and were read by looking at the note.
-// Dropping that on the way in would tell the next claim that a line nothing
-// drew was a line a parser drew and somebody denied — which is the disagreement
-// between one run and two that the field exists to end.
-//
-// It recovers what those versions recorded, which is not all of it. A denial
-// carrying the author's own note never got this sentence, so such a line is
-// indistinguishable in a 0.7 file from a reference a parser drew and somebody
-// denied — the Terraform parser names no relation on the edges it draws, so
-// even that is not a difference. Not having recorded it is the defect 0.8
-// exists to fix; a document written before the fix cannot be read as though
-// it had been. A claim about such a pair draws its own line, once, and every
-// run after this one agrees with it, because the graph is re-stamped on the
-// way through.
 // migrateRelationAsserted recovers, from a document written before 0.8, which
 // lines were named by an assertion rather than by a reader.
 //
 // Older versions recorded nothing, so this is the reading those versions were
-// applied with: a relation only an overlay writes, under a claim with an
-// author behind it. It was not good enough to decide the question run by run
-// — that is why the field exists — but it is what a document from before the
-// field was written under, and applying it once at the boundary keeps such a
-// document meaning what it meant. Everything after the re-stamp is recorded.
+// applied with, exactly: a relation only an overlay writes, under a claim
+// with an author behind it. It was not good enough to decide the question run
+// by run — that is why the field exists — but it is what a document from
+// before the field was written under, and applying it once at the boundary
+// keeps such a document meaning what it meant.
+//
+// Which leaves out lines those versions also left out. An AI candidate names
+// its own relation and 0.8 records that, but 0.7 did not protect one, so a
+// 0.7 file's candidates come back unmarked and an overlay can still take them
+// over. Widening the rule here would be a better answer than 0.7 gave rather
+// than the answer 0.7 gave, and it would mark a parser's line that somebody
+// signed — the case the field exists for. Re-running the enricher marks them;
+// everything written after the re-stamp is recorded rather than read.
 func (g *Graph) migrateRelationAsserted() {
 	for i := range g.Edges {
 		edge := &g.Edges[i]
@@ -91,10 +85,27 @@ func (g *Graph) migrateRelationAsserted() {
 // today.
 var assertedRelations = map[string]bool{"serves": true}
 
+// migrateAssertedAbsent recovers, from a document written before 0.8, which
+// edges were invented by a denial.
+//
+// Older versions have no field for it and were read by looking at the note.
+// Dropping that on the way in would tell the next claim that a line nothing
+// drew was a line a parser drew and somebody denied — which is the disagreement
+// between one run and two that the field exists to end.
+//
+// It recovers what those versions recorded, which is not all of it. A denial
+// carrying the author's own note never got this sentence, so such a line is
+// indistinguishable in a 0.7 file from a reference a parser drew and somebody
+// denied — the Terraform parser names no relation on the edges it draws, so
+// even that is not a difference. Not having recorded it is the defect 0.8
+// exists to fix; a document written before the fix cannot be read as though
+// it had been. A claim about such a pair draws its own line, once, and every
+// run after this one agrees with it, because the graph is re-stamped on the
+// way through.
 func (g *Graph) migrateAssertedAbsent() {
 	for i := range g.Edges {
 		edge := &g.Edges[i]
-		if edge.Suppressed && edge.Claim != nil && edge.Claim.Note == deniedNoteV07 {
+		if edge.Suppressed && edge.Claim != nil && edge.Claim.Note == DeniedNote {
 			edge.AssertedAbsent = true
 		}
 	}
@@ -922,7 +933,12 @@ func (g *Graph) Normalize() {
 		if len(assertions) < 2 {
 			return
 		}
-		var positive, suppressed bool
+		var positive, suppressed, drawn bool
+		for _, assertion := range assertions {
+			if !assertion.AssertedAbsent {
+				drawn = true
+			}
+		}
 		claims := make([]ClaimedValue, 0, len(assertions))
 		for _, assertion := range assertions {
 			if assertion.Suppressed {
@@ -930,9 +946,28 @@ func (g *Graph) Normalize() {
 			} else {
 				positive = true
 			}
-			claims = append(claims, ClaimedValue{
+			// Of the line the merge produced, not of the copy this assertion
+			// arrived on. Where something drew the line, the denial's
+			// sentence about nothing having drawn it is false here as much as
+			// it is on the edge, and this is where a reader is shown what
+			// each side said.
+			if drawn {
+				withdrawDeniedNote(&assertion)
+			}
+			value := ClaimedValue{
 				Value: boolValue(assertion.Suppressed), Claim: claimOrParser(assertion.Claim),
-			})
+			}
+			// Two sentences that differed only in the part just removed are
+			// one sentence now.
+			var seen bool
+			for _, kept := range claims {
+				if kept.Value == value.Value && kept.Claim == value.Claim {
+					seen = true
+				}
+			}
+			if !seen {
+				claims = append(claims, value)
+			}
 		}
 		if positive && suppressed {
 			first := assertions[0]
@@ -1044,19 +1079,30 @@ func (g *Graph) Normalize() {
 // genuinely disagree — one source says the edge is real, another says it is
 // not — so that disagreement is recorded rather than resolved into silence.
 // Two sources merely both finding the edge is agreement, not conflict.
+// withdrawDeniedNote takes DeniedNote off a claim, leaving everything else.
+// The author still denied the line; what is no longer true is that nothing
+// drew it.
+func withdrawDeniedNote(e *Edge) {
+	if !e.AssertedAbsent || e.Claim == nil || e.Claim.Note != DeniedNote {
+		return
+	}
+	withdrawn := *e.Claim
+	withdrawn.Note = ""
+	e.Claim = &withdrawn
+}
+
 func (g *Graph) mergeEdge(a *Edge, b Edge) {
 	// Being here for no reason but a denial is a property of the pair, not of
 	// whichever duplicate sorted first: if either source drew the connection,
-	// something drew it. And the claim has to come off the reading that drew
-	// it — settled before the competition below, because an invented line's
-	// claim says "no such edge was found", which is false of a line something
-	// drew, and it would otherwise win on rank and say it anyway.
+	// something drew it.
+	//
+	// And the sentence the denial wrote about that becomes false, so it comes
+	// off — the sentence alone. Taking the whole claim from the side that
+	// drew the line was tried and loses the denier: a parser's edge carries
+	// no claim at all, so the merged line came out suppressed by nobody.
 	if a.AssertedAbsent != b.AssertedAbsent {
-		if a.AssertedAbsent {
-			a.Claim = b.Claim
-		} else {
-			b.Claim = a.Claim
-		}
+		withdrawDeniedNote(a)
+		withdrawDeniedNote(&b)
 		a.AssertedAbsent, b.AssertedAbsent = false, false
 	}
 

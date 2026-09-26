@@ -1038,8 +1038,10 @@ func (tracker *edgeAssertionTracker) apply(g *core.Graph, from, to string, kind 
 	}
 }
 
-// deniedNote is what a denial of an edge nobody drew says about itself.
-const deniedNote = "asserted not to exist; no such edge was found"
+// deniedNote is what a denial of an edge nobody drew says about itself. Owned
+// by core, which reads it back when a document from before the flag existed
+// is migrated and when a merge shows that something drew the line after all.
+const deniedNote = core.DeniedNote
 
 // settleDenials takes that sentence back off the lines it turned out to be
 // wrong about.

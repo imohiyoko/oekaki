@@ -27,8 +27,10 @@ func Decode(r io.Reader) (*Graph, error) {
 	// older versions are still read: 0.4, whose untyped conflict targets are
 	// resolved against the graph, and 0.5, 0.6 and 0.7, which differ from the
 	// current shape only by what they do not have — paths, notes, and an
-	// edge's asserted_absent. The last of those was recorded in the denial's
-	// own note before it had a field, so it is recovered rather than dropped.
+	// edge's asserted_absent and relation_asserted. Those last two were not
+	// recorded then; both are recovered from the reading 0.7 was applied
+	// with rather than dropped. See migrateAssertedAbsent and
+	// migrateRelationAsserted.
 	switch version := g.Version; version {
 	case legacyV04, legacyV05, legacyV06, legacyV07:
 		// Validate the original bytes before migration. Re-encoding a typed

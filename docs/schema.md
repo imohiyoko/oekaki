@@ -382,7 +382,7 @@ any other separator collision-free for implementations in any language.
 The displayed value is first. Ranking is human over ai over parser, and it is a
 total order so that the choice does not depend on which overlay was read first.
 
-Writers and `oekaki encode` emit only version 0.7. `Decode` still reads three
+Writers and `oekaki encode` emit only version 0.8. `Decode` still reads four
 older versions, and validates the original bytes against the frozen schema of
 whichever the document declares — the only contract it is fair to judge it by,
 and the thing that stops a field that was invalid then from being laundered
@@ -402,7 +402,9 @@ and somebody denied.
 
 `relation_asserted` comes back the same way, from the reading those versions
 were applied with: a relation only an overlay writes, under a claim with an
-author.
+author. That leaves out what those versions also left out — an AI candidate
+names its own relation, and 0.8 records that, but a 0.7 file's candidates
+come back unmarked. Re-running the enricher marks them.
 
 Not all of it comes back. A 0.7 denial that carried the author's own note
 never got that sentence, and such a line is indistinguishable in a 0.7 file

@@ -837,3 +837,68 @@ func TestFoldingARelationTwoReadingsShareIsNotOneAuthors(t *testing.T) {
 		})
 	}
 }
+
+// Folding an invented line into one something drew keeps the denier. Only the
+// clause that has become false comes off.
+//
+// Taking the whole claim from the side that drew the line loses them: a
+// parser's edge carries no claim at all, so the merged line came out
+// suppressed by nobody — the denial had become the parser's.
+func TestFoldingKeepsWhoDeniedTheLine(t *testing.T) {
+	invented := Edge{From: "a", To: "b", Kind: EdgeObserved, Suppressed: true, AssertedAbsent: true,
+		Claim: &Claim{Origin: OriginHuman, Author: "auditor", Note: DeniedNote}}
+	drawn := Edge{From: "a", To: "b", Kind: EdgeObserved} // a parser's: no claim at all
+
+	for _, order := range []struct {
+		name string
+		a, b Edge
+	}{
+		{"invented first", invented, drawn},
+		{"drawn first", drawn, invented},
+	} {
+		t.Run(order.name, func(t *testing.T) {
+			a := order.a
+			(&Graph{}).mergeEdge(&a, order.b)
+			if !a.Suppressed {
+				t.Fatal("the denial was dropped")
+			}
+			if a.Claim == nil || a.Claim.Author != "auditor" {
+				t.Errorf("the line is suppressed by %+v", a.Claim)
+			}
+			if a.Claim != nil && strings.Contains(a.Claim.Note, "no such edge") {
+				t.Errorf("the line still says %q about an edge that was found", a.Claim.Note)
+			}
+		})
+	}
+}
+
+// And what the reader is shown of the disagreement says the same thing. The
+// conflict is built from the copies that arrived, so it kept the sentence the
+// edge had just had taken off it.
+func TestTheConflictDoesNotKeepASentenceTheEdgeGaveUp(t *testing.T) {
+	g := &Graph{
+		Version: Version, Axes: []Axis{{ID: AxisNetwork}},
+		Nodes: []Node{{ID: "a", Type: "x", Name: "a"}, {ID: "b", Type: "x", Name: "b"}},
+		Edges: []Edge{
+			{From: "a", To: "b", Kind: EdgeObserved, Suppressed: true, AssertedAbsent: true,
+				Claim: &Claim{Origin: OriginHuman, Author: "auditor", Note: DeniedNote}},
+			{From: "a", To: "b", Kind: EdgeObserved, Claim: &Claim{Origin: OriginHuman, Author: "bob"}},
+		},
+	}
+	g.Normalize()
+	if err := g.Validate(); err != nil {
+		t.Fatalf("the normalized graph does not validate: %v", err)
+	}
+	var seen int
+	for _, c := range g.Conflicts {
+		for _, v := range c.Claims {
+			seen++
+			if strings.Contains(v.Claim.Note, "no such edge") {
+				t.Errorf("the conflict says %q about an edge bob drew", v.Claim.Note)
+			}
+		}
+	}
+	if seen == 0 {
+		t.Fatal("no conflict was recorded, so the test is not asking what it means to")
+	}
+}
