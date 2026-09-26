@@ -186,6 +186,7 @@
     "edge": {
       "type": "object",
       "required": ["from", "to", "kind"],
+      "dependentRequired": { "asserted_absent": ["suppressed"] },
       "additionalProperties": false,
       "properties": {
         "from": {

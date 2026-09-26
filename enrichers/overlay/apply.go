@@ -771,10 +771,11 @@ type edgeAssertionHistory struct {
 	existedInitially bool
 
 	// drawn says the input had this line as something other than a denial's
-	// own invention. See phantom: by the second run a denied parser line and
-	// an invented one are both suppressed and both carry the denier's claim,
-	// and without this the second run tells the parser's line that nothing
-	// drew it.
+	// own invention — which the graph says of itself, in
+	// core.Edge.AssertedAbsent. By the second run an invented line and a real
+	// one somebody denied are both suppressed and both carry the denier's
+	// claim, so without the record the second run tells the parser's line
+	// that nothing drew it.
 	drawn bool
 
 	// theirs says this line's meaning is somebody's sentence rather than a
@@ -798,12 +799,6 @@ func authored(claim *core.Claim) bool {
 		return false
 	}
 	return claim.Origin == core.OriginHuman || claim.Origin == core.OriginAI
-}
-
-// phantom reports whether an input line is one a denial invented rather than
-// one anything drew. The graph says so itself; see core.Edge.AssertedAbsent.
-func phantom(edge *core.Edge) bool {
-	return edge.AssertedAbsent
 }
 
 type edgeAssertionTracker struct {
@@ -835,7 +830,7 @@ func newEdgeAssertionTracker(g *core.Graph) *edgeAssertionTracker {
 			history = &edgeAssertionHistory{index: i, existedInitially: true}
 			tracker.byKey[key] = history
 		}
-		if !phantom(edge) {
+		if !edge.AssertedAbsent {
 			history.drawn = true
 		}
 		if authored(edge.Claim) && assertedRelations[strings.ToLower(edge.Relation)] {
@@ -940,15 +935,13 @@ func onlyDenied(history *edgeAssertionHistory) bool {
 	// meant the claim made a second, undenied one the moment the denial
 	// arrived from the file rather than from the document.
 	//
-	// What is asked instead is the same thing the one-run case asks: does
-	// anything at all say this line is there. The seeded history of an input
-	// edge carries its own suppressed flag, so a line somebody drew and did
-	// not deny answers no by the loop below.
-	//
-	// What the input said is asked separately, because a suppression is not
-	// undone when it is written out: a parser line this run's denial reaches
-	// comes back suppressed, and its seeded history then says nothing but
-	// denial has ever been said about it. The line was drawn all the same.
+	// So the question is asked in two halves. What this run has heard: the
+	// loop below, over everything said about the line, the seeded entry of an
+	// input edge included. And what the input already knew, which the
+	// suppressed flag cannot carry — a parser line this run's denial reaches
+	// comes back suppressed, and its history then says nothing but denial has
+	// ever been said about it, though the line was drawn all the same. That
+	// half is drawn, read from the record the graph keeps of it.
 	if history.drawn || len(history.assertions) == 0 {
 		return false
 	}
@@ -1077,7 +1070,9 @@ const deniedNote = "asserted not to exist; no such edge was found"
 // wrong about.
 //
 // A denial of an edge nothing had drawn writes "no such edge was found",
-// because at the time none was. If another assertion in the run then makes
+// because at the time none was. Which lines those are is not read back off
+// the sentence — the graph records it; see core.Edge.AssertedAbsent — but the
+// sentence itself still has to be right. If another assertion in the run then makes
 // one — a serves claim denied by a sentence earlier in the same document —
 // the note is false, and it is the sentence a reader is shown when they hover
 // the line. Settled here rather than when the denial was applied, because
@@ -1085,9 +1080,9 @@ const deniedNote = "asserted not to exist; no such edge was found"
 // were written in.
 //
 // Of every line, including the ones the input graph already had. A phantom
-// written out by an earlier run comes back as an ordinary edge carrying that
-// sentence, and the claim that adopts it on the second run makes the sentence
-// false in exactly the way it is false on the first. Skipping those left the
+// written out by an earlier run comes back marked, and the claim that adopts
+// it on the second run makes the sentence false in exactly the way it is
+// false on the first. Skipping those left the
 // note in the conflict — where the reader is shown what each side said — and
 // left it off the edge only by the accident of which claim ranked highest.
 func (tracker *edgeAssertionTracker) settleDenials(g *core.Graph) {

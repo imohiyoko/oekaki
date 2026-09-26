@@ -1115,4 +1115,11 @@ func TestAPhantomIsKnownByWhatWasRecordedNotByWhatItSays(t *testing.T) {
 	if twice[0].Claim == nil || twice[0].Claim.Note != "checked; it is gone" {
 		t.Errorf("the line says %+v", twice[0].Claim)
 	}
+	// And the mark comes off. The denial invented the line, but the claim
+	// that adopted it draws it — so the run after this one must not be told
+	// that nothing does. Both runs agree on that too.
+	if twice[0].AssertedAbsent || once[0].AssertedAbsent {
+		t.Errorf("a line a claim draws still says nothing drew it: once=%v twice=%v",
+			once[0].AssertedAbsent, twice[0].AssertedAbsent)
+	}
 }

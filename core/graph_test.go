@@ -654,3 +654,74 @@ func TestADocumentFromBeforeTheMarkStillReads(t *testing.T) {
 		t.Error("a 0.7 document missing a required collection was accepted")
 	}
 }
+
+// A line an earlier run invented is still known to be one after the graph has
+// been through a version it had no field for.
+//
+// Before 0.8 the fact lived in the sentence the denial wrote. Dropping it on
+// the way in would tell the next claim that a line nothing drew was a line a
+// parser drew and somebody denied, which is the disagreement between one run
+// and two that the field exists to end.
+func TestAnInventedLineSurvivesBeingReadFromAnOlderVersion(t *testing.T) {
+	const older = `{"version":"0.7","axes":[],"groups":[],
+	  "nodes":[{"id":"a","type":"x","name":"a"},{"id":"b","type":"x","name":"b"},{"id":"c","type":"x","name":"c"}],
+	  "edges":[
+	    {"from":"a","to":"b","kind":"observed","suppressed":true,
+	     "claim":{"origin":"human","author":"auditor","note":"asserted not to exist; no such edge was found"}},
+	    {"from":"a","to":"c","kind":"observed","suppressed":true,
+	     "claim":{"origin":"human","author":"auditor","note":"checked it myself"}}]}`
+
+	g, err := Decode(strings.NewReader(older))
+	if err != nil {
+		t.Fatalf("Decode 0.7: %v", err)
+	}
+	got := map[string]bool{}
+	for _, e := range g.Edges {
+		got[e.To] = e.AssertedAbsent
+	}
+	if !got["b"] {
+		t.Error("the line the denial invented came back as one something drew")
+	}
+	// And a denial of a line a parser drew is not turned into an invention by
+	// being read: that one carried no such sentence.
+	if got["c"] {
+		t.Error("a denied line was told nothing drew it")
+	}
+}
+
+// Folding two readings of one edge folds the flag with them. Whichever sorted
+// first is not the answer: if either source drew the connection, something
+// drew it.
+func TestFoldingTwoReadingsDoesNotInventAnAbsence(t *testing.T) {
+	for _, order := range []struct {
+		name string
+		a, b bool
+	}{
+		{"invented first", true, false},
+		{"drawn first", false, true},
+	} {
+		t.Run(order.name, func(t *testing.T) {
+			a := Edge{From: "a", To: "b", Kind: EdgeObserved, Suppressed: true, AssertedAbsent: order.a}
+			g := &Graph{}
+			g.mergeEdge(&a, Edge{From: "a", To: "b", Kind: EdgeObserved, Suppressed: true, AssertedAbsent: order.b})
+			if a.AssertedAbsent {
+				t.Error("the folded line says nothing drew it, and one of the two did")
+			}
+		})
+	}
+}
+
+// Half of the pair is a line nothing accounts for.
+func TestAnAbsenceThatIsNotDeniedIsRefused(t *testing.T) {
+	g := &Graph{
+		Version: Version,
+		Axes:    []Axis{{ID: AxisNetwork}},
+		Nodes:   []Node{{ID: "a", Type: "x", Name: "a"}, {ID: "b", Type: "x", Name: "b"}},
+		Edges:   []Edge{{From: "a", To: "b", Kind: EdgeObserved, AssertedAbsent: true}},
+	}
+	g.Normalize()
+	err := g.Validate()
+	if err == nil || !strings.Contains(err.Error(), "asserted_absent without suppressed") {
+		t.Fatalf("Validate() = %v, want it to refuse the pair", err)
+	}
+}

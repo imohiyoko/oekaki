@@ -143,11 +143,16 @@ Either end may name a **node or a group**. Edges are sorted by
 
 `suppressed` says somebody asserted the edge is not real, and
 `asserted_absent` says the edge is here for no reason but that: nothing drew
-the connection, and the sentence denying it needed something to be about. The
-two are separate because a denial of a reference a parser found is a
-disagreement worth drawing, while a denial of one nobody found is a statement
-standing on its own — and by the time the graph has been written out and read
-back, nothing else in the file tells them apart.
+the connection, and the sentence denying it needed something to be about.
+
+Nothing draws the second one differently — a renderer that reads `suppressed`
+has everything it needs. It is there for the *next* run: the graph one run
+writes is the input of the next, and by then an invented line and a real one
+somebody denied are both suppressed and both carry the denier's claim. A
+claim arriving in that later run has to know whether it is adopting the
+invented line or drawing its own, and this is the only thing in the file that
+tells it. A document from before 0.8 is read by the note the denial left, and
+re-stamped carrying the flag.
 
 ### Containment is usually not an edge
 
