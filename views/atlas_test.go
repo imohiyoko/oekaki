@@ -1,7 +1,6 @@
 package views
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/imohiyoko/oekaki/core"
@@ -609,9 +608,41 @@ func TestAGroupedLineFoldsWhatItsReferencesSay(t *testing.T) {
 			if out[0].RelationAsserted {
 				t.Error("a relation a reader also used is recorded as one author's sentence")
 			}
-			if out[0].Claim != nil && strings.Contains(out[0].Claim.Note, "no such edge") {
-				t.Errorf("the group line says %q about a reference that was drawn", out[0].Claim.Note)
-			}
+			// What the line says about that is core's to settle, once, when
+			// the graph is normalized — which every caller of liftEdges does
+			// next. See core.settleDeniedNotes.
 		})
+	}
+}
+
+// Lifting edges onto groups and normalizing the page does not write back into
+// the graph the page was derived from.
+//
+// liftEdges copies the edge but not the claim behind it, so every page shares
+// one *Claim with the input and with each other. Settling the denial's
+// sentence in place therefore put it back on a page that had already been
+// built — which is the bug the sentence was made derived to avoid.
+func TestBuildingAPageDoesNotWriteBackIntoTheGraph(t *testing.T) {
+	shared := &core.Claim{Origin: core.OriginHuman, Author: "auditor", Note: core.DeniedNote}
+	in := []core.Edge{
+		{From: "a1", To: "b1", Kind: core.EdgeObserved,
+			Suppressed: true, AssertedAbsent: true, Claim: shared},
+		{From: "a2", To: "b2", Kind: core.EdgeObserved, Suppressed: true},
+	}
+	page := &core.Graph{
+		Version: core.Version, Axes: []core.Axis{{ID: core.AxisNetwork}},
+		Nodes: []core.Node{{ID: "A", Type: "x", Name: "A"}, {ID: "B", Type: "x", Name: "B"}},
+		Edges: liftEdges(in, map[string]string{"a1": "A", "a2": "A", "b1": "B", "b2": "B"}),
+	}
+	page.Normalize()
+
+	if shared.Note != core.DeniedNote {
+		t.Errorf("the input graph's claim was rewritten to %q", shared.Note)
+	}
+	if len(page.Edges) != 1 {
+		t.Fatalf("%d lines on the page: %+v", len(page.Edges), page.Edges)
+	}
+	if got := page.Edges[0].Claim.Note; got != "" {
+		t.Errorf("the page's line says %q about a reference that was drawn", got)
 	}
 }

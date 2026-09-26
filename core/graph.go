@@ -37,10 +37,11 @@ const (
 	legacyV07 = "0.7"
 )
 
-// DeniedNote is what a denial says about a line nothing drew. The enricher
-// writes it; core reads it in two places — recovering AssertedAbsent from a
-// document written before 0.8 had a field for it, and taking the sentence
-// back off a line that turns out to have been drawn after all.
+// DeniedNote is what a denial says about a line nothing drew. It is not a
+// fact the graph carries — AssertedAbsent is — but the words that fact is put
+// in, derived from the flag by settleDeniedNotes whenever a graph is
+// normalized, and read back when a document written before 0.8 had the flag
+// is migrated.
 //
 // One definition, because the two readings must agree. Changing the wording
 // changes what a document from before 0.8 is understood to say, so it is a
@@ -941,23 +942,14 @@ func (g *Graph) Normalize() {
 			} else {
 				positive = true
 			}
-			// Of the line the merge produced, not of the copy this assertion
-			// arrived on. A conflict is only recorded where something said
-			// the edge is real, and a line somebody positively asserted is
-			// one something drew — so by the time these claims are read, the
-			// denial's sentence about nothing having drawn it is false here
-			// as much as it is on the edge, and this is where a reader is
-			// shown what each side said.
-			WithdrawDeniedNote(&assertion)
 			claims = append(claims, ClaimedValue{
 				Value: boolValue(assertion.Suppressed), Claim: claimOrParser(assertion.Claim),
 			})
 		}
-		// Sentences that differed only in the part just removed are one
-		// sentence now. Deduped by uniqueClaimedValues below rather than
-		// here: a ClaimedValue holds a *float64, so == compares the address
-		// of a confidence rather than the number, and two claims that say
-		// the same thing never matched.
+		// Sentences that settleDeniedNotes makes identical are folded by
+		// uniqueClaimedValues below rather than here: a ClaimedValue holds a
+		// *float64, so == compares the address of a confidence rather than
+		// the number, and two claims that say the same thing never matched.
 		if positive && suppressed {
 			first := assertions[0]
 			g.Conflicts = append(g.Conflicts, Conflict{
@@ -982,6 +974,7 @@ func (g *Graph) Normalize() {
 	}
 	recordAssertions()
 	g.Edges = deduped
+	g.settleDeniedNotes()
 
 	for i := range g.Nodes {
 		if len(g.Nodes[i].Groups) == 0 {
@@ -1064,18 +1057,94 @@ func (g *Graph) Normalize() {
 	}
 }
 
-// WithdrawDeniedNote takes DeniedNote off a claim, leaving everything else.
-// The author still denied the line; what is no longer true is that nothing
-// drew it. Call it wherever an invented line is folded into one something
-// drew — Normalize does, and so does the atlas when it lifts edges onto
-// groups.
-func WithdrawDeniedNote(e *Edge) {
-	if !e.AssertedAbsent || e.Claim == nil || e.Claim.Note != DeniedNote {
-		return
+// settleDeniedNotes makes the sentence agree with the flag.
+//
+// DeniedNote is not a fact the graph carries; AssertedAbsent is. The sentence
+// is how that fact is put to a reader, and it is derived here — once, after
+// the merging is done — rather than written by whoever created the line and
+// then taken back off by everybody who folds one.
+//
+// It was the other way round and it did not hold. Every place two lines
+// become one had to withdraw the sentence by hand: Normalize's merge, the
+// conflict it records, the atlas lifting edges onto groups, and the enricher
+// settling its own denials. Four call sites, two of which were written
+// wrong the first time and one of which was forgotten twice — because each
+// was added next to a flag that was already being folded correctly, one
+// function away from the other copy.
+//
+// An author's own words are left alone. The sentence is what a denial says
+// when it has nothing else to say, so it goes on a claim with no note and
+// comes off one that says only this.
+func (g *Graph) settleDeniedNotes() {
+	var absent map[string]bool
+	for i := range g.Edges {
+		edge := &g.Edges[i]
+		edge.Claim = settledClaim(edge.Claim, edge.AssertedAbsent)
+		if edge.AssertedAbsent {
+			if absent == nil {
+				absent = map[string]bool{}
+			}
+			absent[EdgeKey(edge.From, edge.To, edge.Kind, edge.Relation)] = true
+		}
 	}
-	withdrawn := *e.Claim
-	withdrawn.Note = ""
-	e.Claim = &withdrawn
+
+	// And where the disagreement is written down. A conflict is built from
+	// the copies that arrived rather than from the line they became, so the
+	// sentence a reader is shown there has to be settled against the line as
+	// well. Claims that become identical are folded by the dedup below.
+	//
+	// The denying side of a disagreement about suppression, and nothing
+	// else: a claim that says the edge is real has not denied anything, and
+	// a disagreement about some other field is not about this at all.
+	for i := range g.Conflicts {
+		c := &g.Conflicts[i]
+		if c.TargetKind != ConflictTargetEdge || c.Field != "suppressed" {
+			continue
+		}
+		var copied bool
+		for j := range c.Claims {
+			if c.Claims[j].Value != "true" {
+				continue
+			}
+			settled := settledClaim(&c.Claims[j].Claim, absent[c.Target])
+			if settled == &c.Claims[j].Claim {
+				continue
+			}
+			// Copied once, before the first write. Conflicts carried in from
+			// another graph share their Claims array with it — see carry —
+			// so writing through this index would reach back into the
+			// caller's graph and into every page derived from it.
+			if !copied {
+				c.Claims = append([]ClaimedValue(nil), c.Claims...)
+				copied = true
+			}
+			c.Claims[j].Claim = *settled
+		}
+	}
+}
+
+// settledClaim returns c with the denial's own sentence on it or off it,
+// whichever the flag calls for. A note that reads exactly like the sentence
+// comes off a line something drew even if its author typed it themselves:
+// there is nothing in the file to tell the two apart, and on such a line the
+// words are false whoever wrote them. The claim is copied rather than written
+// through: views hands the same *Claim to every page it derives from a
+// graph, and editing one in place changed a drawing somebody had already
+// been given.
+func settledClaim(c *Claim, absent bool) *Claim {
+	if c == nil {
+		return nil
+	}
+	settled := *c
+	switch {
+	case absent && c.Note == "":
+		settled.Note = DeniedNote
+	case !absent && c.Note == DeniedNote:
+		settled.Note = ""
+	default:
+		return c
+	}
+	return &settled
 }
 
 // mergeEdge folds b into a. Suppression is the one field where the two can
@@ -1087,15 +1156,9 @@ func (g *Graph) mergeEdge(a *Edge, b Edge) {
 	// whichever duplicate sorted first: if either source drew the connection,
 	// something drew it.
 	//
-	// And the sentence the denial wrote about that becomes false, so it comes
-	// off — the sentence alone. Taking the whole claim from the side that
-	// drew the line was tried and loses the denier: a parser's edge carries
-	// no claim at all, so the merged line came out suppressed by nobody.
-	if a.AssertedAbsent != b.AssertedAbsent {
-		WithdrawDeniedNote(a)
-		WithdrawDeniedNote(&b)
-		a.AssertedAbsent, b.AssertedAbsent = false, false
-	}
+	// The sentence the denial wrote about that becomes false with it, and is
+	// settled once for the whole graph afterwards; see settleDeniedNotes.
+	a.AssertedAbsent = a.AssertedAbsent && b.AssertedAbsent
 
 	// And a relation two readings share is not one author's sentence: if a
 	// parser drew the same line, the word is a reading too. Folded the same
@@ -1255,7 +1318,30 @@ func claimLess(a, b Claim) bool {
 	if optionalKey(a.Confidence) != optionalKey(b.Confidence) {
 		return optionalKey(a.Confidence) < optionalKey(b.Confidence)
 	}
+	if NoteRank(a.Note) != NoteRank(b.Note) {
+		return NoteRank(a.Note) < NoteRank(b.Note)
+	}
 	return a.Note < b.Note
+}
+
+// NoteRank puts a claim that says something of its own ahead of one that says
+// nothing, and of one carrying only DeniedNote — which this package writes
+// rather than any author.
+//
+// Ranked before the notes are compared as text, because that comparison is
+// alphabetical and settles nothing: "asserted not to exist; no such edge was
+// found" beats every sentence that happens to start later in the alphabet, so
+// which author kept their words depended on their first letter. Ordering the
+// notes before the merge instead was tried and is the same bug wearing a
+// different hat.
+//
+// Both comparators use it — this one and the enricher's, which rank the same
+// claims and disagreed about them.
+func NoteRank(note string) int {
+	if note == "" || note == DeniedNote {
+		return 1
+	}
+	return 0
 }
 
 // optionalKey orders an optional number, putting "not stated" before any

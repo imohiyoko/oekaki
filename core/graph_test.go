@@ -727,33 +727,114 @@ func TestAnAbsenceThatIsNotDeniedIsRefused(t *testing.T) {
 	}
 }
 
-// Folding takes the claim off the reading that drew the line, not only the
-// flag. A representative invented by a denial says "no such edge was found",
-// which is false of a line something drew.
-func TestFoldingTakesTheClaimFromWhatDrewTheLine(t *testing.T) {
-	invented := &Claim{Origin: OriginHuman, Author: "x", Note: "asserted not to exist; no such edge was found"}
-	real := &Claim{Origin: OriginHuman, Author: "y", Note: "denied a real one"}
-	for _, order := range []struct {
-		name string
-		a, b Edge
-	}{
-		{"invented first",
-			Edge{From: "a", To: "b", Kind: EdgeObserved, Suppressed: true, AssertedAbsent: true, Claim: invented},
-			Edge{From: "a", To: "b", Kind: EdgeObserved, Suppressed: true, Claim: real}},
-		{"drawn first",
-			Edge{From: "a", To: "b", Kind: EdgeObserved, Suppressed: true, Claim: real},
-			Edge{From: "a", To: "b", Kind: EdgeObserved, Suppressed: true, AssertedAbsent: true, Claim: invented}},
-	} {
-		t.Run(order.name, func(t *testing.T) {
-			a := order.a
-			(&Graph{}).mergeEdge(&a, order.b)
-			if a.AssertedAbsent {
-				t.Error("the folded line says nothing drew it")
+// The sentence agrees with the flag, whatever route the graph took to get
+// here. It is not written by whoever makes a line and taken back off by
+// everybody who folds one — that was four hand-written withdrawals, two
+// written wrong and one forgotten twice — but derived from AssertedAbsent
+// once the merging is done.
+func TestTheSentenceAgreesWithTheFlag(t *testing.T) {
+	estate := func(edges ...Edge) *Graph {
+		return &Graph{
+			Version: Version, Axes: []Axis{{ID: AxisNetwork}},
+			Nodes: []Node{{ID: "a", Type: "x", Name: "a"}, {ID: "b", Type: "x", Name: "b"}},
+			Edges: edges,
+		}
+	}
+	denial := func(note string) *Claim {
+		return &Claim{Origin: OriginHuman, Author: "auditor", Note: note}
+	}
+
+	// A line nothing drew says so, and does not have to have been told to.
+	t.Run("a line nothing drew", func(t *testing.T) {
+		g := estate(Edge{From: "a", To: "b", Kind: EdgeObserved,
+			Suppressed: true, AssertedAbsent: true, Claim: denial("")})
+		g.Normalize()
+		if got := g.Edges[0].Claim.Note; got != DeniedNote {
+			t.Errorf("the line says %q", got)
+		}
+	})
+
+	// Folded with one a parser drew, it stops saying it — and keeps the
+	// denier. Taking the whole claim from the side that drew the line was
+	// tried and loses them: a parser's edge carries no claim at all.
+	t.Run("folded with one something drew", func(t *testing.T) {
+		g := estate(
+			Edge{From: "a", To: "b", Kind: EdgeObserved,
+				Suppressed: true, AssertedAbsent: true, Claim: denial(DeniedNote)},
+			Edge{From: "a", To: "b", Kind: EdgeObserved},
+		)
+		g.Normalize()
+		if len(g.Edges) != 1 {
+			t.Fatalf("%d lines: %+v", len(g.Edges), g.Edges)
+		}
+		e := g.Edges[0]
+		if !e.Suppressed {
+			t.Error("the denial was dropped")
+		}
+		if e.Claim == nil || e.Claim.Author != "auditor" {
+			t.Errorf("the line is suppressed by %+v", e.Claim)
+		}
+		if e.Claim != nil && e.Claim.Note != "" {
+			t.Errorf("the line says %q about an edge that was found", e.Claim.Note)
+		}
+	})
+
+	// The author's own words are theirs. The sentence is what a denial says
+	// when it has nothing else to say.
+	t.Run("a denial that said something of its own", func(t *testing.T) {
+		g := estate(Edge{From: "a", To: "b", Kind: EdgeObserved,
+			Suppressed: true, AssertedAbsent: true, Claim: denial("checked; it is gone")})
+		g.Normalize()
+		if got := g.Edges[0].Claim.Note; got != "checked; it is gone" {
+			t.Errorf("the line says %q", got)
+		}
+	})
+
+	// And a file where somebody made the two disagree is put right on the
+	// way in, rather than carried as written.
+	t.Run("a document that disagrees with itself", func(t *testing.T) {
+		const doc = `{"version":"` + Version + `","axes":[],"groups":[],
+		  "nodes":[{"id":"a","type":"x","name":"a"},{"id":"b","type":"x","name":"b"}],
+		  "edges":[{"from":"a","to":"b","kind":"observed","suppressed":true,
+		    "claim":{"origin":"human","author":"auditor","note":"` + DeniedNote + `"}}]}`
+		g, err := Decode(strings.NewReader(doc))
+		if err != nil {
+			t.Fatalf("Decode: %v", err)
+		}
+		if got := g.Edges[0].Claim.Note; got != "" {
+			t.Errorf("a line nothing says was invented still says %q", got)
+		}
+	})
+}
+
+// And what the reader is shown of the disagreement says the same thing. The
+// conflict is built from the copies that arrived, so it kept the sentence the
+// edge had just had taken off it.
+func TestTheConflictDoesNotKeepASentenceTheEdgeGaveUp(t *testing.T) {
+	g := &Graph{
+		Version: Version, Axes: []Axis{{ID: AxisNetwork}},
+		Nodes: []Node{{ID: "a", Type: "x", Name: "a"}, {ID: "b", Type: "x", Name: "b"}},
+		Edges: []Edge{
+			{From: "a", To: "b", Kind: EdgeObserved, Suppressed: true, AssertedAbsent: true,
+				Claim: &Claim{Origin: OriginHuman, Author: "auditor", Note: DeniedNote}},
+			{From: "a", To: "b", Kind: EdgeObserved, Claim: &Claim{Origin: OriginHuman, Author: "bob"}},
+		},
+	}
+	g.Normalize()
+	if err := g.Validate(); err != nil {
+		t.Fatalf("the normalized graph does not validate: %v", err)
+	}
+	var seen int
+	for _, c := range g.Conflicts {
+		for _, v := range c.Claims {
+			seen++
+			if strings.Contains(v.Claim.Note, "no such edge") {
+				t.Errorf("the conflict says %q about an edge bob drew", v.Claim.Note)
 			}
-			if a.Claim != nil && strings.Contains(a.Claim.Note, "no such edge was found") {
-				t.Errorf("the folded line says %q about an edge that was found", a.Claim.Note)
-			}
-		})
+		}
+	}
+	if seen == 0 {
+		t.Fatal("no conflict was recorded, so the test is not asking what it means to")
 	}
 }
 
@@ -838,67 +919,124 @@ func TestFoldingARelationTwoReadingsShareIsNotOneAuthors(t *testing.T) {
 	}
 }
 
-// Folding an invented line into one something drew keeps the denier. Only the
-// clause that has become false comes off.
+// Settling the sentence does not reach back into the graph it was given.
 //
-// Taking the whole claim from the side that drew the line loses them: a
-// parser's edge carries no claim at all, so the merged line came out
-// suppressed by nobody — the denial had become the parser's.
-func TestFoldingKeepsWhoDeniedTheLine(t *testing.T) {
-	invented := Edge{From: "a", To: "b", Kind: EdgeObserved, Suppressed: true, AssertedAbsent: true,
-		Claim: &Claim{Origin: OriginHuman, Author: "auditor", Note: DeniedNote}}
-	drawn := Edge{From: "a", To: "b", Kind: EdgeObserved} // a parser's: no claim at all
+// views hands the same *Claim to every page it derives — liftEdges copies the
+// edge but not the claim behind it — so writing the sentence through that
+// pointer put it back on a drawing somebody had already been handed. The same
+// goes for a conflict's claims, whose array is shared by carry.
+func TestSettlingTheSentenceLeavesTheGivenGraphAlone(t *testing.T) {
+	shared := &Claim{Origin: OriginHuman, Author: "auditor"}
+	in := &Graph{
+		Version: Version, Axes: []Axis{{ID: AxisNetwork}},
+		Nodes: []Node{{ID: "a", Type: "x", Name: "a"}, {ID: "b", Type: "x", Name: "b"}},
+		Edges: []Edge{{From: "a", To: "b", Kind: EdgeObserved,
+			Suppressed: true, AssertedAbsent: true, Claim: shared}},
+	}
+	in.Normalize()
+	if shared.Note != "" {
+		t.Errorf("the claim the caller still holds was written through: %q", shared.Note)
+	}
 
-	for _, order := range []struct {
-		name string
-		a, b Edge
-	}{
-		{"invented first", invented, drawn},
-		{"drawn first", drawn, invented},
-	} {
-		t.Run(order.name, func(t *testing.T) {
-			a := order.a
-			(&Graph{}).mergeEdge(&a, order.b)
-			if !a.Suppressed {
-				t.Fatal("the denial was dropped")
-			}
-			if a.Claim == nil || a.Claim.Author != "auditor" {
-				t.Errorf("the line is suppressed by %+v", a.Claim)
-			}
-			if a.Claim != nil && strings.Contains(a.Claim.Note, "no such edge") {
-				t.Errorf("the line still says %q about an edge that was found", a.Claim.Note)
-			}
-		})
+	// And the other way: a claim already carrying the sentence, on a line
+	// nothing says was invented, is not edited where its owner can see it.
+	owned := &Claim{Origin: OriginHuman, Author: "auditor", Note: DeniedNote}
+	out := &Graph{
+		Version: Version, Axes: []Axis{{ID: AxisNetwork}},
+		Nodes: []Node{{ID: "a", Type: "x", Name: "a"}, {ID: "b", Type: "x", Name: "b"}},
+		Edges: []Edge{{From: "a", To: "b", Kind: EdgeObserved, Suppressed: true, Claim: owned}},
+	}
+	out.Normalize()
+	if owned.Note != DeniedNote {
+		t.Errorf("the caller's claim was cleared: %q", owned.Note)
+	}
+	if got := out.Edges[0].Claim.Note; got != "" {
+		t.Errorf("the graph's own copy still says %q", got)
 	}
 }
 
-// And what the reader is shown of the disagreement says the same thing. The
-// conflict is built from the copies that arrived, so it kept the sentence the
-// edge had just had taken off it.
-func TestTheConflictDoesNotKeepASentenceTheEdgeGaveUp(t *testing.T) {
+// An author who wrote their own words about a denial keeps them, whatever
+// letter they start with and whatever the folding does to the flag.
+//
+// The note is part of the ordering and the comparison is alphabetical, so
+// "already removed" survived and "checked; it is gone" did not — the sentence
+// this package derives begins with "asserted", and which author kept their
+// words depended on their first letter. Both comparators now rank a claim
+// that says something of its own ahead of one that says nothing or only that
+// sentence; see core.NoteRank.
+func TestAnAuthorsOwnWordsSurviveTheOrdering(t *testing.T) {
+	two := func(t *testing.T, note string, absent1, absent2 bool) Edge {
+		t.Helper()
+		g := &Graph{
+			Version: Version, Axes: []Axis{{ID: AxisNetwork}},
+			Nodes: []Node{{ID: "a", Type: "x", Name: "a"}, {ID: "b", Type: "x", Name: "b"}},
+			Edges: []Edge{
+				{From: "a", To: "b", Kind: EdgeObserved, Suppressed: true, AssertedAbsent: absent1,
+					Claim: &Claim{Origin: OriginHuman, Author: "auditor", Note: note}},
+				{From: "a", To: "b", Kind: EdgeObserved, Suppressed: true, AssertedAbsent: absent2,
+					Claim: &Claim{Origin: OriginHuman, Author: "auditor"}},
+			},
+		}
+		g.Normalize()
+		if len(g.Edges) != 1 {
+			t.Fatalf("%d lines: %+v", len(g.Edges), g.Edges)
+		}
+		return g.Edges[0]
+	}
+
+	for _, c := range []struct {
+		name string
+		note string
+	}{
+		// Before and after the derived sentence in the alphabet. The second
+		// is the one that was being lost.
+		{"before \"asserted\"", "already removed"},
+		{"after \"asserted\"", "checked; it is gone"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := two(t, c.note, true, true).Claim.Note; got != c.note {
+				t.Errorf("the line says %q where its author wrote %q", got, c.note)
+			}
+		})
+	}
+
+	// And when folding takes the flag off, the words stay: the sentence goes
+	// because it is no longer true, not the author's.
+	t.Run("folded with one something drew", func(t *testing.T) {
+		got := two(t, "checked the flow logs", false, true)
+		if got.AssertedAbsent {
+			t.Error("the folded line says nothing drew it")
+		}
+		if got.Claim.Note != "checked the flow logs" {
+			t.Errorf("the line says %q", got.Claim.Note)
+		}
+	})
+}
+
+// A conflict's positive side has not denied anything, so it is not handed the
+// denial's sentence.
+func TestOnlyTheDenyingSideOfADisagreementSaysIt(t *testing.T) {
 	g := &Graph{
 		Version: Version, Axes: []Axis{{ID: AxisNetwork}},
 		Nodes: []Node{{ID: "a", Type: "x", Name: "a"}, {ID: "b", Type: "x", Name: "b"}},
 		Edges: []Edge{
 			{From: "a", To: "b", Kind: EdgeObserved, Suppressed: true, AssertedAbsent: true,
-				Claim: &Claim{Origin: OriginHuman, Author: "auditor", Note: DeniedNote}},
-			{From: "a", To: "b", Kind: EdgeObserved, Claim: &Claim{Origin: OriginHuman, Author: "bob"}},
+				Claim: &Claim{Origin: OriginHuman, Author: "auditor"}},
+			{From: "a", To: "b", Kind: EdgeObserved,
+				Claim: &Claim{Origin: OriginHuman, Author: "bob"}},
 		},
 	}
 	g.Normalize()
-	if err := g.Validate(); err != nil {
-		t.Fatalf("the normalized graph does not validate: %v", err)
-	}
-	var seen int
+	var saw int
 	for _, c := range g.Conflicts {
 		for _, v := range c.Claims {
-			seen++
-			if strings.Contains(v.Claim.Note, "no such edge") {
-				t.Errorf("the conflict says %q about an edge bob drew", v.Claim.Note)
+			saw++
+			if v.Value == "false" && v.Claim.Note != "" {
+				t.Errorf("the side that says the edge is real says %q", v.Claim.Note)
 			}
 		}
 	}
-	if seen == 0 {
+	if saw == 0 {
 		t.Fatal("no conflict was recorded, so the test is not asking what it means to")
 	}
 }

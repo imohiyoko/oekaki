@@ -113,7 +113,7 @@ func Focus(g *core.Graph, axis, group string) (*core.Graph, error) {
 	// two, chosen by file order. The kind and the relation are part of what
 	// makes two lines the same line.
 	type fold struct{ from, to, kind, relation string }
-	seen := map[fold]bool{}
+	at := map[fold]int{}
 	var edges []core.Edge
 	for _, e := range g.Edges {
 		from, to := e.From, e.To
@@ -136,10 +136,16 @@ func Focus(g *core.Graph, axis, group string) (*core.Graph, error) {
 			to = standIn(owner)
 		}
 		key := fold{from, to, string(e.Kind), e.Relation}
-		if seen[key] {
+		if i, ok := at[key]; ok {
+			// One line standing for several is here for no reason but a
+			// denial only if every reference under it is. Keeping the first
+			// reference's flag put "no such edge was found" on a line a
+			// parser drew, whenever a denied one happened to be listed
+			// first.
+			edges[i].AssertedAbsent = edges[i].AssertedAbsent && e.AssertedAbsent
 			continue
 		}
-		seen[key] = true
+		at[key] = len(edges)
 		kept := e
 		kept.From, kept.To = from, to
 		edges = append(edges, kept)

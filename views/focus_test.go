@@ -376,3 +376,50 @@ func TestWhatIsOutsideFoldsToItsOutermostContainer(t *testing.T) {
 		t.Fatalf("the other network is not there at all: %#v", got.Nodes)
 	}
 }
+
+// A line standing for several references is here for no reason but a denial
+// only if every reference under it is. Keeping the first reference's flag put
+// "no such edge was found" on a line a parser drew, whenever a denied one
+// happened to be listed first.
+func TestFocusFoldsWhatItsReferencesSayAboutBeingInvented(t *testing.T) {
+	// a1 -> b1 and a1 -> b2 both fold onto the stand-in for "two". One of
+	// them is a line a denial invented; the other a parser drew.
+	invented := func(g *core.Graph, from, to string) {
+		for i := range g.Edges {
+			if g.Edges[i].From == from && g.Edges[i].To == to {
+				g.Edges[i].Suppressed = true
+				g.Edges[i].AssertedAbsent = true
+				g.Edges[i].Claim = &core.Claim{
+					Origin: core.OriginHuman, Author: "auditor", Note: core.DeniedNote}
+			}
+		}
+	}
+	for _, c := range []struct{ name, from, to string }{
+		{"the invented one sorts first", "a1", "b1"},
+		{"the drawn one sorts first", "a1", "b2"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			g := estate()
+			invented(g, c.from, c.to)
+			out, err := Focus(g, "account", "one")
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Nothing in the estate but that one reference was ever
+			// invented, and it folded in with one a parser drew — so
+			// nothing in the result should still say so.
+			for _, e := range out.Edges {
+				if e.AssertedAbsent {
+					t.Errorf("%s -> %s says nothing drew it, and one reference was drawn", e.From, e.To)
+				}
+				if e.Claim != nil && e.Claim.Note == core.DeniedNote {
+					t.Errorf("%s -> %s says %q", e.From, e.To, e.Claim.Note)
+				}
+			}
+			if len(out.Edges) >= len(g.Edges) {
+				t.Fatalf("nothing folded (%d in, %d out), so the test is not asking what it means to",
+					len(g.Edges), len(out.Edges))
+			}
+		})
+	}
+}

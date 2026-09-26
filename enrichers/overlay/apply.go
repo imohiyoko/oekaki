@@ -1015,16 +1015,7 @@ func (tracker *edgeAssertionTracker) apply(g *core.Graph, from, to string, kind 
 	for _, history := range histories {
 		tracker.name(g, history, relation)
 
-		said := claim
-		// Asked of the input graph only. Whether some other assertion also
-		// speaks for this line is not yet known — it may be in a document not
-		// read yet — and answering it from what has been seen so far would
-		// make the sentence depend on the order the assertions were written.
-		// The run settles that afterwards; see settleDenials.
-		if suppressed && !history.existedInitially && said.Note == "" {
-			said.Note = deniedNote
-		}
-		history.add(trackedEdgeAssertion{suppressed: suppressed, claim: said, explicit: true})
+		history.add(trackedEdgeAssertion{suppressed: suppressed, claim: claim, explicit: true})
 
 		winner := history.winner()
 		edge := &g.Edges[history.index]
@@ -1038,30 +1029,19 @@ func (tracker *edgeAssertionTracker) apply(g *core.Graph, from, to string, kind 
 	}
 }
 
-// deniedNote is what a denial of an edge nobody drew says about itself. Owned
-// by core, which reads it back when a document from before the flag existed
-// is migrated and when a merge shows that something drew the line after all.
-const deniedNote = core.DeniedNote
-
-// settleDenials takes that sentence back off the lines it turned out to be
-// wrong about.
+// settleDenials asks, once every document has been read, which lines are here
+// for no reason but a denial.
 //
-// A denial of an edge nothing had drawn writes "no such edge was found",
-// because at the time none was. Which lines those are is not read back off
-// the sentence — the graph records it; see core.Edge.AssertedAbsent — but the
-// sentence itself still has to be right. If another assertion in the run then makes
-// one — a serves claim denied by a sentence earlier in the same document —
-// the note is false, and it is the sentence a reader is shown when they hover
-// the line. Settled here rather than when the denial was applied, because
-// until every document has been read the answer depends on the order they
-// were written in.
+// A denial of an edge nothing had drawn invents one for the sentence to be
+// about. Whether anything else turns out to have drawn it is not known while
+// the documents are still being read — a serves claim may arrive later in the
+// same run, or from a file read after this one — so the answer is settled
+// here rather than when each denial was applied. Asking it earlier made the
+// same three sentences mean three different pictures depending on the order
+// somebody happened to type them in.
 //
-// Of every line, including the ones the input graph already had. A phantom
-// written out by an earlier run comes back marked, and the claim that adopts
-// it on the second run makes the sentence false in exactly the way it is
-// false on the first. Skipping those left the
-// note in the conflict — where the reader is shown what each side said — and
-// left it off the edge only by the accident of which claim ranked highest.
+// What a reader is shown for such a line is not written here. It is derived
+// from the flag when the graph is normalized; see core.DeniedNote.
 func (tracker *edgeAssertionTracker) settleDenials(g *core.Graph) {
 	// First the denials themselves, against the lines that were not there
 	// when they were read.
@@ -1087,84 +1067,16 @@ func (tracker *edgeAssertionTracker) settleDenials(g *core.Graph) {
 		if history.index >= len(g.Edges) {
 			continue
 		}
-		// Whether the sentence is true of the finished run. It goes on at add
-		// time, where the only thing knowable is what was in the input, so
-		// both directions are settled here: taken off a line a claim turned
-		// out to have made, and put on one that is here for no reason but the
-		// denial — which is what a phantom an earlier run wrote out is, and
-		// it arrives as an ordinary edge with nothing to say for itself.
-		onlyDenial := onlyDenied(history)
-
-		var moved bool
-		said := history.assertions
-		history.assertions = nil
-		for _, a := range said {
-			if a.suppressed {
-				switch {
-				case onlyDenial && a.claim.Note == "":
-					a.claim.Note = deniedNote
-					moved = true
-				case !onlyDenial && a.claim.Note == deniedNote:
-					a.claim.Note = ""
-					moved = true
-				}
-			}
-			// Two sentences that differed only in the part just changed are
-			// one sentence now. Asked of add rather than written out again
-			// here, so that what counts as the same sentence is decided in
-			// one place.
-			history.add(a)
-		}
-
-		edge := &g.Edges[history.index]
-
-		// The mark goes the same way as the sentence. A line a claim turned
-		// out to have made is not one that is here for want of anything else,
-		// however the denial that reached it first made it look.
-		edge.AssertedAbsent = onlyDenial
-
-		if moved {
-			winner := history.winner()
-			edge.Suppressed = winner.suppressed
-			if winner.explicit {
-				edge.Claim = cloneClaim(&winner.claim)
-			} else {
-				edge.Claim = nil
-			}
-		}
-		if onlyDenial {
-			continue
-		}
-		// And where the disagreement is written down. A line with a denial and
-		// a claim on it records both, and the reader is shown the sentence
-		// each side gave — so taking it off the edge and leaving it in the
-		// conflict just moves where they read it.
-		key := core.EdgeKey(edge.From, edge.To, edge.Kind, edge.Relation)
-		for i := range g.Conflicts {
-			if g.Conflicts[i].TargetKind != core.ConflictTargetEdge || g.Conflicts[i].Target != key {
-				continue
-			}
-			claims := g.Conflicts[i].Claims[:0]
-			for _, value := range g.Conflicts[i].Claims {
-				if value.Claim.Note == deniedNote {
-					value.Claim.Note = ""
-				}
-				// Two sentences that were different only in the part just
-				// removed are now one. Normalize folds a repeated claimed
-				// value only where it merges two conflicts, so a conflict
-				// left holding the same claim twice would stay that way.
-				var seen bool
-				for _, kept := range claims {
-					if kept.Value == value.Value && claimsEqual(kept.Claim, value.Claim) {
-						seen = true
-					}
-				}
-				if !seen {
-					claims = append(claims, value)
-				}
-			}
-			g.Conflicts[i].Claims = claims
-		}
+		// Whether the line is here for no reason but the denial. Asked of
+		// the finished run rather than of the moment the denial was read: a
+		// phantom an earlier run wrote out arrives as an ordinary edge, and
+		// a claim made later in this one makes the answer no.
+		//
+		// The sentence a reader is shown for it is not written here. It is
+		// derived from this flag, once, when the graph is normalized — see
+		// core.settleDeniedNotes, and the four hand-written withdrawals it
+		// replaced.
+		g.Edges[history.index].AssertedAbsent = onlyDenied(history)
 	}
 }
 
@@ -1361,6 +1273,15 @@ func compareClaims(a, b core.Claim) int {
 	}
 	if comparison := compareConfidence(a.Confidence, b.Confidence); comparison != 0 {
 		return comparison
+	}
+	// The same tier core ranks by, so that the enricher and a later
+	// Normalize choose the same claim. They did not, and the sentence a
+	// reader saw depended on which of the two had last touched the graph.
+	if core.NoteRank(a.Note) != core.NoteRank(b.Note) {
+		if core.NoteRank(a.Note) < core.NoteRank(b.Note) {
+			return -1
+		}
+		return 1
 	}
 	if a.Note < b.Note {
 		return -1

@@ -146,6 +146,18 @@ say where the line came from.
 
 `asserted_absent` says the edge is here for no reason but that denial: nothing
 drew the connection, and the sentence denying it needed something to be about.
+The claim on such a line says so in words — "asserted not to exist; no such
+edge was found" — unless its author wrote a note of their own. That sentence
+is in the file like any other note, and it is written there by the flag rather
+than by whoever made the line: nobody sets it by hand, and a file where the
+two disagree is put right on the way in. The flag is the fact; the sentence is
+how it reads.
+
+Which leaves the flag itself to be folded wherever two lines become one — a
+line standing for several is here for no reason but a denial only if every
+one of them is. That is a rule about the flag, not about the sentence, and
+the places that fold lines carry it: the merge in Normalize, the atlas
+lifting edges onto groups, and focus folding them onto stand-ins.
 
 `relation_asserted` says the relation on the line is somebody's sentence
 rather than a word a reader took out of a document — an overlay saying which
