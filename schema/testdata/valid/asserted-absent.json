@@ -1,0 +1,24 @@
+{
+  "version": "0.8",
+  "axes": [{ "id": "network" }],
+  "nodes": [
+    { "id": "a", "type": "service", "name": "a" },
+    { "id": "b", "type": "service", "name": "b" }
+  ],
+  "edges": [
+    {
+      "from": "a",
+      "to": "b",
+      "kind": "observed",
+      "suppressed": true,
+      "asserted_absent": true,
+      "claim": {
+        "origin": "human",
+        "author": "auditor",
+        "note": "asserted not to exist; no such edge was found"
+      }
+    },
+    { "from": "b", "to": "a", "kind": "observed", "asserted_absent": false }
+  ],
+  "groups": []
+}

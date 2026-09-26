@@ -381,9 +381,13 @@ From 0.4 it migrates unambiguous conflict targets, rejecting an old target that
 could name both an entity and an edge (or more than one edge) instead of
 guessing. From 0.5 there is nothing to migrate: 0.6 adds `paths` and changes
 nothing else, so a 0.5 document is already the right shape. From 0.6 there is
-likewise nothing to migrate: 0.7 adds `notes`. From 0.7 there is nothing to
-migrate either: 0.8 adds `asserted_absent` to an edge, and an edge without one
-was not invented by a denial. Each is still checked against the
+likewise nothing to migrate: 0.7 adds `notes`. From 0.7 there is
+something to migrate, and it is the only reason that version is read rather
+than waved through: 0.8 adds `asserted_absent` to an edge, and a 0.7 document
+recorded the same fact in the sentence the denial wrote on the line. That
+sentence is read on the way in and the flag is set from it, because dropping
+it would tell the next claim that a line nothing drew was one a parser drew
+and somebody denied. Each is still checked against the
 contract it declares and re-stamped rather than waved through, because "shaped
 like the current version" and "declared as it" are different claims and only the
 second one has been checked.
