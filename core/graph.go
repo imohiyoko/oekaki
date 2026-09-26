@@ -37,10 +37,11 @@ const (
 	legacyV07 = "0.7"
 )
 
-// DeniedNote is what a denial says about a line nothing drew. The enricher
-// writes it; core reads it in two places — recovering AssertedAbsent from a
-// document written before 0.8 had a field for it, and taking the sentence
-// back off a line that turns out to have been drawn after all.
+// DeniedNote is what a denial says about a line nothing drew. It is not a
+// fact the graph carries — AssertedAbsent is — but the words that fact is put
+// in, derived from the flag by settleDeniedNotes whenever a graph is
+// normalized, and read back when a document written before 0.8 had the flag
+// is migrated.
 //
 // One definition, because the two readings must agree. Changing the wording
 // changes what a document from before 0.8 is understood to say, so it is a
@@ -878,6 +879,15 @@ func (g *Graph) Normalize() {
 		}
 		return g.Groups[i].ID < g.Groups[j].ID
 	})
+	// Before the ordering looks at them, because it looks at the note: an
+	// empty one sorts ahead of an author's own words, so settling afterwards
+	// let a claim with nothing to say win and then be given this sentence,
+	// dropping what its author had written. Each edge by its own flag here;
+	// the ones whose flag changes by folding are settled again afterwards.
+	for i := range g.Edges {
+		g.Edges[i].Claim = settledClaim(g.Edges[i].Claim, g.Edges[i].AssertedAbsent)
+	}
+
 	sort.SliceStable(g.Edges, func(i, j int) bool {
 		a, b := g.Edges[i], g.Edges[j]
 		if a.Kind != b.Kind {
@@ -1075,36 +1085,68 @@ func (g *Graph) Normalize() {
 // when it has nothing else to say, so it goes on a claim with no note and
 // comes off one that says only this.
 func (g *Graph) settleDeniedNotes() {
-	absent := map[string]bool{}
+	var absent map[string]bool
 	for i := range g.Edges {
 		edge := &g.Edges[i]
-		absent[EdgeKey(edge.From, edge.To, edge.Kind, edge.Relation)] = edge.AssertedAbsent
-		settleDeniedNote(edge.Claim, edge.AssertedAbsent)
+		edge.Claim = settledClaim(edge.Claim, edge.AssertedAbsent)
+		if edge.AssertedAbsent {
+			if absent == nil {
+				absent = map[string]bool{}
+			}
+			absent[EdgeKey(edge.From, edge.To, edge.Kind, edge.Relation)] = true
+		}
 	}
+
 	// And where the disagreement is written down. A conflict is built from
 	// the copies that arrived rather than from the line they became, so the
 	// sentence a reader is shown there has to be settled against the line as
 	// well. Claims that become identical are folded by the dedup below.
+	//
+	// The denying side of a disagreement about suppression, and nothing
+	// else: a claim that says the edge is real has not denied anything, and
+	// a disagreement about some other field is not about this at all.
 	for i := range g.Conflicts {
-		if g.Conflicts[i].TargetKind != ConflictTargetEdge {
+		c := &g.Conflicts[i]
+		if c.TargetKind != ConflictTargetEdge || c.Field != "suppressed" {
 			continue
 		}
-		for j := range g.Conflicts[i].Claims {
-			settleDeniedNote(&g.Conflicts[i].Claims[j].Claim, absent[g.Conflicts[i].Target])
+		for j := range c.Claims {
+			if c.Claims[j].Value != "true" {
+				continue
+			}
+			settled := settledClaim(&c.Claims[j].Claim, absent[c.Target])
+			if settled == &c.Claims[j].Claim {
+				continue
+			}
+			// Copied before writing. Conflicts carried in from another graph
+			// share their Claims array with it — see carry — so writing
+			// through this index would reach back into the caller's graph
+			// and into every page derived from it.
+			c.Claims = append([]ClaimedValue(nil), c.Claims...)
+			c.Claims[j].Claim = *settled
 		}
 	}
 }
 
-func settleDeniedNote(c *Claim, absent bool) {
+// settledClaim returns c with the denial's own sentence on it or off it,
+// whichever the flag calls for. The claim is copied rather than written
+// through: views hands the same *Claim to every page it derives from a
+// graph, and editing one in place changed a drawing somebody had already
+// been given.
+func settledClaim(c *Claim, absent bool) *Claim {
 	if c == nil {
-		return
+		return nil
 	}
+	settled := *c
 	switch {
 	case absent && c.Note == "":
-		c.Note = DeniedNote
+		settled.Note = DeniedNote
 	case !absent && c.Note == DeniedNote:
-		c.Note = ""
+		settled.Note = ""
+	default:
+		return c
 	}
+	return &settled
 }
 
 // mergeEdge folds b into a. Suppression is the one field where the two can

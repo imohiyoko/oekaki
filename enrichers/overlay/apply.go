@@ -1029,25 +1029,19 @@ func (tracker *edgeAssertionTracker) apply(g *core.Graph, from, to string, kind 
 	}
 }
 
-// settleDenials takes that sentence back off the lines it turned out to be
-// wrong about.
+// settleDenials asks, once every document has been read, which lines are here
+// for no reason but a denial.
 //
-// A denial of an edge nothing had drawn writes "no such edge was found",
-// because at the time none was. Which lines those are is not read back off
-// the sentence — the graph records it; see core.Edge.AssertedAbsent — but the
-// sentence itself still has to be right. If another assertion in the run then makes
-// one — a serves claim denied by a sentence earlier in the same document —
-// the note is false, and it is the sentence a reader is shown when they hover
-// the line. Settled here rather than when the denial was applied, because
-// until every document has been read the answer depends on the order they
-// were written in.
+// A denial of an edge nothing had drawn invents one for the sentence to be
+// about. Whether anything else turns out to have drawn it is not known while
+// the documents are still being read — a serves claim may arrive later in the
+// same run, or from a file read after this one — so the answer is settled
+// here rather than when each denial was applied. Asking it earlier made the
+// same three sentences mean three different pictures depending on the order
+// somebody happened to type them in.
 //
-// Of every line, including the ones the input graph already had. A phantom
-// written out by an earlier run comes back marked, and the claim that adopts
-// it on the second run makes the sentence false in exactly the way it is
-// false on the first. Skipping those left the
-// note in the conflict — where the reader is shown what each side said — and
-// left it off the edge only by the accident of which claim ranked highest.
+// What a reader is shown for such a line is not written here. It is derived
+// from the flag when the graph is normalized; see core.DeniedNote.
 func (tracker *edgeAssertionTracker) settleDenials(g *core.Graph) {
 	// First the denials themselves, against the lines that were not there
 	// when they were read.
