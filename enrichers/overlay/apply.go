@@ -1274,6 +1274,15 @@ func compareClaims(a, b core.Claim) int {
 	if comparison := compareConfidence(a.Confidence, b.Confidence); comparison != 0 {
 		return comparison
 	}
+	// The same tier core ranks by, so that the enricher and a later
+	// Normalize choose the same claim. They did not, and the sentence a
+	// reader saw depended on which of the two had last touched the graph.
+	if core.NoteRank(a.Note) != core.NoteRank(b.Note) {
+		if core.NoteRank(a.Note) < core.NoteRank(b.Note) {
+			return -1
+		}
+		return 1
+	}
 	if a.Note < b.Note {
 		return -1
 	}

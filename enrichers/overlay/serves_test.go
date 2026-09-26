@@ -1191,3 +1191,32 @@ func TestSigningAReadersLineSaysTheSameThingEveryRun(t *testing.T) {
 		}
 	}
 }
+
+// Two denials of one pair from one author, one of whom wrote something and
+// one of whom did not. What the author wrote is what the line says.
+//
+// The enricher no longer writes the derived sentence itself — the graph does,
+// from the flag — so the ordering here sees an empty note against the
+// author's, and an empty one used to win. It is also the ordering core uses
+// when the same graph is read back, and the two disagreeing meant the
+// sentence changed depending on which had last touched it.
+func TestTheWordsAnAuthorWroteAboutADenialAreWhatTheLineSays(t *testing.T) {
+	g, _ := serve(t, doc(`
+	  {"assert":"edge.suppress","from":{"node":"file:handler/http.go#HandleOrder"},
+	   "to":{"node":"api/checkout/get/orders/{id}"},"kind":"iac_ref","note":"already gone"},
+	  {"assert":"edge.suppress","from":{"node":"file:handler/http.go#HandleOrder"},
+	   "to":{"node":"api/checkout/get/orders/{id}"},"kind":"iac_ref"}`), Options{})
+
+	var lines []core.Edge
+	for _, e := range g.Edges {
+		if e.From == "file:handler/http.go#HandleOrder" {
+			lines = append(lines, e)
+		}
+	}
+	if len(lines) != 1 {
+		t.Fatalf("%d lines: %+v", len(lines), lines)
+	}
+	if lines[0].Claim == nil || lines[0].Claim.Note != "already gone" {
+		t.Errorf("the line says %+v", lines[0].Claim)
+	}
+}

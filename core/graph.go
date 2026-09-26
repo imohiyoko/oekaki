@@ -879,15 +879,6 @@ func (g *Graph) Normalize() {
 		}
 		return g.Groups[i].ID < g.Groups[j].ID
 	})
-	// Before the ordering looks at them, because it looks at the note: an
-	// empty one sorts ahead of an author's own words, so settling afterwards
-	// let a claim with nothing to say win and then be given this sentence,
-	// dropping what its author had written. Each edge by its own flag here;
-	// the ones whose flag changes by folding are settled again afterwards.
-	for i := range g.Edges {
-		g.Edges[i].Claim = settledClaim(g.Edges[i].Claim, g.Edges[i].AssertedAbsent)
-	}
-
 	sort.SliceStable(g.Edges, func(i, j int) bool {
 		a, b := g.Edges[i], g.Edges[j]
 		if a.Kind != b.Kind {
@@ -1110,6 +1101,7 @@ func (g *Graph) settleDeniedNotes() {
 		if c.TargetKind != ConflictTargetEdge || c.Field != "suppressed" {
 			continue
 		}
+		var copied bool
 		for j := range c.Claims {
 			if c.Claims[j].Value != "true" {
 				continue
@@ -1118,18 +1110,24 @@ func (g *Graph) settleDeniedNotes() {
 			if settled == &c.Claims[j].Claim {
 				continue
 			}
-			// Copied before writing. Conflicts carried in from another graph
-			// share their Claims array with it — see carry — so writing
-			// through this index would reach back into the caller's graph
-			// and into every page derived from it.
-			c.Claims = append([]ClaimedValue(nil), c.Claims...)
+			// Copied once, before the first write. Conflicts carried in from
+			// another graph share their Claims array with it — see carry —
+			// so writing through this index would reach back into the
+			// caller's graph and into every page derived from it.
+			if !copied {
+				c.Claims = append([]ClaimedValue(nil), c.Claims...)
+				copied = true
+			}
 			c.Claims[j].Claim = *settled
 		}
 	}
 }
 
 // settledClaim returns c with the denial's own sentence on it or off it,
-// whichever the flag calls for. The claim is copied rather than written
+// whichever the flag calls for. A note that reads exactly like the sentence
+// comes off a line something drew even if its author typed it themselves:
+// there is nothing in the file to tell the two apart, and on such a line the
+// words are false whoever wrote them. The claim is copied rather than written
 // through: views hands the same *Claim to every page it derives from a
 // graph, and editing one in place changed a drawing somebody had already
 // been given.
@@ -1320,7 +1318,30 @@ func claimLess(a, b Claim) bool {
 	if optionalKey(a.Confidence) != optionalKey(b.Confidence) {
 		return optionalKey(a.Confidence) < optionalKey(b.Confidence)
 	}
+	if NoteRank(a.Note) != NoteRank(b.Note) {
+		return NoteRank(a.Note) < NoteRank(b.Note)
+	}
 	return a.Note < b.Note
+}
+
+// NoteRank puts a claim that says something of its own ahead of one that says
+// nothing, and of one carrying only DeniedNote — which this package writes
+// rather than any author.
+//
+// Ranked before the notes are compared as text, because that comparison is
+// alphabetical and settles nothing: "asserted not to exist; no such edge was
+// found" beats every sentence that happens to start later in the alphabet, so
+// which author kept their words depended on their first letter. Ordering the
+// notes before the merge instead was tried and is the same bug wearing a
+// different hat.
+//
+// Both comparators use it — this one and the enricher's, which rank the same
+// claims and disagreed about them.
+func NoteRank(note string) int {
+	if note == "" || note == DeniedNote {
+		return 1
+	}
+	return 0
 }
 
 // optionalKey orders an optional number, putting "not stated" before any
