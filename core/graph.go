@@ -80,9 +80,9 @@ func (g *Graph) migrateRelationAsserted() {
 }
 
 // assertedRelations are the relations an overlay writes itself, as of the
-// versions that recorded nothing. Frozen for the same reason deniedNoteV07
-// is: it describes what those documents meant, not what the enricher does
-// today.
+// versions that recorded nothing. Frozen for the same reason DeniedNote is
+// read here at all: it describes what those documents meant, not what the
+// enricher does today.
 var assertedRelations = map[string]bool{"serves": true}
 
 // migrateAssertedAbsent recovers, from a document written before 0.8, which
@@ -933,12 +933,7 @@ func (g *Graph) Normalize() {
 		if len(assertions) < 2 {
 			return
 		}
-		var positive, suppressed, drawn bool
-		for _, assertion := range assertions {
-			if !assertion.AssertedAbsent {
-				drawn = true
-			}
-		}
+		var positive, suppressed bool
 		claims := make([]ClaimedValue, 0, len(assertions))
 		for _, assertion := range assertions {
 			if assertion.Suppressed {
@@ -947,28 +942,22 @@ func (g *Graph) Normalize() {
 				positive = true
 			}
 			// Of the line the merge produced, not of the copy this assertion
-			// arrived on. Where something drew the line, the denial's
-			// sentence about nothing having drawn it is false here as much as
-			// it is on the edge, and this is where a reader is shown what
-			// each side said.
-			if drawn {
-				WithdrawDeniedNote(&assertion)
-			}
-			value := ClaimedValue{
+			// arrived on. A conflict is only recorded where something said
+			// the edge is real, and a line somebody positively asserted is
+			// one something drew — so by the time these claims are read, the
+			// denial's sentence about nothing having drawn it is false here
+			// as much as it is on the edge, and this is where a reader is
+			// shown what each side said.
+			WithdrawDeniedNote(&assertion)
+			claims = append(claims, ClaimedValue{
 				Value: boolValue(assertion.Suppressed), Claim: claimOrParser(assertion.Claim),
-			}
-			// Two sentences that differed only in the part just removed are
-			// one sentence now.
-			var seen bool
-			for _, kept := range claims {
-				if kept.Value == value.Value && kept.Claim == value.Claim {
-					seen = true
-				}
-			}
-			if !seen {
-				claims = append(claims, value)
-			}
+			})
 		}
+		// Sentences that differed only in the part just removed are one
+		// sentence now. Deduped by uniqueClaimedValues below rather than
+		// here: a ClaimedValue holds a *float64, so == compares the address
+		// of a confidence rather than the number, and two claims that say
+		// the same thing never matched.
 		if positive && suppressed {
 			first := assertions[0]
 			g.Conflicts = append(g.Conflicts, Conflict{
@@ -1075,10 +1064,6 @@ func (g *Graph) Normalize() {
 	}
 }
 
-// mergeEdge folds b into a. Suppression is the one field where the two can
-// genuinely disagree — one source says the edge is real, another says it is
-// not — so that disagreement is recorded rather than resolved into silence.
-// Two sources merely both finding the edge is agreement, not conflict.
 // WithdrawDeniedNote takes DeniedNote off a claim, leaving everything else.
 // The author still denied the line; what is no longer true is that nothing
 // drew it. Call it wherever an invented line is folded into one something
@@ -1093,6 +1078,10 @@ func WithdrawDeniedNote(e *Edge) {
 	e.Claim = &withdrawn
 }
 
+// mergeEdge folds b into a. Suppression is the one field where the two can
+// genuinely disagree — one source says the edge is real, another says it is
+// not — so that disagreement is recorded rather than resolved into silence.
+// Two sources merely both finding the edge is agreement, not conflict.
 func (g *Graph) mergeEdge(a *Edge, b Edge) {
 	// Being here for no reason but a denial is a property of the pair, not of
 	// whichever duplicate sorted first: if either source drew the connection,
@@ -1499,15 +1488,15 @@ func (g *Graph) Validate() error {
 		problems = append(problems, checkClaim(o.Evidence, where)...)
 	}
 	for _, e := range g.Edges {
-		// An edge cannot be here only because somebody denied it and also not
-		// be denied. The pair is one fact said twice, and a document with
-		// half of it is a line nothing accounts for.
 		// A relation nobody wrote cannot have been asserted, and a sentence
 		// with no author behind it is not somebody's sentence.
 		if e.RelationAsserted && (e.Relation == "" || e.Claim == nil) {
 			problems = append(problems, fmt.Sprintf(
 				"edge %s -> %s: relation_asserted needs a relation and a claim; it says whose sentence the relation is", e.From, e.To))
 		}
+		// An edge cannot be here only because somebody denied it and also not
+		// be denied. The pair is one fact said twice, and a document with
+		// half of it is a line nothing accounts for.
 		if e.AssertedAbsent && !e.Suppressed {
 			problems = append(problems, fmt.Sprintf(
 				"edge %s -> %s: asserted_absent without suppressed; a line that is here only because somebody denied it is denied", e.From, e.To))

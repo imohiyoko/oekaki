@@ -421,9 +421,9 @@ published schema says `additionalProperties: false`. A 0.5 validator shown a
 document carrying routes would reject it, so the two shapes cannot share a
 version number, however additive the change looks from inside this repository.
 
-It moved again for `asserted_absent`, which is a field of an edge rather than
-a top-level collection — `additionalProperties: false` is on the edge too, so
-the same argument applies one level down.
+It moved again for `asserted_absent` and `relation_asserted`, which are fields
+of an edge rather than top-level collections — `additionalProperties: false`
+is on the edge too, so the same argument applies one level down.
 
 ## metadata.overlays
 

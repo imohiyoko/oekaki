@@ -138,6 +138,14 @@ says which lines those are: `asserted_absent` on the edge, written when the
 denial invents it and taken off again when something turns out to have drawn
 it. See [schema.md](schema.md#edges).
 
+One exception, and it is a graph written before 0.8 had that field. Such a
+document is read by the sentence the denial left on the line, and a denial
+carrying the author's own `note` never got that sentence — so the line comes
+back unmarked and a claim about the same pair draws its own beside it. Either
+re-state the denial against the migrated graph, or write it without a `note`
+if a `serves` claim about the same pair is coming. Everything written after
+the migration is recorded rather than read.
+
 What it is for is the descent. A reader who arrived from a running container,
 went behind it to the repository and is looking at its code map can now see
 which of those functions is where a request comes in — including the ones
