@@ -1830,17 +1830,23 @@ func liftEdges(in []core.Edge, at map[string]string) []core.Edge {
 		// only if every reference under it is. Copying the flag off whichever
 		// reference happened to represent the group would put "nothing drew
 		// this" on a line a parser drew.
+		// Both flags are properties of the group, not of whichever reference
+		// represents it: if one of them was drawn, something drew it, and if
+		// one of them is a reader's word the relation is not one author's
+		// sentence. Folded the way Normalize folds them over duplicates.
 		absent := e.AssertedAbsent
+		asserted := e.RelationAsserted
 		if standing != nil {
 			absent = absent && standing.AssertedAbsent
-			// The claim has to come off the reading that drew it, not just
-			// the flag: a representative invented by a denial says "no such
-			// edge was found" about a group one of whose references a parser
-			// drew.
+			asserted = asserted && standing.RelationAsserted
+			// And the sentence the denial wrote about nothing having drawn
+			// it becomes false. The sentence alone: taking the whole claim
+			// from the side that drew the line loses the denier, because a
+			// parser's reference carries no claim at all.
 			if standing.AssertedAbsent && !e.AssertedAbsent {
-				standing.Claim = e.Claim
+				core.WithdrawDeniedNote(standing)
 			}
-			standing.AssertedAbsent = absent
+			standing.AssertedAbsent, standing.RelationAsserted = absent, asserted
 			if !standing.Suppressed || e.Suppressed {
 				continue
 			}
@@ -1848,7 +1854,13 @@ func liftEdges(in []core.Edge, at map[string]string) []core.Edge {
 		lifted := e
 		lifted.From, lifted.To = from, to
 		lifted.Attrs = cloneAttrs(e.Attrs)
-		lifted.AssertedAbsent = absent
+		// Before the flag goes, not after: the sentence is withdrawn from a
+		// claim that is still on an invented line, which is how the helper
+		// knows there is one to withdraw.
+		if absent != e.AssertedAbsent {
+			core.WithdrawDeniedNote(&lifted)
+		}
+		lifted.AssertedAbsent, lifted.RelationAsserted = absent, asserted
 		if standing == nil {
 			order = append(order, k)
 		}

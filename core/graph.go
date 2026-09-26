@@ -952,7 +952,7 @@ func (g *Graph) Normalize() {
 			// it is on the edge, and this is where a reader is shown what
 			// each side said.
 			if drawn {
-				withdrawDeniedNote(&assertion)
+				WithdrawDeniedNote(&assertion)
 			}
 			value := ClaimedValue{
 				Value: boolValue(assertion.Suppressed), Claim: claimOrParser(assertion.Claim),
@@ -1079,10 +1079,12 @@ func (g *Graph) Normalize() {
 // genuinely disagree — one source says the edge is real, another says it is
 // not — so that disagreement is recorded rather than resolved into silence.
 // Two sources merely both finding the edge is agreement, not conflict.
-// withdrawDeniedNote takes DeniedNote off a claim, leaving everything else.
+// WithdrawDeniedNote takes DeniedNote off a claim, leaving everything else.
 // The author still denied the line; what is no longer true is that nothing
-// drew it.
-func withdrawDeniedNote(e *Edge) {
+// drew it. Call it wherever an invented line is folded into one something
+// drew — Normalize does, and so does the atlas when it lifts edges onto
+// groups.
+func WithdrawDeniedNote(e *Edge) {
 	if !e.AssertedAbsent || e.Claim == nil || e.Claim.Note != DeniedNote {
 		return
 	}
@@ -1101,8 +1103,8 @@ func (g *Graph) mergeEdge(a *Edge, b Edge) {
 	// drew the line was tried and loses the denier: a parser's edge carries
 	// no claim at all, so the merged line came out suppressed by nobody.
 	if a.AssertedAbsent != b.AssertedAbsent {
-		withdrawDeniedNote(a)
-		withdrawDeniedNote(&b)
+		WithdrawDeniedNote(a)
+		WithdrawDeniedNote(&b)
 		a.AssertedAbsent, b.AssertedAbsent = false, false
 	}
 

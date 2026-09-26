@@ -1,6 +1,7 @@
 package views
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/imohiyoko/oekaki/core"
@@ -575,6 +576,41 @@ func TestAGroupedLineDoesNotInheritAnAbsenceFromOneReference(t *testing.T) {
 			}
 			if out[0].AssertedAbsent {
 				t.Error("the group line says nothing drew it, and one reference was drawn")
+			}
+		})
+	}
+}
+
+// Both flags a lifted line carries are folded over the references under it,
+// and the sentence a denial wrote about nothing having drawn the line comes
+// off when one of them was drawn — the sentence alone, so the denier stays.
+func TestAGroupedLineFoldsWhatItsReferencesSay(t *testing.T) {
+	at := map[string]string{"a1": "A", "a2": "A", "b1": "B", "b2": "B"}
+	invented := core.Edge{From: "a1", To: "b1", Kind: core.EdgeObserved,
+		Suppressed: true, AssertedAbsent: true, RelationAsserted: true, Relation: "serves",
+		Claim: &core.Claim{Origin: core.OriginHuman, Author: "auditor", Note: core.DeniedNote}}
+	drawn := core.Edge{From: "a2", To: "b2", Kind: core.EdgeObserved, Suppressed: true, Relation: "serves"}
+
+	for _, order := range []struct {
+		name string
+		in   []core.Edge
+	}{
+		{"invented first", []core.Edge{invented, drawn}},
+		{"drawn first", []core.Edge{drawn, invented}},
+	} {
+		t.Run(order.name, func(t *testing.T) {
+			out := liftEdges(order.in, at)
+			if len(out) != 1 {
+				t.Fatalf("%d lines where the group has one: %+v", len(out), out)
+			}
+			if out[0].AssertedAbsent {
+				t.Error("the group line says nothing drew it, and one reference was drawn")
+			}
+			if out[0].RelationAsserted {
+				t.Error("a relation a reader also used is recorded as one author's sentence")
+			}
+			if out[0].Claim != nil && strings.Contains(out[0].Claim.Note, "no such edge") {
+				t.Errorf("the group line says %q about a reference that was drawn", out[0].Claim.Note)
 			}
 		})
 	}
