@@ -1826,10 +1826,6 @@ func liftEdges(in []core.Edge, at map[string]string) []core.Edge {
 		// is replaced by the first real one that arrives.
 		standing := merged[k]
 
-		// One line standing for several is here for no reason but a denial
-		// only if every reference under it is. Copying the flag off whichever
-		// reference happened to represent the group would put "nothing drew
-		// this" on a line a parser drew.
 		// Both flags are properties of the group, not of whichever reference
 		// represents it: if one of them was drawn, something drew it, and if
 		// one of them is a reader's word the relation is not one author's
