@@ -61,6 +61,36 @@ const deniedNoteV07 = "asserted not to exist; no such edge was found"
 // it had been. A claim about such a pair draws its own line, once, and every
 // run after this one agrees with it, because the graph is re-stamped on the
 // way through.
+// migrateRelationAsserted recovers, from a document written before 0.8, which
+// lines were named by an assertion rather than by a reader.
+//
+// Older versions recorded nothing, so this is the reading those versions were
+// applied with: a relation only an overlay writes, under a claim with an
+// author behind it. It was not good enough to decide the question run by run
+// — that is why the field exists — but it is what a document from before the
+// field was written under, and applying it once at the boundary keeps such a
+// document meaning what it meant. Everything after the re-stamp is recorded.
+func (g *Graph) migrateRelationAsserted() {
+	for i := range g.Edges {
+		edge := &g.Edges[i]
+		if edge.Relation == "" || edge.Claim == nil {
+			continue
+		}
+		if edge.Claim.Origin != OriginHuman && edge.Claim.Origin != OriginAI {
+			continue
+		}
+		if assertedRelations[strings.ToLower(edge.Relation)] {
+			edge.RelationAsserted = true
+		}
+	}
+}
+
+// assertedRelations are the relations an overlay writes itself, as of the
+// versions that recorded nothing. Frozen for the same reason deniedNoteV07
+// is: it describes what those documents meant, not what the enricher does
+// today.
+var assertedRelations = map[string]bool{"serves": true}
+
 func (g *Graph) migrateAssertedAbsent() {
 	for i := range g.Edges {
 		edge := &g.Edges[i]
@@ -508,6 +538,24 @@ type Edge struct {
 	//
 	// Written by enrichers, like Suppressed.
 	AssertedAbsent bool `json:"asserted_absent,omitempty"`
+
+	// RelationAsserted marks a line whose Relation is somebody's sentence
+	// rather than a word a reader took out of a document. An overlay that
+	// says "this function serves that operation" names the relation itself;
+	// a parser naming `calls` or `built_from` is reporting what it read.
+	//
+	// Recorded for the same reason AssertedAbsent is, and after the same
+	// mistake. Telling the two apart by looking at the line was tried five
+	// times — is the relation one an overlay writes, does the claim have an
+	// author, both together — and each rule was wrong in a way the one before
+	// it was not. The last of them failed on the case that matters most: a
+	// run that signs a parser's line writes the author onto it, so the next
+	// run over its own output read the signature as authorship and drew a
+	// second line. What the line looks like cannot answer it, because the
+	// first run changes how it looks.
+	//
+	// Written by enrichers, like Suppressed.
+	RelationAsserted bool `json:"relation_asserted,omitempty"`
 }
 
 // EdgeKey names an edge for a Conflict target. Each component is independently
@@ -1012,6 +1060,12 @@ func (g *Graph) mergeEdge(a *Edge, b Edge) {
 		a.AssertedAbsent, b.AssertedAbsent = false, false
 	}
 
+	// And a relation two readings share is not one author's sentence: if a
+	// parser drew the same line, the word is a reading too. Folded the same
+	// way as the flag above, and for the same reason — whichever duplicate
+	// sorted first is not the answer.
+	a.RelationAsserted = a.RelationAsserted && b.RelationAsserted
+
 	// Suppression is fail-safe: once any source marks an edge as not real, a
 	// duplicate positive assertion cannot silently re-enable it. Keep the best
 	// claim among assertions for the effective value so the edge still carries
@@ -1400,6 +1454,12 @@ func (g *Graph) Validate() error {
 		// An edge cannot be here only because somebody denied it and also not
 		// be denied. The pair is one fact said twice, and a document with
 		// half of it is a line nothing accounts for.
+		// A relation nobody wrote cannot have been asserted, and a sentence
+		// with no author behind it is not somebody's sentence.
+		if e.RelationAsserted && (e.Relation == "" || e.Claim == nil) {
+			problems = append(problems, fmt.Sprintf(
+				"edge %s -> %s: relation_asserted needs a relation and a claim; it says whose sentence the relation is", e.From, e.To))
+		}
 		if e.AssertedAbsent && !e.Suppressed {
 			problems = append(problems, fmt.Sprintf(
 				"edge %s -> %s: asserted_absent without suppressed; a line that is here only because somebody denied it is denied", e.From, e.To))

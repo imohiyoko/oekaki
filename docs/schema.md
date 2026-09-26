@@ -111,8 +111,8 @@ diagram, and this file is meant to be reviewed as a diff.
 `metrics`, `coverage` and `claim` are owned by enrichers. **Parsers must not
 write to them.** This is the one hard rule about who writes what, and it is what
 allows an enricher and a parser to be written by different people who never
-talk. The same rule covers `suppressed` and `asserted_absent` on an edge and
-the top-level `conflicts`.
+talk. The same rule covers `suppressed`, `asserted_absent` and
+`relation_asserted` on an edge, and the top-level `conflicts`.
 
 `source` is optional and only appears when `--source-dir` is given, since a plan
 file contains no source locations.
@@ -141,18 +141,29 @@ actually measured along this path" is already what `observed` means.
 Either end may name a **node or a group**. Edges are sorted by
 `(kind, from, to)` and de-duplicated.
 
-`suppressed` says somebody asserted the edge is not real, and
-`asserted_absent` says the edge is here for no reason but that: nothing drew
-the connection, and the sentence denying it needed something to be about.
+`suppressed` says somebody asserted the edge is not real. Two flags beside it
+say where the line came from.
 
-Nothing draws the second one differently — a renderer that reads `suppressed`
-has everything it needs. It is there for the *next* run: the graph one run
-writes is the input of the next, and by then an invented line and a real one
-somebody denied are both suppressed and both carry the denier's claim. A
-claim arriving in that later run has to know whether it is adopting the
-invented line or drawing its own, and this is the only thing in the file that
-tells it. A document from before 0.8 is read by the note the denial left, and
-re-stamped carrying the flag.
+`asserted_absent` says the edge is here for no reason but that denial: nothing
+drew the connection, and the sentence denying it needed something to be about.
+
+`relation_asserted` says the relation on the line is somebody's sentence
+rather than a word a reader took out of a document — an overlay saying which
+function serves an operation names the relation itself, while a parser naming
+`calls` or `built_from` is reporting what it read. Signing a reader's line,
+which is what an `edge` assertion has always also been for, does not make the
+reading into the signer's sentence, and this is what says so.
+
+Neither is drawn differently; a renderer that reads `suppressed` has
+everything it needs. They are there for the *next* run. The graph one run
+writes is the input of the next, and by then the line has moved: an invented
+line and a real one somebody denied are both suppressed and both carry the
+denier's claim, and a reader's line that somebody signed carries a relation
+and an author exactly as an author's own line does. What a line looks like
+cannot answer either question, because the first run is what changed how it
+looks. A document from before 0.8 is read by the reading those versions were
+applied with — the note the denial left, and a relation only an overlay
+writes under a claim with an author — and re-stamped carrying the flags.
 
 ### Containment is usually not an edge
 
@@ -388,6 +399,10 @@ recorded the same fact in the sentence the denial wrote on the line. That
 sentence is read on the way in and the flag is set from it, because dropping
 it would tell the next claim that a line nothing drew was one a parser drew
 and somebody denied.
+
+`relation_asserted` comes back the same way, from the reading those versions
+were applied with: a relation only an overlay writes, under a claim with an
+author.
 
 Not all of it comes back. A 0.7 denial that carried the author's own note
 never got that sentence, and such a line is indistinguishable in a 0.7 file

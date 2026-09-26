@@ -1,9 +1,31 @@
 {
   "version": "0.8",
-  "axes": [{ "id": "network" }],
+  "axes": [
+    {
+      "id": "network"
+    }
+  ],
   "nodes": [
-    { "id": "a", "type": "service", "name": "a" },
-    { "id": "b", "type": "service", "name": "b" }
+    {
+      "id": "a",
+      "type": "service",
+      "name": "a"
+    },
+    {
+      "id": "b",
+      "type": "service",
+      "name": "b"
+    },
+    {
+      "id": "f",
+      "type": "code_function",
+      "name": "H"
+    },
+    {
+      "id": "op",
+      "type": "api",
+      "name": "GET /x"
+    }
   ],
   "edges": [
     {
@@ -18,7 +40,23 @@
         "note": "asserted not to exist; no such edge was found"
       }
     },
-    { "from": "b", "to": "a", "kind": "observed", "asserted_absent": false }
+    {
+      "from": "b",
+      "to": "a",
+      "kind": "observed",
+      "asserted_absent": false
+    },
+    {
+      "from": "f",
+      "to": "op",
+      "kind": "iac_ref",
+      "relation": "serves",
+      "relation_asserted": true,
+      "claim": {
+        "origin": "human",
+        "author": "alice"
+      }
+    }
   ],
   "groups": []
 }

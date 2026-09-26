@@ -186,6 +186,19 @@
     "edge": {
       "type": "object",
       "required": ["from", "to", "kind"],
+      "allOf": [
+        {
+          "if": {
+            "properties": { "relation_asserted": { "const": true } },
+            "required": ["relation_asserted"]
+          },
+          "then": {
+            "required": ["relation", "claim"],
+            "properties": { "relation": { "minLength": 1 } },
+            "$comment": "A relation nobody wrote cannot have been asserted, and a sentence with no author behind it is not somebody's sentence."
+          }
+        }
+      ],
       "if": {
         "properties": { "asserted_absent": { "const": true } },
         "required": ["asserted_absent"]
@@ -224,6 +237,10 @@
         "claim": { "$ref": "#/$defs/claim" },
         "suppressed": {
           "description": "Somebody asserted this edge is not real. A flag rather than a deletion, because \"a human said this is wrong\" and \"this never existed\" are different facts and only the first one is true.",
+          "type": "boolean"
+        },
+        "relation_asserted": {
+          "description": "This edge's relation is somebody's sentence rather than a word a reader took out of a document: an overlay saying which function serves an operation names the relation itself, while a parser naming calls or built_from is reporting what it read. Recorded rather than worked out later, for the same reason as asserted_absent — a run that signs a reader's line writes an author onto it, so by the next run the line looks like one an author named. Read by the enricher, not by any renderer. Written by enrichers, like suppressed.",
           "type": "boolean"
         },
         "asserted_absent": {
