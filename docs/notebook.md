@@ -329,6 +329,51 @@ the walk.
 
 ---
 
+## One graph, read in more than one place
+
+Two entries with the same shape underneath: a rule that has to hold in more
+than one place, and nothing that makes it.
+
+**The page folds edges, and nothing runs that code.** A container collapsed in
+the viewer was not collapsed when the document was written and nothing
+normalizes it afterwards, so the fold happens again in `app.js` — and with it
+`core.DeniedNote`, `core.CompareLineClaims` and `views.replaces`, restated in
+JavaScript. The test that guards them reads the source text: it checks the
+sentence still matches the constant, and that one condition is present and not
+negated. It cannot see a behavioural regression, and the regression it exists
+because of got through it — the Go rule was narrowed and the JavaScript was
+written from the rule before the narrowing, in the same commit.
+
+What is in the way is that node is not in the test toolchain. The Makefile
+uses npm to bundle vendored assets; CI does not install it, so a node test
+would skip exactly where the drift lands. Either node joins the toolchain and
+the fold's rules become functions a test can call, or the JavaScript is
+generated from the Go so there is one source. Lifting the comparator out by
+hand and running it against `CompareLineClaims` over every pair of a dozen
+claims is what was done instead, once, and agreement then is not agreement
+later.
+
+**Who owns a graph is not written down anywhere.** `Normalize` settles a graph
+in place. `views` hands a derived page parts of a graph it does not own. Where
+those meet, normalizing the page rewrites the graph it came from, and every
+page derived after it. That has now been found three times — a shared
+`*Claim`, a shared `Conflicts` array, and the fix for the second put at one of
+the callers so the other callers still shared it — each time by reading rather
+than by a test, and each time fixed where it was found.
+
+A shallow copy of an `Edge` shares its `Attrs` and its `Claim`; of a `Node`,
+six fields; of a `Group`, four. `liftEdges` copies an edge and clones only the
+attributes, which is safe today because `settledClaim` copies before it
+writes — an accident of the other fix rather than a stated rule. The questions
+are whether `Normalize` may rewrite its caller's input, what a view copies
+before it hands a page over, and whether the copy lives at every hand-over or
+once at the place that writes. Conflicts took the last answer, because it is
+the one a caller cannot forget. Nothing else has an answer, and a test that
+derives a page and asserts the source graph is unchanged afterwards would say
+which parts still do not.
+
+---
+
 ## Older things still true
 
 **Cross-module references are not resolved**, `--source-dir` does not recurse,
