@@ -1796,6 +1796,32 @@ func childOnPath(path, nodePath string) string {
 // beside them. A pair whose references were *all* denied still gets its line,
 // drawn as denied, because "somebody said this is wrong" and "this never
 // existed" are different facts and only the first one is true.
+// replaces reports whether a reference should become the one the folded line
+// is built from, in place of the one standing there.
+//
+// A denied reference is the representative only while nothing else has been
+// seen for this pair: denying one of several references says nothing about
+// the rest, so a line with a real reference under it is a real line. Between
+// two that agree about that, the claim is chosen the way core chooses the
+// claim a line carries — by the same function, so that this fold and the
+// next Normalize do not disagree. Keeping whichever arrived first meant the
+// words an author wrote about a denial were dropped whenever another denial
+// happened to sort ahead of theirs, and the sentence core writes for a
+// silent one was shown instead.
+func replaces(standing, e core.Edge) bool {
+	if standing.Suppressed != e.Suppressed {
+		return standing.Suppressed
+	}
+	return core.CompareLineClaims(claimOf(e), claimOf(standing)) < 0
+}
+
+func claimOf(e core.Edge) core.Claim {
+	if e.Claim == nil {
+		return core.Claim{Origin: core.OriginParser}
+	}
+	return *e.Claim
+}
+
 func liftEdges(in []core.Edge, at map[string]string) []core.Edge {
 	type key struct {
 		from, to string
@@ -1810,7 +1836,14 @@ func liftEdges(in []core.Edge, at map[string]string) []core.Edge {
 	for _, e := range in {
 		from, okFrom := at[e.From]
 		to, okTo := at[e.To]
-		if !okFrom || !okTo || from == to {
+		if !okFrom || !okTo {
+			continue
+		}
+		// Two different boxes that became one have nothing left to draw
+		// between them. A line that was already a loop is a different
+		// thing: something the graph says about one box, which lifting did
+		// not invent and dropping would lose without saying so.
+		if from == to && e.From != e.To {
 			continue
 		}
 		k := key{from, to, e.Kind, e.Relation}
@@ -1836,7 +1869,7 @@ func liftEdges(in []core.Edge, at map[string]string) []core.Edge {
 			absent = absent && standing.AssertedAbsent
 			asserted = asserted && standing.RelationAsserted
 			standing.AssertedAbsent, standing.RelationAsserted = absent, asserted
-			if !standing.Suppressed || e.Suppressed {
+			if !replaces(*standing, e) {
 				continue
 			}
 		}
@@ -1853,7 +1886,11 @@ func liftEdges(in []core.Edge, at map[string]string) []core.Edge {
 	out := make([]core.Edge, 0, len(order))
 	for _, k := range order {
 		e := *merged[k]
-		if counts[k] > 1 || denied[k] > 0 {
+		// What the line stands for, and only where it stands for more than
+		// itself. One denied reference lifted alone is a denied line, which
+		// `suppressed` already says; writing "1 denied reference" beside it
+		// says the same thing twice in two vocabularies.
+		if counts[k]+denied[k] > 1 {
 			if e.Attrs == nil {
 				e.Attrs = map[string]any{}
 			}
@@ -1900,16 +1937,9 @@ func carry(in, out *core.Graph) {
 	}
 	out.LogStatus = in.LogStatus
 
-	// With its claims copied, because a page is normalized and Normalize
-	// settles a conflict in place: it folds the claims that say the same
-	// thing into the front of the slice, sorts what is left, and rewrites
-	// the sentence on a denial. Sharing the array meant deriving one page
-	// did all of that to the graph it was derived from — and so to every
-	// page derived after it.
-	for _, c := range in.Conflicts {
-		c.Claims = append([]core.ClaimedValue(nil), c.Claims...)
-		out.Conflicts = append(out.Conflicts, c)
-	}
+	// Sharing the claims array with the graph this page came from, which
+	// Normalize copies before it settles anything; see the copy there.
+	out.Conflicts = append(out.Conflicts, in.Conflicts...)
 	filterConflicts(out)
 	trimSinks(out, present)
 }

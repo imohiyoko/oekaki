@@ -164,14 +164,17 @@ all answering the same question:
 | | |
 | --- | --- |
 | `core.mergeEdge`, in Normalize | duplicates of one edge. Two sources disagreeing about whether it is real is a disagreement, and is recorded as one |
-| `views.liftEdges`, for the atlas and for focus | different edges whose ends became the same box. Denying one of them says nothing about the rest, so the line is the ones nobody denied, and the count of those that were is written beside it |
+| `views.liftEdges` — the atlas, focus and `--fold` all call it | different edges whose ends became the same box. Denying one of them says nothing about the rest, so the line is the ones nobody denied, and the count of those that were is written beside it |
 | the fold in `renderers/html/app.js` | the same collapse, done again in the page, because a container folded in the viewer was not folded when the document was written and nothing will normalize it afterwards |
 
-The first two answer their question differently on purpose. The third is the
-awkward one: it is the second fold in another language, running where no Go
-code can reach it, and it has to know the denial's sentence to settle it —
-which is why a test in `renderers/html` fails if the two copies of that
-string stop matching.
+The first two answer their question differently on purpose, and each is one
+function, so a view cannot answer it a third way by writing its own. The
+third is the awkward one: it is the second fold in another language, running
+where no Go code can reach it, so `core.DeniedNote`, `core.CompareLineClaims`
+and `views.replaces` are all restated there. A test in `renderers/html` reads
+the sentence and the one condition that has been got wrong before; it reads
+the source rather than running it, because there is no JavaScript harness
+here to run it with.
 
 `relation_asserted` says the relation on the line is somebody's sentence
 rather than a word a reader took out of a document — an overlay saying which

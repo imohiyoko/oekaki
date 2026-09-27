@@ -65,16 +65,16 @@ func TestThePageKnowsTheSentenceCoreWrites(t *testing.T) {
 	// author's own. The page had the rule before core narrowed it, and
 	// deleted an author's note the document had kept.
 	//
-	// Crude, because no Go test can run this. It reads the one condition
-	// rather than the behaviour, and it is here because that condition is
-	// the whole of the difference.
-	var guarded bool
-	for _, line := range strings.Split(appJS, "\n") {
-		if strings.Contains(line, "DENIED_NOTE") && strings.Contains(line, "===") {
-			guarded = strings.Contains(line, "suppressed")
-		}
+	// This reads the condition rather than running it. No Go test can run
+	// this file: the page's fold is inside the browser, and node is not
+	// part of the test toolchain. So it catches the two ways the rule has
+	// actually been got wrong — dropping the guard, and negating it — and
+	// nothing else. A behavioural test of app.js needs a JavaScript
+	// harness, which this repository does not have.
+	if !strings.Contains(appJS, "if (edge.suppressed && edge.claim && edge.claim.note === DENIED_NOTE)") {
+		t.Error("app.js does not take the sentence off exactly where core does")
 	}
-	if !guarded {
-		t.Error("app.js takes the sentence off a line without asking whether anybody denied it")
+	if strings.Contains(appJS, "!edge.suppressed && edge.claim && edge.claim.note") {
+		t.Error("app.js takes the sentence off a line precisely because nobody denied it")
 	}
 }

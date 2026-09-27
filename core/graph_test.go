@@ -963,7 +963,7 @@ func TestSettlingTheSentenceLeavesTheGivenGraphAlone(t *testing.T) {
 // this package derives begins with "asserted", and which author kept their
 // words depended on their first letter. Both comparators now rank a claim
 // that says something of its own ahead of one that says nothing or only that
-// sentence; see core.NoteRank.
+// sentence; see CompareNotes.
 func TestAnAuthorsOwnWordsSurviveTheOrdering(t *testing.T) {
 	two := func(t *testing.T, note string, absent1, absent2 bool) Edge {
 		t.Helper()
@@ -1099,5 +1099,37 @@ func TestAClaimThatSaysNothingStillSortsFirstWithinAListOfThem(t *testing.T) {
 	}
 	if len(notes) != 2 || notes[0] != "" || notes[1] != "looked again" {
 		t.Errorf("the list was reordered by what its claims say: %q", notes)
+	}
+}
+
+// Normalize settles a conflict in place, and a conflict can arrive sharing
+// its claims with a graph somebody else still holds — views hands a page the
+// conflicts of the graph it came from. Copying at the one place that writes
+// is what makes every caller safe; copying at one of the callers made that
+// one caller safe.
+func TestNormalizingLeavesAConflictSomebodyElseHoldsAlone(t *testing.T) {
+	shared := []ClaimedValue{
+		{Value: "false", Claim: Claim{Origin: OriginParser}},
+		{Value: "true", Claim: Claim{Origin: OriginHuman, Author: "z", Note: DeniedNote}},
+		{Value: "true", Claim: Claim{Origin: OriginHuman, Author: "z", Note: DeniedNote}},
+	}
+	before := append([]ClaimedValue(nil), shared...)
+
+	g := New()
+	g.Nodes = append(g.Nodes, Node{ID: "a", Type: "thing"}, Node{ID: "b", Type: "thing"})
+	g.Edges = append(g.Edges, Edge{From: "a", To: "b", Kind: EdgeIACRef})
+	g.Conflicts = []Conflict{{
+		TargetKind: ConflictTargetEdge,
+		Target:     EdgeKey("a", "b", EdgeIACRef, ""),
+		Field:      "suppressed",
+		Claims:     shared,
+	}}
+	g.Normalize()
+
+	for i := range before {
+		if before[i] != shared[i] {
+			t.Errorf("claim %d changed under the holder of the array:\n  was %+v\n  now %+v",
+				i, before[i], shared[i])
+		}
 	}
 }

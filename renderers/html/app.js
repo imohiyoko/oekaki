@@ -21,12 +21,6 @@
   // atlas at all rather than as an empty one — an empty one would take the
   // atlas path through every function below and leave the reader with a
   // breadcrumb bar containing nothing and no way back.
-  // The sentence core writes onto a line that is in the document for no
-  // reason but a denial. Repeated here because the page folds edges of its
-  // own and has to settle it again; core.DeniedNote is the definition, and a
-  // test in renderers/html fails if the two stop matching.
-  const DENIED_NOTE = 'asserted not to exist; no such edge was found';
-
   const atlasElement = document.getElementById('oekaki-atlas');
   let atlas = null;
   let atlasBroken = '';
@@ -700,6 +694,33 @@
     const edges = [];
     const merged = new Map();
 
+    // The page folds edges where nothing will normalize them afterwards, so
+    // the three questions that fold settles are settled again here, and have
+    // to be settled the same way. In Go they are core.DeniedNote,
+    // core.CompareLineClaims and views.replaces; these are those, and a test
+    // in renderers/html fails if the sentence stops matching.
+    const DENIED_NOTE = 'asserted not to exist; no such edge was found';
+    const RANK = {human: 3, ai: 2, parser: 1};
+    const claimOf = (e) => e.claim || {origin: 'parser'};
+    const order = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+    const noteRank = (c) => (!c.note || c.note === DENIED_NOTE ? 1 : 0);
+    const confidenceOf = (c) => (c.confidence === undefined || c.confidence === null
+      ? -Infinity : c.confidence);
+    const compareLineClaims = (a, b) => (RANK[b.origin] || 0) - (RANK[a.origin] || 0)
+      || order(a.origin || '', b.origin || '')
+      || order(a.author || '', b.author || '')
+      || order(confidenceOf(a), confidenceOf(b))
+      || noteRank(a) - noteRank(b)
+      || order(a.note || '', b.note || '');
+
+    // A denied reference represents the pair only while nothing else has
+    // been seen for it; between two that agree about that, the claim with
+    // an author's own words. Keeping whichever arrived first meant what a
+    // reader saw depended on the order the edges were listed in.
+    const replaces = (standing, e) => (!standing.suppressed !== !e.suppressed
+      ? !!standing.suppressed
+      : compareLineClaims(claimOf(e), claimOf(standing)) < 0);
+
     // A copy, because `graph` is what the input said. Writing a count onto the
     // edge itself would edit the document the page carries, and the next
     // render would count the counts.
@@ -712,8 +733,10 @@
     // drew, which is the thing the flag exists to stop.
     const summarise = (at) => {
       const attrs = {...(at.infra.stands.attrs || {})};
-      if (at.infra.references > 1) attrs.references = at.infra.references;
-      if (at.infra.denied > 0) attrs.suppressed_references = at.infra.denied;
+      if (at.infra.references + at.infra.denied > 1) {
+        if (at.infra.references > 1) attrs.references = at.infra.references;
+        if (at.infra.denied > 0) attrs.suppressed_references = at.infra.denied;
+      }
       const edge = {...at.infra.stands, attrs};
       if (at.infra.absent) edge.asserted_absent = true;
       else {
@@ -743,7 +766,7 @@
         // projection settles it: a pair with one real reference and three
         // denied ones is a real relationship, and which of the two a reader
         // is shown must not depend on the order they arrived in.
-        if (at.infra.stands.suppressed && !e.suppressed) at.infra.stands = e;
+        if (replaces(at.infra.stands, e)) at.infra.stands = e;
         summarise(at);
         continue;
       }
