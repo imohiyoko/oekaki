@@ -995,7 +995,7 @@ func trackedEdgeAssertionPreferred(candidate, current trackedEdgeAssertion) bool
 	if candidate.suppressed != current.suppressed {
 		return candidate.suppressed
 	}
-	if comparison := compareClaims(candidate.claim, current.claim); comparison != 0 {
+	if comparison := compareLineClaims(candidate.claim, current.claim); comparison != 0 {
 		return comparison < 0
 	}
 	if candidate.explicit != current.explicit {
@@ -1259,6 +1259,20 @@ func claimPreferred(candidate core.Claim, current *core.Claim) bool {
 // of b. Rank is semantic; the remaining fields are canonical tie-breakers so
 // equal-rank overlays never inherit command-line order.
 func compareClaims(a, b core.Claim) int {
+	return compareClaimFields(a, b, func(a, b core.Claim) int { return strings.Compare(a.Note, b.Note) })
+}
+
+// compareLineClaims is compareClaims for the one claim a line will carry,
+// where the loser's words are not further down a list but gone. core settles
+// the same question with the same rule when it normalizes; calling core's
+// rather than restating it is why the two now agree. They did not, and the
+// sentence a reader saw depended on which of the two had touched the graph
+// last.
+func compareLineClaims(a, b core.Claim) int {
+	return compareClaimFields(a, b, core.CompareNotes)
+}
+
+func compareClaimFields(a, b core.Claim, notes func(a, b core.Claim) int) int {
 	if a.Origin.Rank() != b.Origin.Rank() {
 		if a.Origin.Rank() > b.Origin.Rank() {
 			return -1
@@ -1274,22 +1288,7 @@ func compareClaims(a, b core.Claim) int {
 	if comparison := compareConfidence(a.Confidence, b.Confidence); comparison != 0 {
 		return comparison
 	}
-	// The same tier core ranks by, so that the enricher and a later
-	// Normalize choose the same claim. They did not, and the sentence a
-	// reader saw depended on which of the two had last touched the graph.
-	if core.NoteRank(a.Note) != core.NoteRank(b.Note) {
-		if core.NoteRank(a.Note) < core.NoteRank(b.Note) {
-			return -1
-		}
-		return 1
-	}
-	if a.Note < b.Note {
-		return -1
-	}
-	if a.Note > b.Note {
-		return 1
-	}
-	return 0
+	return notes(a, b)
 }
 
 func compareConfidence(a, b *float64) int {

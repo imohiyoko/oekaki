@@ -1040,3 +1040,64 @@ func TestOnlyTheDenyingSideOfADisagreementSaysIt(t *testing.T) {
 		t.Fatal("no conflict was recorded, so the test is not asking what it means to")
 	}
 }
+
+// Those words on a line nobody denied are an author's own. The sentence is
+// only ever written onto a line a denial invented, and such a line is always
+// suppressed — so on a line that is not, nothing here put them there and
+// nothing here takes them away.
+func TestASentenceThatReadsLikeTheDenialsSurvivesOnALineNobodyDenied(t *testing.T) {
+	for _, c := range []struct {
+		name       string
+		suppressed bool
+		kept       bool
+	}{
+		{"a line nobody denied", false, true},
+		{"a line somebody denied that something turned out to have drawn", true, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			g := New()
+			g.Nodes = append(g.Nodes,
+				Node{ID: "a", Type: "thing"}, Node{ID: "b", Type: "thing"})
+			g.Edges = append(g.Edges, Edge{From: "a", To: "b", Kind: EdgeIACRef,
+				Suppressed: c.suppressed,
+				Claim: &Claim{Origin: OriginHuman, Author: "auditor",
+					Note: DeniedNote}})
+			g.Normalize()
+			got := g.Edges[0].Claim.Note
+			if c.kept && got != DeniedNote {
+				t.Errorf("the author's words were taken off the line: %q", got)
+			}
+			if !c.kept && got != "" {
+				t.Errorf("a line something drew still says %q", got)
+			}
+		})
+	}
+}
+
+// Ranking a claim that says nothing behind one that says something is about
+// choosing the single claim a line will carry, where the loser's words are
+// gone. A list is not that choice — a conflict shows every claim in it — so
+// the order there is still the plain one, and documents that have nothing to
+// do with denials are not quietly reordered.
+func TestAClaimThatSaysNothingStillSortsFirstWithinAListOfThem(t *testing.T) {
+	g := New()
+	g.Nodes = append(g.Nodes, Node{ID: "a", Type: "thing"}, Node{ID: "b", Type: "thing"})
+	g.Edges = append(g.Edges, Edge{From: "a", To: "b", Kind: EdgeIACRef})
+	g.Conflicts = []Conflict{{
+		TargetKind: ConflictTargetEdge,
+		Target:     EdgeKey("a", "b", EdgeIACRef, ""),
+		Field:      "suppressed",
+		Claims: []ClaimedValue{
+			{Value: "true", Claim: Claim{Origin: OriginHuman, Author: "z", Note: "looked again"}},
+			{Value: "true", Claim: Claim{Origin: OriginHuman, Author: "z"}},
+		},
+	}}
+	g.Normalize()
+	notes := []string{}
+	for _, cv := range g.Conflicts[0].Claims {
+		notes = append(notes, cv.Claim.Note)
+	}
+	if len(notes) != 2 || notes[0] != "" || notes[1] != "looked again" {
+		t.Errorf("the list was reordered by what its claims say: %q", notes)
+	}
+}

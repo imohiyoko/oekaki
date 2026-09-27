@@ -21,6 +21,12 @@
   // atlas at all rather than as an empty one — an empty one would take the
   // atlas path through every function below and leave the reader with a
   // breadcrumb bar containing nothing and no way back.
+  // The sentence core writes onto a line that is in the document for no
+  // reason but a denial. Repeated here because the page folds edges of its
+  // own and has to settle it again; core.DeniedNote is the definition, and a
+  // test in renderers/html fails if the two stop matching.
+  const DENIED_NOTE = 'asserted not to exist; no such edge was found';
+
   const atlasElement = document.getElementById('oekaki-atlas');
   let atlas = null;
   let atlasBroken = '';
@@ -697,11 +703,27 @@
     // A copy, because `graph` is what the input said. Writing a count onto the
     // edge itself would edit the document the page carries, and the next
     // render would count the counts.
+    // Two of the fields belong to the pair rather than to whichever
+    // reference represents it, and are settled the way the projection
+    // settles them. Being here for no reason but a denial is true of the
+    // line only when it is true of every reference under it; and the
+    // sentence a denial writes about that becomes false with it. Without
+    // this a page could say "no such edge was found" over a line a parser
+    // drew, which is the thing the flag exists to stop.
     const summarise = (at) => {
       const attrs = {...(at.infra.stands.attrs || {})};
       if (at.infra.references > 1) attrs.references = at.infra.references;
       if (at.infra.denied > 0) attrs.suppressed_references = at.infra.denied;
-      at.infra.edge = {...at.infra.stands, attrs};
+      const edge = {...at.infra.stands, attrs};
+      if (at.infra.absent) edge.asserted_absent = true;
+      else {
+        delete edge.asserted_absent;
+        if (edge.claim && edge.claim.note === DENIED_NOTE) {
+          edge.claim = {...edge.claim};
+          delete edge.claim.note;
+        }
+      }
+      at.infra.edge = edge;
     };
 
     for (const [i, e] of allEdges().entries()) {
@@ -712,6 +734,7 @@
       const at = merged.get(pair);
       if (at) {
         if (e.suppressed) at.infra.denied++; else at.infra.references++;
+        at.infra.absent = at.infra.absent && !!e.asserted_absent;
         // The line is the references nobody denied, on the same terms the
         // projection settles it: a pair with one real reference and three
         // denied ones is a real relationship, and which of the two a reader
@@ -726,6 +749,7 @@
           kind: 'edge', edge: e, stands: e,
           references: e.suppressed ? 0 : 1,
           denied: e.suppressed ? 1 : 0,
+          absent: !!e.asserted_absent,
         },
       };
       summarise(drawnEdge);

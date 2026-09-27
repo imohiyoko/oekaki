@@ -1899,7 +1899,17 @@ func carry(in, out *core.Graph) {
 		}
 	}
 	out.LogStatus = in.LogStatus
-	out.Conflicts = append(out.Conflicts, in.Conflicts...)
+
+	// With its claims copied, because a page is normalized and Normalize
+	// settles a conflict in place: it folds the claims that say the same
+	// thing into the front of the slice, sorts what is left, and rewrites
+	// the sentence on a denial. Sharing the array meant deriving one page
+	// did all of that to the graph it was derived from — and so to every
+	// page derived after it.
+	for _, c := range in.Conflicts {
+		c.Claims = append([]core.ClaimedValue(nil), c.Claims...)
+		out.Conflicts = append(out.Conflicts, c)
+	}
 	filterConflicts(out)
 	trimSinks(out, present)
 }

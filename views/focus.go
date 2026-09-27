@@ -82,6 +82,10 @@ func Focus(g *core.Graph, axis, group string) (*core.Graph, error) {
 	// Every other group becomes one node, created only if an edge reaches it.
 	stood := map[string]*core.Node{}
 	refs := map[string]int{}
+	at := map[string]string{}
+	for id := range inside {
+		at[id] = id
+	}
 	standIn := func(id string) string {
 		if n, ok := stood[id]; ok {
 			refs[n.ID]++
@@ -103,53 +107,51 @@ func Focus(g *core.Graph, axis, group string) (*core.Graph, error) {
 		return id
 	}
 
-	// Edges are folded by the pair they connect, so many references between
-	// the same two boxes become one arrow. The count of what was folded goes
-	// on the collapsed box, because losing it would make a heavily-used
-	// neighbour look like a passing one.
-	// Folding on the endpoints alone would keep whichever edge the input
-	// happened to list first and throw the rest away, so a pair joined by both
-	// a declared reference and an observed one would come out as one of the
-	// two, chosen by file order. The kind and the relation are part of what
-	// makes two lines the same line.
-	type fold struct{ from, to, kind, relation string }
-	at := map[fold]int{}
-	var edges []core.Edge
+	// The edges this drawing is about, and which box each end of one is drawn
+	// as: itself when it is inside, and the stand-in for its outermost
+	// container when it is not. An edge touching nothing inside is not
+	// carried at all — it belongs to two other groups, and the stand-ins are
+	// here to say what reaches this one rather than to draw the estate
+	// around it.
+	var touching []core.Edge
 	for _, e := range g.Edges {
-		from, to := e.From, e.To
-		fromIn, toIn := inside[from], inside[to]
+		fromIn, toIn := inside[e.From], inside[e.To]
 		if !fromIn && !toIn {
 			continue
 		}
 		if !fromIn {
-			owner, ok := outermost(g, axis, from)
+			owner, ok := outermost(g, axis, e.From)
 			if !ok {
 				continue
 			}
-			from = standIn(owner)
+			at[e.From] = standIn(owner)
 		}
 		if !toIn {
-			owner, ok := outermost(g, axis, to)
+			owner, ok := outermost(g, axis, e.To)
 			if !ok {
 				continue
 			}
-			to = standIn(owner)
+			at[e.To] = standIn(owner)
 		}
-		key := fold{from, to, string(e.Kind), e.Relation}
-		if i, ok := at[key]; ok {
-			// One line standing for several is here for no reason but a
-			// denial only if every reference under it is. Keeping the first
-			// reference's flag put "no such edge was found" on a line a
-			// parser drew, whenever a denied one happened to be listed
-			// first.
-			edges[i].AssertedAbsent = edges[i].AssertedAbsent && e.AssertedAbsent
-			continue
-		}
-		at[key] = len(edges)
-		kept := e
-		kept.From, kept.To = from, to
-		edges = append(edges, kept)
+		touching = append(touching, e)
 	}
+
+	// Several references land on one pair once an outside end has become a
+	// stand-in, and the pair is all the drawing has room for. The atlas
+	// collapses edges onto lifted boxes for the same reason and settles the
+	// same questions doing it — which reference the line is built from, what
+	// the flags that belong to the pair come to, how many of each kind are
+	// under it — so the fold is the one there rather than a second reading
+	// of it here.
+	//
+	// Not Normalize's fold, which is a different question with a different
+	// answer: two duplicates of one edge disagreeing about suppression is a
+	// disagreement, and it is recorded as one. These references are not
+	// duplicates of each other — a denial of one of them says nothing about
+	// the rest — so a line standing for them is denied only when there is
+	// nothing else under it, and the count of those that were is written
+	// beside it.
+	out.Edges = liftEdges(touching, at)
 
 	ids := make([]string, 0, len(stood))
 	for id := range stood {
@@ -161,8 +163,6 @@ func Focus(g *core.Graph, axis, group string) (*core.Graph, error) {
 		n.Attrs["references"] = refs[id]
 		out.Nodes = append(out.Nodes, *n)
 	}
-	out.Edges = edges
-
 	out.Normalize()
 	return out, out.Validate()
 }

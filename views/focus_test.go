@@ -423,3 +423,119 @@ func TestFocusFoldsWhatItsReferencesSayAboutBeingInvented(t *testing.T) {
 		})
 	}
 }
+
+// Folding a denied reference in with a drawn one settles more than the flag.
+// The line stands for both, so it is drawn as the drawn one — the same answer
+// the atlas gives, because it is now literally the same fold. Reading these
+// off whichever reference was listed first meant a denial of one thing
+// crossed out another, and meant focus and the atlas drew one graph two ways.
+func TestFocusDrawsAPairTheWayTheAtlasDoesWhenOneReferenceWasDenied(t *testing.T) {
+	deny := func(g *core.Graph, from, to string) {
+		for i := range g.Edges {
+			if g.Edges[i].From == from && g.Edges[i].To == to {
+				g.Edges[i].Suppressed = true
+				g.Edges[i].AssertedAbsent = true
+				g.Edges[i].Claim = &core.Claim{
+					Origin: core.OriginHuman, Author: "auditor", Note: core.DeniedNote}
+			}
+		}
+	}
+	for _, c := range []struct{ name, from, to string }{
+		{"the denied one sorts first", "a1", "b1"},
+		{"the drawn one sorts first", "a1", "b2"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			g := estate()
+			deny(g, c.from, c.to)
+			out, err := Focus(g, "account", "one")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var found bool
+			for _, e := range out.Edges {
+				if e.From != "a1" || e.To != "two" {
+					continue
+				}
+				found = true
+				// a1 -> b2 is a reference nobody denied, and it is under
+				// this line.
+				if e.Suppressed {
+					t.Error("the line is drawn as denied, and one reference under it was not")
+				}
+				if e.AssertedAbsent {
+					t.Error("the line says nothing drew it, and one reference under it was drawn")
+				}
+				if e.Claim != nil && e.Claim.Note == core.DeniedNote {
+					t.Errorf("the line says %q", e.Claim.Note)
+				}
+				if e.Attrs["suppressed_references"] != 1 {
+					t.Errorf("the denial is not counted beside it: %v", e.Attrs)
+				}
+			}
+			if !found {
+				t.Fatal("the pair a1 -> two is not drawn at all")
+			}
+		})
+	}
+}
+
+// And the word on it. A relation two references share is not one author's
+// sentence, whichever of them the line was built from.
+func TestFocusFoldsWhoseWordTheRelationIs(t *testing.T) {
+	g := estate()
+	for i := range g.Edges {
+		if g.Edges[i].From != "a1" {
+			continue
+		}
+		switch g.Edges[i].To {
+		case "b1":
+			g.Edges[i].Relation = "serves"
+			g.Edges[i].RelationAsserted = true
+			g.Edges[i].Claim = &core.Claim{Origin: core.OriginHuman, Author: "operator"}
+		case "b2":
+			g.Edges[i].Relation = "serves"
+		}
+	}
+	out, err := Focus(g, "account", "one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range out.Edges {
+		if e.From == "a1" && e.To == "two" && e.RelationAsserted {
+			t.Error("the line calls the relation one author's word, and a parser drew the same word")
+		}
+	}
+}
+
+// A page is derived from a graph, not carved out of it. Normalize settles a
+// conflict in place — folding, sorting and rewriting its claims — so a page
+// that shares the array does all of that to the graph it came from, and to
+// every page derived after it.
+func TestDerivingAPageLeavesTheGraphItCameFromAlone(t *testing.T) {
+	in := core.New()
+	in.Conflicts = []core.Conflict{{
+		TargetKind: core.ConflictTargetEdge,
+		Target:     core.EdgeKey("a", "b", core.EdgeIACRef, ""),
+		Field:      "suppressed",
+		Claims: []core.ClaimedValue{
+			{Value: "false", Claim: core.Claim{Origin: core.OriginParser}},
+			{Value: "true", Claim: core.Claim{Origin: core.OriginHuman, Author: "z", Note: core.DeniedNote}},
+			{Value: "true", Claim: core.Claim{Origin: core.OriginHuman, Author: "z", Note: core.DeniedNote}},
+		},
+	}}
+	before := append([]core.ClaimedValue(nil), in.Conflicts[0].Claims...)
+
+	out := core.New()
+	out.Nodes = append(out.Nodes,
+		core.Node{ID: "a", Type: "thing"}, core.Node{ID: "b", Type: "thing"})
+	out.Edges = append(out.Edges, core.Edge{From: "a", To: "b", Kind: core.EdgeIACRef})
+	carry(in, out)
+	out.Normalize()
+
+	for i := range before {
+		if before[i] != in.Conflicts[0].Claims[i] {
+			t.Errorf("claim %d of the graph the page came from changed:\n  was %+v\n  now %+v",
+				i, before[i], in.Conflicts[0].Claims[i])
+		}
+	}
+}

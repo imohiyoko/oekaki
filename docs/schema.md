@@ -151,13 +151,27 @@ edge was found" — unless its author wrote a note of their own. That sentence
 is in the file like any other note, and it is written there by the flag rather
 than by whoever made the line: nobody sets it by hand, and a file where the
 two disagree is put right on the way in. The flag is the fact; the sentence is
-how it reads.
+how it reads. Put right only where it could have been written: the flag is
+only valid alongside `suppressed`, so a line nobody denied never received
+the sentence from here and keeps those words if an author typed them.
 
 Which leaves the flag itself to be folded wherever two lines become one — a
 line standing for several is here for no reason but a denial only if every
 one of them is. That is a rule about the flag, not about the sentence, and
-the places that fold lines carry it: the merge in Normalize, the atlas
-lifting edges onto groups, and focus folding them onto stand-ins.
+every place that folds lines carries it. There are three, and they are not
+all answering the same question:
+
+| | |
+| --- | --- |
+| `core.mergeEdge`, in Normalize | duplicates of one edge. Two sources disagreeing about whether it is real is a disagreement, and is recorded as one |
+| `views.liftEdges`, for the atlas and for focus | different edges whose ends became the same box. Denying one of them says nothing about the rest, so the line is the ones nobody denied, and the count of those that were is written beside it |
+| the fold in `renderers/html/app.js` | the same collapse, done again in the page, because a container folded in the viewer was not folded when the document was written and nothing will normalize it afterwards |
+
+The first two answer their question differently on purpose. The third is the
+awkward one: it is the second fold in another language, running where no Go
+code can reach it, and it has to know the denial's sentence to settle it —
+which is why a test in `renderers/html` fails if the two copies of that
+string stop matching.
 
 `relation_asserted` says the relation on the line is somebody's sentence
 rather than a word a reader took out of a document — an overlay saying which

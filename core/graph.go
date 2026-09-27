@@ -1076,62 +1076,54 @@ func (g *Graph) Normalize() {
 // when it has nothing else to say, so it goes on a claim with no note and
 // comes off one that says only this.
 func (g *Graph) settleDeniedNotes() {
-	var absent map[string]bool
 	for i := range g.Edges {
 		edge := &g.Edges[i]
-		edge.Claim = settledClaim(edge.Claim, edge.AssertedAbsent)
-		if edge.AssertedAbsent {
-			if absent == nil {
-				absent = map[string]bool{}
-			}
-			absent[EdgeKey(edge.From, edge.To, edge.Kind, edge.Relation)] = true
-		}
+		edge.Claim = settledClaim(edge.Claim, edge.Suppressed, edge.AssertedAbsent)
 	}
 
 	// And where the disagreement is written down. A conflict is built from
 	// the copies that arrived rather than from the line they became, so the
 	// sentence a reader is shown there has to be settled against the line as
-	// well. Claims that become identical are folded by the dedup below.
+	// well.
 	//
-	// The denying side of a disagreement about suppression, and nothing
-	// else: a claim that says the edge is real has not denied anything, and
-	// a disagreement about some other field is not about this at all.
+	// Only off, never on. A conflict about suppression exists because some
+	// source did not deny this edge, and a line something drew is not one a
+	// denial invented — so the flag behind the sentence is false for every
+	// conflict there is, and the reading that put it on was unreachable.
+	//
+	// The denying side of it, and nothing else: a claim that says the edge
+	// is real has not denied anything, and a disagreement about some other
+	// field is not about this at all.
 	for i := range g.Conflicts {
 		c := &g.Conflicts[i]
 		if c.TargetKind != ConflictTargetEdge || c.Field != "suppressed" {
 			continue
 		}
-		var copied bool
 		for j := range c.Claims {
 			if c.Claims[j].Value != "true" {
 				continue
 			}
-			settled := settledClaim(&c.Claims[j].Claim, absent[c.Target])
-			if settled == &c.Claims[j].Claim {
-				continue
-			}
-			// Copied once, before the first write. Conflicts carried in from
-			// another graph share their Claims array with it — see carry —
-			// so writing through this index would reach back into the
-			// caller's graph and into every page derived from it.
-			if !copied {
-				c.Claims = append([]ClaimedValue(nil), c.Claims...)
-				copied = true
-			}
-			c.Claims[j].Claim = *settled
+			c.Claims[j].Claim = *settledClaim(&c.Claims[j].Claim, true, false)
 		}
 	}
 }
 
 // settledClaim returns c with the denial's own sentence on it or off it,
-// whichever the flag calls for. A note that reads exactly like the sentence
-// comes off a line something drew even if its author typed it themselves:
-// there is nothing in the file to tell the two apart, and on such a line the
-// words are false whoever wrote them. The claim is copied rather than written
+// whichever the flag calls for. The claim is copied rather than written
 // through: views hands the same *Claim to every page it derives from a
 // graph, and editing one in place changed a drawing somebody had already
 // been given.
-func settledClaim(c *Claim, absent bool) *Claim {
+//
+// Taken off only where it could have been put on. A line nothing denied
+// never received the sentence from here — asserted_absent is only valid
+// alongside suppressed, and suppression only ever gets more true as
+// duplicates merge — so those words on such a line are an author's own and
+// are left where they wrote them. That leaves one case where they are taken
+// from an author: a line they denied in exactly these words, that something
+// turned out to have drawn. Nothing in the file tells that apart from the
+// sentence written here, and on that line the words are false whoever wrote
+// them.
+func settledClaim(c *Claim, suppressed, absent bool) *Claim {
 	if c == nil {
 		return nil
 	}
@@ -1139,7 +1131,7 @@ func settledClaim(c *Claim, absent bool) *Claim {
 	switch {
 	case absent && c.Note == "":
 		settled.Note = DeniedNote
-	case !absent && c.Note == DeniedNote:
+	case suppressed && !absent && c.Note == DeniedNote:
 		settled.Note = ""
 	default:
 		return c
@@ -1201,10 +1193,10 @@ func edgeClaimLess(a, b Edge) bool {
 	if ac.Origin.Rank() != bc.Origin.Rank() {
 		return ac.Origin.Rank() > bc.Origin.Rank()
 	}
-	if claimLess(ac, bc) {
+	if lineClaimLess(ac, bc) {
 		return true
 	}
-	if claimLess(bc, ac) {
+	if lineClaimLess(bc, ac) {
 		return false
 	}
 	if a.Suppressed != b.Suppressed {
@@ -1307,37 +1299,62 @@ func sortEvidence(ev []Evidence) {
 }
 
 // claimLess orders two claims by every field they carry, so that evidence
-// differing only in who claimed it still has one settled order.
-func claimLess(a, b Claim) bool {
-	if a.Origin != b.Origin {
-		return a.Origin < b.Origin
+// differing only in who claimed it still has one settled order. Notes are
+// compared as text: this is the ordering of a list, and a list that hides
+// what is in it has not been ordered.
+func claimLess(a, b Claim) bool { return compareClaim(a, b, compareNoteText) < 0 }
+
+// lineClaimLess orders two claims competing to be the one claim a line
+// carries, where only one of them will be read. There CompareNotes applies:
+// the loser's words are not further down a list, they are gone.
+func lineClaimLess(a, b Claim) bool { return compareClaim(a, b, CompareNotes) < 0 }
+
+func compareClaim(a, b Claim, notes func(a, b Claim) int) int {
+	switch {
+	case a.Origin != b.Origin:
+		return strings.Compare(string(a.Origin), string(b.Origin))
+	case a.Author != b.Author:
+		return strings.Compare(a.Author, b.Author)
+	case optionalKey(a.Confidence) != optionalKey(b.Confidence):
+		if optionalKey(a.Confidence) < optionalKey(b.Confidence) {
+			return -1
+		}
+		return 1
 	}
-	if a.Author != b.Author {
-		return a.Author < b.Author
-	}
-	if optionalKey(a.Confidence) != optionalKey(b.Confidence) {
-		return optionalKey(a.Confidence) < optionalKey(b.Confidence)
-	}
-	if NoteRank(a.Note) != NoteRank(b.Note) {
-		return NoteRank(a.Note) < NoteRank(b.Note)
-	}
-	return a.Note < b.Note
+	return notes(a, b)
 }
 
-// NoteRank puts a claim that says something of its own ahead of one that says
-// nothing, and of one carrying only DeniedNote — which this package writes
-// rather than any author.
+func compareNoteText(a, b Claim) int { return strings.Compare(a.Note, b.Note) }
+
+// CompareNotes orders what two claims say about the line they are on, putting
+// an author's own words ahead of a claim that says nothing and of one
+// carrying only DeniedNote — which this package writes rather than any
+// author.
 //
 // Ranked before the notes are compared as text, because that comparison is
-// alphabetical and settles nothing: "asserted not to exist; no such edge was
-// found" beats every sentence that happens to start later in the alphabet, so
-// which author kept their words depended on their first letter. Ordering the
-// notes before the merge instead was tried and is the same bug wearing a
-// different hat.
+// alphabetical and settles nothing: the sentence beats every note that
+// happens to start later in the alphabet, so which author kept their words
+// depended on their first letter. Silence is ranked with it because silence
+// on a line a denial invented is filled with exactly that sentence a moment
+// later — the two are the same claim, one of them early.
 //
-// Both comparators use it — this one and the enricher's, which rank the same
-// claims and disagreed about them.
-func NoteRank(note string) int {
+// Only where one claim is chosen over another to be carried on a line. The
+// ordering of a list of claims is not that question: a conflict shows every
+// claim in it, and moving the quiet ones to the end there would reorder
+// documents that have nothing to do with denials.
+//
+// Exported because the enricher chooses the same claim on the same line and
+// has its own comparator to do it with. The two disagreed, and which sentence
+// a reader saw depended on whether the enricher or a later Normalize had
+// settled it last.
+func CompareNotes(a, b Claim) int {
+	if rank := noteRank(a.Note) - noteRank(b.Note); rank != 0 {
+		return rank
+	}
+	return strings.Compare(a.Note, b.Note)
+}
+
+func noteRank(note string) int {
 	if note == "" || note == DeniedNote {
 		return 1
 	}
