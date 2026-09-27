@@ -58,4 +58,23 @@ func TestThePageKnowsTheSentenceCoreWrites(t *testing.T) {
 		t.Errorf("app.js does not carry %q, so its fold cannot tell that sentence from an author's",
 			core.DeniedNote)
 	}
+
+	// And settles it on the same terms core does. settledClaim takes the
+	// sentence off a line only where it could have put it there — one
+	// somebody denied — because on any other line those words are an
+	// author's own. The page had the rule before core narrowed it, and
+	// deleted an author's note the document had kept.
+	//
+	// Crude, because no Go test can run this. It reads the one condition
+	// rather than the behaviour, and it is here because that condition is
+	// the whole of the difference.
+	var guarded bool
+	for _, line := range strings.Split(appJS, "\n") {
+		if strings.Contains(line, "DENIED_NOTE") && strings.Contains(line, "===") {
+			guarded = strings.Contains(line, "suppressed")
+		}
+	}
+	if !guarded {
+		t.Error("app.js takes the sentence off a line without asking whether anybody denied it")
+	}
 }

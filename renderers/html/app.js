@@ -718,7 +718,11 @@
       if (at.infra.absent) edge.asserted_absent = true;
       else {
         delete edge.asserted_absent;
-        if (edge.claim && edge.claim.note === DENIED_NOTE) {
+        // Taken off only where core could have put it on, which is a line
+        // somebody denied. On a line nobody denied, those words are an
+        // author's own and core leaves them alone — deleting them here would
+        // make the page say less than the document it was given.
+        if (edge.suppressed && edge.claim && edge.claim.note === DENIED_NOTE) {
           edge.claim = {...edge.claim};
           delete edge.claim.note;
         }
