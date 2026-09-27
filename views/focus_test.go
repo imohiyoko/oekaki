@@ -539,3 +539,94 @@ func TestDerivingAPageLeavesTheGraphItCameFromAlone(t *testing.T) {
 		}
 	}
 }
+
+// A line from a box to itself is something the graph says about that box.
+// Lifting drops a line whose two ends became one box, because there is
+// nothing left to draw between them — but this one was already a loop, and
+// dropping it loses evidence without saying so.
+func TestALoopOnOneBoxIsNotSomethingLiftingInvented(t *testing.T) {
+	g := estate()
+	g.Edges = append(g.Edges, core.Edge{
+		From: "a1", To: "a1", Kind: core.EdgeIACRef, Relation: "depends_on"})
+	g.Normalize()
+
+	out, err := Focus(g, "account", "one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range out.Edges {
+		if e.From == "a1" && e.To == "a1" {
+			return
+		}
+	}
+	t.Error("the loop on a1 is gone, and nothing counted or reported it")
+}
+
+// Which of several denied references the line is built from decides which
+// words a reader sees. Taking the first one meant an author's sentence was
+// dropped whenever another denial happened to sort ahead of it, and the
+// sentence this package writes for a silent one was shown in its place.
+func TestALiftedLineCarriesTheWordsSomebodyWroteRatherThanTheFirstOnesFound(t *testing.T) {
+	for _, c := range []struct{ name, quiet, spoken string }{
+		{"the silent one sorts first", "b1", "b2"},
+		{"the spoken one sorts first", "b2", "b1"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			g := estate()
+			for i := range g.Edges {
+				e := &g.Edges[i]
+				if e.From != "a1" {
+					continue
+				}
+				switch e.To {
+				case c.quiet:
+					e.Suppressed, e.AssertedAbsent = true, true
+					e.Claim = &core.Claim{Origin: core.OriginHuman, Author: "auditor"}
+				case c.spoken:
+					e.Suppressed, e.AssertedAbsent = true, true
+					e.Claim = &core.Claim{Origin: core.OriginHuman, Author: "auditor",
+						Note: "checked the flow logs"}
+				}
+			}
+			out, err := Focus(g, "account", "one")
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, e := range out.Edges {
+				if e.From != "a1" || e.To != "two" {
+					continue
+				}
+				if e.Claim == nil || e.Claim.Note != "checked the flow logs" {
+					t.Errorf("the line says %+v", e.Claim)
+				}
+				return
+			}
+			t.Fatal("the pair a1 -> two is not drawn at all")
+		})
+	}
+}
+
+// The counts say what a line stands for besides itself. One reference is not
+// a fold, and one denied reference is a denied line — which `suppressed`
+// already says, in the vocabulary a renderer reads.
+func TestALineThatFoldedNothingSaysNothingAboutWhatItFolded(t *testing.T) {
+	g := estate()
+	for i := range g.Edges {
+		if g.Edges[i].From == "a1" && g.Edges[i].To == "a2" {
+			g.Edges[i].Suppressed = true
+			g.Edges[i].Claim = &core.Claim{Origin: core.OriginHuman, Author: "x", Note: "gone"}
+		}
+	}
+	out, err := Focus(g, "account", "one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range out.Edges {
+		if e.From != "a1" || e.To != "a2" {
+			continue
+		}
+		if _, ok := e.Attrs["suppressed_references"]; ok {
+			t.Errorf("a line standing only for itself reports a fold: %v", e.Attrs)
+		}
+	}
+}

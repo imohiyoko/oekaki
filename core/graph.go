@@ -855,6 +855,18 @@ func (g *Graph) EdgesOfKind(k EdgeKind) []Edge {
 // commit generated graphs and review them as diffs, which only works if the
 // same input always produces the same bytes.
 func (g *Graph) Normalize() {
+	// A conflict's claims are copied before anything here reads them,
+	// because everything here settles one in place: the fold writes into the
+	// front of the slice, the sort reorders it, and settleDeniedNotes
+	// rewrites a sentence in it. A conflict can arrive sharing its array
+	// with a graph this one was derived from — views hands a page the
+	// conflicts of the graph it came from — and normalizing the derived one
+	// then did all of that to the original, and so to every page derived
+	// after it. Copied here rather than everywhere one is handed over, so
+	// that a caller cannot forget to.
+	for i := range g.Conflicts {
+		g.Conflicts[i].Claims = append([]ClaimedValue(nil), g.Conflicts[i].Claims...)
+	}
 	if g.Axes == nil {
 		g.Axes = []Axis{}
 	}
@@ -1190,14 +1202,8 @@ func edgeAssertionLess(a, b Edge) bool {
 // deterministic, fail-safe tie-breaker.
 func edgeClaimLess(a, b Edge) bool {
 	ac, bc := claimOrParser(a.Claim), claimOrParser(b.Claim)
-	if ac.Origin.Rank() != bc.Origin.Rank() {
-		return ac.Origin.Rank() > bc.Origin.Rank()
-	}
-	if lineClaimLess(ac, bc) {
-		return true
-	}
-	if lineClaimLess(bc, ac) {
-		return false
+	if comparison := CompareLineClaims(ac, bc); comparison != 0 {
+		return comparison < 0
 	}
 	if a.Suppressed != b.Suppressed {
 		return a.Suppressed
@@ -1304,10 +1310,34 @@ func sortEvidence(ev []Evidence) {
 // what is in it has not been ordered.
 func claimLess(a, b Claim) bool { return compareClaim(a, b, compareNoteText) < 0 }
 
-// lineClaimLess orders two claims competing to be the one claim a line
-// carries, where only one of them will be read. There CompareNotes applies:
-// the loser's words are not further down a list, they are gone.
-func lineClaimLess(a, b Claim) bool { return compareClaim(a, b, CompareNotes) < 0 }
+// CompareLineClaims returns a negative number when a is the claim a line
+// should carry rather than b, where only one of them will be read and the
+// loser's words are gone rather than further down a list.
+//
+// Rank is the semantic part; the rest is canonical, so that two claims
+// nothing distinguishes still have one settled order rather than the order
+// the files were named in. CompareNotes applies here and not to a list.
+//
+// Exported, and the enricher's own comparison of the same claims on the same
+// lines is this function. It used to be a second copy, and the two had
+// already drifted in what they did with a note; which sentence a reader saw
+// depended on whether the enricher or a later Normalize had settled it last.
+func CompareLineClaims(a, b Claim) int { return preferClaim(a, b, CompareNotes) }
+
+// CompareClaims is CompareLineClaims with the notes compared as text, for
+// choosing between claims that are not a line's — a node's name, where a
+// note is a remark beside the answer rather than the answer.
+func CompareClaims(a, b Claim) int { return preferClaim(a, b, compareNoteText) }
+
+func preferClaim(a, b Claim, notes func(a, b Claim) int) int {
+	if a.Origin.Rank() != b.Origin.Rank() {
+		if a.Origin.Rank() > b.Origin.Rank() {
+			return -1
+		}
+		return 1
+	}
+	return compareClaim(a, b, notes)
+}
 
 func compareClaim(a, b Claim, notes func(a, b Claim) int) int {
 	switch {
