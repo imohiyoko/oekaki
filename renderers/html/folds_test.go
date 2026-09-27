@@ -3,6 +3,8 @@ package html
 import (
 	"strings"
 	"testing"
+
+	"github.com/imohiyoko/oekaki/core"
 )
 
 // A page told what was folded carries the record, and the graph it carries is
@@ -43,5 +45,17 @@ func TestAClosingTagInTheFoldRecordCannotEscape(t *testing.T) {
 	}
 	if !strings.Contains(data, "onerror") {
 		t.Error("the block was cut short, so the rest of the record is loose in the document")
+	}
+}
+
+// The page folds edges of its own — a collapsed container puts several
+// references onto one line, after the document was normalized and where
+// nothing will normalize it again — so it has to settle the denial's
+// sentence itself, and it needs the sentence to do that. Two copies of one
+// string, in two languages: this is what keeps them the same one.
+func TestThePageKnowsTheSentenceCoreWrites(t *testing.T) {
+	if !strings.Contains(appJS, "'"+core.DeniedNote+"'") {
+		t.Errorf("app.js does not carry %q, so its fold cannot tell that sentence from an author's",
+			core.DeniedNote)
 	}
 }
