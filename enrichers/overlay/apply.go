@@ -112,7 +112,7 @@ func newNodeFieldClaims(g *core.Graph) nodeFieldClaims {
 func newNodeFieldHistory(value string, claim *core.Claim) *nodeFieldHistory {
 	history := &nodeFieldHistory{}
 	history.assertions = append(history.assertions, trackedNodeFieldAssertion{
-		value: value, claim: claimOrParser(claim), explicit: claim != nil,
+		value: value, claim: core.ClaimOrParser(claim), explicit: claim != nil,
 	})
 	return history
 }
@@ -157,7 +157,7 @@ func (history *nodeFieldHistory) winner() trackedNodeFieldAssertion {
 }
 
 func trackedNodeFieldAssertionPreferred(candidate, current trackedNodeFieldAssertion) bool {
-	if comparison := compareClaims(candidate.claim, current.claim); comparison != 0 {
+	if comparison := core.CompareClaims(candidate.claim, current.claim); comparison != 0 {
 		return comparison < 0
 	}
 	if candidate.value != current.value {
@@ -767,8 +767,7 @@ type trackedEdgeAssertion struct {
 }
 
 type edgeAssertionHistory struct {
-	index            int
-	existedInitially bool
+	index int
 
 	// drawn says the input had this line as something other than a denial's
 	// own invention — which the graph says of itself, in
@@ -816,7 +815,7 @@ func newEdgeAssertionTracker(g *core.Graph) *edgeAssertionTracker {
 		key := core.EdgeKey(edge.From, edge.To, edge.Kind, edge.Relation)
 		history := tracker.byKey[key]
 		if history == nil {
-			history = &edgeAssertionHistory{index: i, existedInitially: true}
+			history = &edgeAssertionHistory{index: i}
 			tracker.byKey[key] = history
 		}
 		if !edge.AssertedAbsent {
@@ -827,7 +826,7 @@ func newEdgeAssertionTracker(g *core.Graph) *edgeAssertionTracker {
 		}
 		history.add(trackedEdgeAssertion{
 			suppressed: edge.Suppressed,
-			claim:      claimOrParser(edge.Claim),
+			claim:      core.ClaimOrParser(edge.Claim),
 			explicit:   edge.Claim != nil,
 		})
 	}
@@ -995,7 +994,7 @@ func trackedEdgeAssertionPreferred(candidate, current trackedEdgeAssertion) bool
 	if candidate.suppressed != current.suppressed {
 		return candidate.suppressed
 	}
-	if comparison := compareLineClaims(candidate.claim, current.claim); comparison != 0 {
+	if comparison := core.CompareLineClaims(candidate.claim, current.claim); comparison != 0 {
 		return comparison < 0
 	}
 	if candidate.explicit != current.explicit {
@@ -1234,7 +1233,7 @@ func appendClaimedValue(conflict *core.Conflict, candidate core.ClaimedValue) {
 	conflict.Claims = append(conflict.Claims, candidate)
 	sort.SliceStable(conflict.Claims, func(i, j int) bool {
 		a, b := conflict.Claims[i], conflict.Claims[j]
-		if comparison := compareClaims(a.Claim, b.Claim); comparison != 0 {
+		if comparison := core.CompareClaims(a.Claim, b.Claim); comparison != 0 {
 			return comparison < 0
 		}
 		return a.Value < b.Value
@@ -1252,25 +1251,8 @@ func claimsEqual(a, b core.Claim) bool {
 }
 
 func claimPreferred(candidate core.Claim, current *core.Claim) bool {
-	return compareClaims(candidate, claimOrParser(current)) < 0
+	return core.CompareClaims(candidate, core.ClaimOrParser(current)) < 0
 }
-
-// compareClaims returns a negative value when a should be displayed instead
-// of b. Rank is semantic; the remaining fields are canonical tie-breakers so
-// equal-rank overlays never inherit command-line order.
-//
-// core's rule rather than a second copy of it. The two were separate and had
-// already drifted — core breaks a tie between two origins of the same rank
-// and this did not — which is the whole failure mode a shared rule is for:
-// the same claims ranked twice, differently, so which sentence a reader saw
-// depended on whether the enricher or a later Normalize settled it last.
-func compareClaims(a, b core.Claim) int { return core.CompareClaims(a, b) }
-
-// compareLineClaims is compareClaims for the one claim a line will carry,
-// where the loser's words are not further down a list but gone.
-func compareLineClaims(a, b core.Claim) int { return core.CompareLineClaims(a, b) }
-
-func claimOrParser(claim *core.Claim) core.Claim { return core.ClaimOrParser(claim) }
 
 func sortedTallies(t map[string]*tally) []string {
 	out := make([]string, 0, len(t))

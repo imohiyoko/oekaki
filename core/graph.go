@@ -1277,8 +1277,6 @@ func observationSortKey(o Observation) string {
 	return string(b)
 }
 
-// claimOrParser reads an absent claim as the parser's, which is what absence
-// means throughout the IR.
 // ClaimOrParser is the claim on something that carries one, or the parser's,
 // which is what an absent claim means: the field is omitted wherever nobody
 // but the reader of a document has said anything.
@@ -1287,6 +1285,8 @@ func observationSortKey(o Observation) string {
 // before it can compare them, and each had written its own.
 func ClaimOrParser(c *Claim) Claim { return claimOrParser(c) }
 
+// claimOrParser reads an absent claim as the parser's, which is what absence
+// means throughout the IR.
 func claimOrParser(c *Claim) Claim {
 	if c == nil {
 		return Claim{Origin: OriginParser}
@@ -1334,35 +1334,9 @@ func sortEvidence(ev []Evidence) {
 // what is in it has not been ordered.
 func claimLess(a, b Claim) bool { return compareClaim(a, b, compareNoteText) < 0 }
 
-// CompareLineClaims returns a negative number when a is the claim a line
-// should carry rather than b, where only one of them will be read and the
-// loser's words are gone rather than further down a list.
-//
-// Rank is the semantic part; the rest is canonical, so that two claims
-// nothing distinguishes still have one settled order rather than the order
-// the files were named in. CompareNotes applies here and not to a list.
-//
-// Exported, and the enricher's own comparison of the same claims on the same
-// lines is this function. It used to be a second copy, and the two had
-// already drifted in what they did with a note; which sentence a reader saw
-// depended on whether the enricher or a later Normalize had settled it last.
-func CompareLineClaims(a, b Claim) int { return preferClaim(a, b, CompareNotes) }
-
-// CompareClaims is CompareLineClaims with the notes compared as text, for
-// choosing between claims that are not a line's — a node's name, where a
-// note is a remark beside the answer rather than the answer.
-func CompareClaims(a, b Claim) int { return preferClaim(a, b, compareNoteText) }
-
-func preferClaim(a, b Claim, notes func(a, b Claim) int) int {
-	if a.Origin.Rank() != b.Origin.Rank() {
-		if a.Origin.Rank() > b.Origin.Rank() {
-			return -1
-		}
-		return 1
-	}
-	return compareClaim(a, b, notes)
-}
-
+// compareClaim orders two claims by the fields they carry, the way a list is
+// ordered: every field, in one settled order, so that two claims differing
+// only in who made them do not come out in whichever order they arrived.
 func compareClaim(a, b Claim, notes func(a, b Claim) int) int {
 	switch {
 	case a.Origin != b.Origin:
@@ -1378,42 +1352,71 @@ func compareClaim(a, b Claim, notes func(a, b Claim) int) int {
 	return notes(a, b)
 }
 
-func compareNoteText(a, b Claim) int { return strings.Compare(a.Note, b.Note) }
-
-// CompareNotes orders what two claims say about the line they are on, putting
-// an author's own words ahead of a claim that says nothing and of one
-// carrying only DeniedNote — which this package writes rather than any
-// author.
+// CompareLineClaims returns a negative number when a is the claim a line
+// should carry rather than b, where only one of them will be read and the
+// loser's words are gone rather than further down a list.
 //
-// Ranked before the notes are compared as text, because that comparison is
-// alphabetical and settles nothing: the sentence beats every note that
-// happens to start later in the alphabet, so which author kept their words
-// depended on their first letter. Silence is ranked with it because silence
-// on a line a denial invented is filled with exactly that sentence a moment
-// later — the two are the same claim, one of them early.
+// Two semantic questions, in order: whose claim outranks whose, and whether a
+// claim says anything of its own. Only then the canonical tie-breaks, which
+// exist so that two claims nothing distinguishes still have one settled order
+// rather than the order the files were named in.
 //
-// Only where one claim is chosen over another to be carried on a line. The
-// ordering of a list of claims is not that question: a conflict shows every
-// claim in it, and moving the quiet ones to the end there would reorder
-// documents that have nothing to do with denials.
+// Whether it says anything comes before the author's name, because the name
+// is one of those arbitrary tie-breaks. Behind it, the rule reached only
+// claims that were otherwise identical: one person denying a line in silence
+// and another denying it in words came down to whose name sorted first, and
+// "alice" beating "bob" took bob's sentence off the drawing and put the one
+// this package writes for silence in its place.
 //
-// Exported because the enricher chooses the same claim on the same line and
-// has its own comparator to do it with. The two disagreed, and which sentence
-// a reader saw depended on whether the enricher or a later Normalize had
-// settled it last.
-func CompareNotes(a, b Claim) int {
+// Exported, and the enricher's own comparison of the same claims on the same
+// lines is this function. It used to be a second copy, and the two had
+// already drifted; which sentence a reader saw depended on whether the
+// enricher or a later Normalize had settled it last.
+func CompareLineClaims(a, b Claim) int {
+	if a.Origin.Rank() != b.Origin.Rank() {
+		if a.Origin.Rank() > b.Origin.Rank() {
+			return -1
+		}
+		return 1
+	}
 	if rank := noteRank(a.Note) - noteRank(b.Note); rank != 0 {
 		return rank
 	}
-	return strings.Compare(a.Note, b.Note)
+	return compareClaim(a, b, compareNoteText)
 }
 
+// CompareClaims is CompareLineClaims without that second question, for
+// choosing between claims that are not a line's — a node's name, where a
+// note is a remark beside the answer rather than the answer, and where
+// putting the talkative claim first would reorder documents that have
+// nothing to do with denials.
+func CompareClaims(a, b Claim) int {
+	if a.Origin.Rank() != b.Origin.Rank() {
+		if a.Origin.Rank() > b.Origin.Rank() {
+			return -1
+		}
+		return 1
+	}
+	return compareClaim(a, b, compareNoteText)
+}
+
+// noteRank puts a claim that says something of its own ahead of one that says
+// nothing, and of one carrying only DeniedNote — which this package writes
+// rather than any author.
+//
+// Ranked rather than compared as text, because that comparison is
+// alphabetical and settles nothing: the sentence beats every note that
+// happens to start later in the alphabet. Silence is ranked with it because
+// silence on a line a denial invented is filled with exactly that sentence a
+// moment later — the two are the same claim, one of them early.
 func noteRank(note string) int {
 	if note == "" || note == DeniedNote {
 		return 1
 	}
 	return 0
 }
+
+func compareNoteText(a, b Claim) int { return strings.Compare(a.Note, b.Note) }
 
 // optionalKey orders an optional number, putting "not stated" before any
 // value including zero — the two are different facts, and an ordering that

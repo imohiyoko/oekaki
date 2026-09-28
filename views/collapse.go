@@ -57,6 +57,16 @@ func Collapse(g *core.Graph, axis string, least int) (*core.Graph, error) {
 	// joined by exactly the same two, and survive as a box with no lines while
 	// the pair vanishes. That is the drawing least exists to prevent.
 	inside := map[pair]int{}
+	// And how many of them somebody says are not there. Counted apart rather
+	// than counted in: a reference a denial invented is not a dependency, and
+	// adding it to the total drew a plain line between two groups that have
+	// nothing between them but the sentence saying so. The atlas keeps the
+	// two apart the same way, in liftEdges.
+	denied := map[pair]int{}
+	// And whether every one of those was a line the denial itself invented.
+	// A reference something drew and somebody then denied is not one nothing
+	// drew, so the two cannot be folded together.
+	invented := map[pair]bool{}
 	examples := map[pair][]string{}
 	for _, e := range g.Edges {
 		from, okFrom := groupOf(g, axis, e.From)
@@ -67,13 +77,32 @@ func Collapse(g *core.Graph, axis string, least int) (*core.Graph, error) {
 			continue
 		}
 		if from == to {
-			inside[pair{from, from, e.Kind}]++
+			if !e.Suppressed {
+				inside[pair{from, from, e.Kind}]++
+			}
 			continue
 		}
 		key := pair{from, to, e.Kind}
+		if e.Suppressed {
+			if denied[key] == 0 {
+				invented[key] = true
+			}
+			invented[key] = invented[key] && e.AssertedAbsent
+			denied[key]++
+			continue
+		}
 		between[key]++
 		if len(examples[key]) < 3 {
 			examples[key] = append(examples[key], e.From+" -> "+e.To)
+		}
+	}
+	// A pair with nothing but denials under it still gets its line, drawn as
+	// denied, for the reason liftEdges gives: "somebody said this is wrong"
+	// and "this never existed" are different facts, and only the first is
+	// true. It has to be in the map to be considered at all.
+	for key := range denied {
+		if _, ok := between[key]; !ok {
+			between[key] = 0
 		}
 	}
 
@@ -112,7 +141,7 @@ func Collapse(g *core.Graph, axis string, least int) (*core.Graph, error) {
 	kept := map[string]bool{}
 	pairs := make([]pair, 0, len(between))
 	for key, n := range between {
-		if n < least {
+		if n+denied[key] < least {
 			continue
 		}
 		pairs = append(pairs, key)
@@ -177,9 +206,19 @@ func Collapse(g *core.Graph, axis string, least int) (*core.Graph, error) {
 	}
 
 	for _, key := range pairs {
-		e := core.Edge{From: key.from, To: key.to, Kind: key.kind, Attrs: map[string]any{
-			"references": between[key],
-		}}
+		e := core.Edge{From: key.from, To: key.to, Kind: key.kind, Attrs: map[string]any{}}
+		if between[key] > 0 {
+			e.Attrs["references"] = between[key]
+		}
+		if denied[key] > 0 {
+			e.Attrs["suppressed_references"] = denied[key]
+		}
+		// Denied only when every reference under it is. One real reference
+		// makes the pair a real relationship, whatever was said about the
+		// others.
+		if between[key] == 0 {
+			e.Suppressed, e.AssertedAbsent = true, invented[key]
+		}
 		if len(examples[key]) > 0 {
 			e.Attrs["examples"] = examples[key]
 		}

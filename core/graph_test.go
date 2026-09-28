@@ -963,7 +963,7 @@ func TestSettlingTheSentenceLeavesTheGivenGraphAlone(t *testing.T) {
 // this package derives begins with "asserted", and which author kept their
 // words depended on their first letter. Both comparators now rank a claim
 // that says something of its own ahead of one that says nothing or only that
-// sentence; see CompareNotes.
+// sentence; see CompareLineClaims.
 func TestAnAuthorsOwnWordsSurviveTheOrdering(t *testing.T) {
 	two := func(t *testing.T, note string, absent1, absent2 bool) Edge {
 		t.Helper()
@@ -1157,5 +1157,31 @@ func TestReRunningTheEnricherDoesNotMarkWhatAnOlderVersionDidNotRecord(t *testin
 	}
 	if g.Edges[0].RelationAsserted {
 		t.Error("the fold recovered the mark, and the comment saying it does not is now wrong")
+	}
+}
+
+// Two people denying one line, one of them in words. Which claim the line
+// carries is settled by whether it says anything before it is settled by
+// whose name sorts first, because the name is an arbitrary tie-break and
+// having something to say is not. Behind that, "alice" beat "bob" and took
+// bob's sentence off the drawing.
+func TestTheWordsOnADeniedLineDoNotDependOnWhoseNameSortsFirst(t *testing.T) {
+	deny := func(author, note string) Edge {
+		return Edge{From: "a", To: "b", Kind: EdgeIACRef, Suppressed: true, AssertedAbsent: true,
+			Claim: &Claim{Origin: OriginHuman, Author: author, Note: note}}
+	}
+	for _, c := range []struct{ name, quiet, spoken string }{
+		{"the quiet one sorts first", "alice", "bob"},
+		{"the speaking one sorts first", "zoe", "bob"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			g := New()
+			g.Nodes = append(g.Nodes, Node{ID: "a", Type: "thing"}, Node{ID: "b", Type: "thing"})
+			g.Edges = append(g.Edges, deny(c.quiet, ""), deny(c.spoken, "retired in Q3"))
+			g.Normalize()
+			if got := g.Edges[0].Claim; got.Note != "retired in Q3" || got.Author != c.spoken {
+				t.Errorf("the line says %+v", got)
+			}
+		})
 	}
 }

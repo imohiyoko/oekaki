@@ -317,3 +317,40 @@ func TestAGroupWithNothingInItIsStillAGroupThatExists(t *testing.T) {
 		t.Fatalf("an empty group survived a threshold: %#v", tight.Nodes)
 	}
 }
+
+// A pair whose every reference a denial invented is not a dependency. Counted
+// in with the rest, three sentences saying "there is nothing here" came out as
+// a plain line saying there are three things here.
+func TestCollapseDoesNotCountADenialAsADependency(t *testing.T) {
+	g := estate()
+	for i := range g.Edges {
+		e := &g.Edges[i]
+		if (e.From == "a1" && (e.To == "b1" || e.To == "b2")) || (e.From == "a2" && e.To == "b1") {
+			e.Suppressed, e.AssertedAbsent = true, true
+			e.Claim = &core.Claim{Origin: core.OriginHuman, Author: "auditor", Note: core.DeniedNote}
+		}
+	}
+	out, err := Collapse(g, "account", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, e := range out.Edges {
+		if e.From != "one" || e.To != "two" {
+			continue
+		}
+		found = true
+		if !e.Suppressed {
+			t.Error("the line is drawn as a real dependency, and every reference under it was denied")
+		}
+		if got := e.Attrs["references"]; got != nil {
+			t.Errorf("it stands for %v references, and none of them is there", got)
+		}
+		if got := e.Attrs["suppressed_references"]; got != 3 {
+			t.Errorf("the denials are not counted beside it: %v", e.Attrs)
+		}
+	}
+	if !found {
+		t.Fatal("the pair is not drawn at all; a denial is still evidence")
+	}
+}

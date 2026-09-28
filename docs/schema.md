@@ -158,17 +158,21 @@ the sentence from here and keeps those words if an author typed them.
 Which leaves the flag itself to be folded wherever two lines become one — a
 line standing for several is here for no reason but a denial only if every
 one of them is. That is a rule about the flag, not about the sentence, and
-every place that folds lines carries it. There are three, and they are not
+every place that folds lines carries it. There are four, and they are not
 all answering the same question:
 
 | | |
 | --- | --- |
 | `core.mergeEdge`, in Normalize | duplicates of one edge. Two sources disagreeing about whether it is real is a disagreement, and is recorded as one |
 | `views.liftEdges` — the atlas, focus and `--fold` all call it | different edges whose ends became the same box. Denying one of them says nothing about the rest, so the line is the ones nobody denied, and the count of those that were is written beside it |
+| `views.Collapse` | the same question for a whole axis at once, counting rather than choosing a representative: the line is how many real references run between two groups, with the denied ones counted beside them |
 | the fold in `renderers/html/app.js` | the same collapse, done again in the page, because a container folded in the viewer was not folded when the document was written and nothing will normalize it afterwards |
 
-The first two answer their question differently on purpose, and each is one
-function, so a view cannot answer it a third way by writing its own. The
+The first two answer their question differently on purpose. `Collapse` builds
+counts rather than lines and so cannot share `liftEdges`, which is the seam
+it went wrong at: it counted every reference as a dependency, and three
+sentences saying a pair has nothing between them came out as a plain line
+saying it has three things. The
 third is the awkward one: it is the second fold in another language, running
 where no Go code can reach it, so `core.DeniedNote`, `core.CompareLineClaims`
 and `views.replaces` are all restated there. A test in `renderers/html` reads
