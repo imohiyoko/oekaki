@@ -1796,32 +1796,6 @@ func childOnPath(path, nodePath string) string {
 // beside them. A pair whose references were *all* denied still gets its line,
 // drawn as denied, because "somebody said this is wrong" and "this never
 // existed" are different facts and only the first one is true.
-// replaces reports whether a reference should become the one the folded line
-// is built from, in place of the one standing there.
-//
-// A denied reference is the representative only while nothing else has been
-// seen for this pair: denying one of several references says nothing about
-// the rest, so a line with a real reference under it is a real line. Between
-// two that agree about that, the claim is chosen the way core chooses the
-// claim a line carries — by the same function, so that this fold and the
-// next Normalize do not disagree. Keeping whichever arrived first meant the
-// words an author wrote about a denial were dropped whenever another denial
-// happened to sort ahead of theirs, and the sentence core writes for a
-// silent one was shown instead.
-func replaces(standing, e core.Edge) bool {
-	if standing.Suppressed != e.Suppressed {
-		return standing.Suppressed
-	}
-	return core.CompareLineClaims(claimOf(e), claimOf(standing)) < 0
-}
-
-func claimOf(e core.Edge) core.Claim {
-	if e.Claim == nil {
-		return core.Claim{Origin: core.OriginParser}
-	}
-	return *e.Claim
-}
-
 func liftEdges(in []core.Edge, at map[string]string) []core.Edge {
 	type key struct {
 		from, to string
@@ -1839,11 +1813,14 @@ func liftEdges(in []core.Edge, at map[string]string) []core.Edge {
 		if !okFrom || !okTo {
 			continue
 		}
-		// Two different boxes that became one have nothing left to draw
-		// between them. A line that was already a loop is a different
-		// thing: something the graph says about one box, which lifting did
-		// not invent and dropping would lose without saying so.
-		if from == to && e.From != e.To {
+		// Two boxes that became one have nothing left to draw between them,
+		// and that is true of a loop lifting made out of a recursive call
+		// as much as of one it made out of two neighbours: both are the
+		// inside of a box the page is not drawing the inside of. A loop
+		// that was already on this box is the other thing — something the
+		// graph says about the box itself, which lifting did not invent and
+		// dropping would lose without saying so.
+		if from == to && (from != e.From || to != e.To) {
 			continue
 		}
 		k := key{from, to, e.Kind, e.Relation}
@@ -1904,6 +1881,25 @@ func liftEdges(in []core.Edge, at map[string]string) []core.Edge {
 		out = append(out, e)
 	}
 	return out
+}
+
+// replaces reports whether a reference should become the one the folded line
+// is built from, in place of the one standing there.
+//
+// A denied reference is the representative only while nothing else has been
+// seen for this pair: denying one of several references says nothing about
+// the rest, so a line with a real reference under it is a real line. Between
+// two that agree about that, the claim is chosen the way core chooses the
+// claim a line carries — by the same function, so that this fold and the
+// next Normalize do not disagree. Keeping whichever arrived first meant the
+// words an author wrote about a denial were dropped whenever another denial
+// happened to sort ahead of theirs, and the sentence core writes for a
+// silent one was shown instead.
+func replaces(standing, e core.Edge) bool {
+	if standing.Suppressed != e.Suppressed {
+		return standing.Suppressed
+	}
+	return core.CompareLineClaims(core.ClaimOrParser(e.Claim), core.ClaimOrParser(standing.Claim)) < 0
 }
 
 // carry copies the evidence attached to whatever survived a projection.

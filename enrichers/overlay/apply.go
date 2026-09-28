@@ -1258,64 +1258,19 @@ func claimPreferred(candidate core.Claim, current *core.Claim) bool {
 // compareClaims returns a negative value when a should be displayed instead
 // of b. Rank is semantic; the remaining fields are canonical tie-breakers so
 // equal-rank overlays never inherit command-line order.
-func compareClaims(a, b core.Claim) int {
-	return compareClaimFields(a, b, func(a, b core.Claim) int { return strings.Compare(a.Note, b.Note) })
-}
+//
+// core's rule rather than a second copy of it. The two were separate and had
+// already drifted — core breaks a tie between two origins of the same rank
+// and this did not — which is the whole failure mode a shared rule is for:
+// the same claims ranked twice, differently, so which sentence a reader saw
+// depended on whether the enricher or a later Normalize settled it last.
+func compareClaims(a, b core.Claim) int { return core.CompareClaims(a, b) }
 
 // compareLineClaims is compareClaims for the one claim a line will carry,
-// where the loser's words are not further down a list but gone. core settles
-// the same question with the same rule when it normalizes; calling core's
-// rather than restating it is why the two now agree. They did not, and the
-// sentence a reader saw depended on which of the two had touched the graph
-// last.
-func compareLineClaims(a, b core.Claim) int {
-	return compareClaimFields(a, b, core.CompareNotes)
-}
+// where the loser's words are not further down a list but gone.
+func compareLineClaims(a, b core.Claim) int { return core.CompareLineClaims(a, b) }
 
-func compareClaimFields(a, b core.Claim, notes func(a, b core.Claim) int) int {
-	if a.Origin.Rank() != b.Origin.Rank() {
-		if a.Origin.Rank() > b.Origin.Rank() {
-			return -1
-		}
-		return 1
-	}
-	if a.Author != b.Author {
-		if a.Author < b.Author {
-			return -1
-		}
-		return 1
-	}
-	if comparison := compareConfidence(a.Confidence, b.Confidence); comparison != 0 {
-		return comparison
-	}
-	return notes(a, b)
-}
-
-func compareConfidence(a, b *float64) int {
-	if a == nil && b == nil {
-		return 0
-	}
-	if a == nil {
-		return -1
-	}
-	if b == nil {
-		return 1
-	}
-	if *a < *b {
-		return -1
-	}
-	if *a > *b {
-		return 1
-	}
-	return 0
-}
-
-func claimOrParser(claim *core.Claim) core.Claim {
-	if claim == nil {
-		return core.Claim{Origin: core.OriginParser}
-	}
-	return *claim
-}
+func claimOrParser(claim *core.Claim) core.Claim { return core.ClaimOrParser(claim) }
 
 func sortedTallies(t map[string]*tally) []string {
 	out := make([]string, 0, len(t))
