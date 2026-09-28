@@ -1133,3 +1133,29 @@ func TestNormalizingLeavesAConflictSomebodyElseHoldsAlone(t *testing.T) {
 		}
 	}
 }
+
+// Re-running the enricher over a migrated 0.7 file does not mark its
+// candidates. The flags fold with AND, so the unmarked line makes the marked
+// one unmarked — which is the right fold for what it is for and the wrong
+// answer here, because it cannot tell a reading from a version that did not
+// record whether it was one. Pinned so that the comment on
+// migrateRelationAsserted keeps saying what happens.
+func TestReRunningTheEnricherDoesNotMarkWhatAnOlderVersionDidNotRecord(t *testing.T) {
+	confidence := 0.5
+	candidate := func(marked bool) Edge {
+		return Edge{From: "a", To: "b", Kind: EdgeObserved, Relation: "calls",
+			RelationAsserted: marked,
+			Claim:            &Claim{Origin: OriginAI, Confidence: &confidence}}
+	}
+	g := New()
+	g.Nodes = append(g.Nodes, Node{ID: "a", Type: "thing"}, Node{ID: "b", Type: "thing"})
+	g.Edges = append(g.Edges, candidate(false), candidate(true))
+	g.Normalize()
+
+	if len(g.Edges) != 1 {
+		t.Fatalf("the two did not fold into one: %d", len(g.Edges))
+	}
+	if g.Edges[0].RelationAsserted {
+		t.Error("the fold recovered the mark, and the comment saying it does not is now wrong")
+	}
+}

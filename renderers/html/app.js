@@ -756,7 +756,14 @@
     for (const [i, e] of allEdges().entries()) {
       const from = anchorFor(e.from, drawn);
       const to = anchorFor(e.to, drawn);
-      if (!from || !to || from === to) continue;
+      if (!from || !to) continue;
+      // Two boxes that became one have nothing left to draw between them,
+      // whether the fold made the loop out of two neighbours or out of a
+      // recursive call: either way it is the inside of a box whose inside
+      // is not being drawn. A loop already on this box is the other thing,
+      // and views.liftEdges keeps it — so the page draws what the SVG of
+      // the same graph draws.
+      if (from === to && !(e.from === e.to && drawnItself(e.from, from))) continue;
       const pair = [from, to, e.kind, e.relation || ''].join('\u0000');
       const at = merged.get(pair);
       if (at) {
@@ -804,6 +811,11 @@
   const allEdges = () => graph.edges
     .filter((e) => requestedKinds.size === 0 || requestedKinds.has(e.kind))
     .concat(pending.map((p) => p.edge).filter(Boolean));
+
+  // Whether an anchor is the element itself rather than something standing
+  // for it. anchorFor walks up to a fold or a collapsed container when it
+  // has to, and the two answers look alike once they are both a string.
+  const drawnItself = (id, anchor) => anchor === 'node:' + id || anchor === 'group:' + id;
 
   function anchorFor(id, drawn) {
     if (drawn.has('node:' + id)) return 'node:' + id;

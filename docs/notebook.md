@@ -364,7 +364,18 @@ than by a test, and each time fixed where it was found.
 A shallow copy of an `Edge` shares its `Attrs` and its `Claim`; of a `Node`,
 six fields; of a `Group`, four. `liftEdges` copies an edge and clones only the
 attributes, which is safe today because `settledClaim` copies before it
-writes — an accident of the other fix rather than a stated rule. The questions
+writes — an accident of the other fix rather than a stated rule.
+
+One leak is measured and left: `Normalize` sorts a node's coverage evidence
+through the shared `*Coverage`, so a page derived from a graph reorders the
+evidence in the graph it came from — `zeta, alpha, mu` in the original
+becomes `alpha, mu, zeta` after normalizing the page. It is left because the
+sort is canonical and idempotent: the original is put into the order it was
+going to be written in anyway, and nothing means anything different
+afterwards. The conflict case was not like that — it dropped claims and
+rewrote a sentence — which is why that one was fixed where it was found and
+this one is written here instead. Copying evidence too would be a third
+defensive copy at the writer, which is the habit this entry is about. The questions
 are whether `Normalize` may rewrite its caller's input, what a view copies
 before it hands a page over, and whether the copy lives at every hand-over or
 once at the place that writes. Conflicts took the last answer, because it is

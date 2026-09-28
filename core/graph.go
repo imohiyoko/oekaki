@@ -59,12 +59,20 @@ const DeniedNote = "asserted not to exist; no such edge was found"
 // keeps such a document meaning what it meant.
 //
 // Which leaves out lines those versions also left out. An AI candidate names
-// its own relation and 0.8 records that, but 0.7 did not protect one, so a
-// 0.7 file's candidates come back unmarked and an overlay can still take them
-// over. Widening the rule here would be a better answer than 0.7 gave rather
-// than the answer 0.7 gave, and it would mark a parser's line that somebody
-// signed — the case the field exists for. Re-running the enricher marks them;
-// everything written after the re-stamp is recorded rather than read.
+// its own relation and 0.8 records that, but 0.7 protected only the relations
+// an overlay writes, so a 0.7 file's candidates come back unmarked and an
+// overlay can still take them over. Widening the rule here would be a better
+// answer than 0.7 gave rather than the answer 0.7 gave, and it would mark a
+// parser's line that somebody signed — the case the field exists for.
+//
+// Nor does re-running the enricher recover them. It appends its candidate
+// beside the migrated line and Normalize folds the two, and the flags fold
+// with AND: the unmarked line makes the marked one unmarked. That fold is
+// right for what it is for — a relation a parser also drew is a reading, so
+// two readings of one line cannot make it an author's sentence — and it
+// cannot tell "this line is a reading" from "0.7 did not record whether it
+// was". Telling those apart is a third state and a schema change; an
+// overlay assertion naming the relation marks the line today.
 func (g *Graph) migrateRelationAsserted() {
 	for i := range g.Edges {
 		edge := &g.Edges[i]
@@ -103,6 +111,14 @@ var assertedRelations = map[string]bool{"serves": true}
 // it had been. A claim about such a pair draws its own line, once, and every
 // run after this one agrees with it, because the graph is re-stamped on the
 // way through.
+//
+// What a 0.7 file no longer says cannot be recovered. The sentence was the
+// only record, and 0.7 chose between two claims by comparing their notes as
+// text — so a silent claim beat one carrying it, and a line written out by
+// one 0.7 run and read back by the next could lose the sentence on the way.
+// Such a line migrates as one something drew, which is what 0.7 itself would
+// have made of it on its next run. The flag exists so that 0.8 stops doing
+// this to its own output, not so that it can repair 0.7's.
 func (g *Graph) migrateAssertedAbsent() {
 	for i := range g.Edges {
 		edge := &g.Edges[i]
@@ -1263,6 +1279,14 @@ func observationSortKey(o Observation) string {
 
 // claimOrParser reads an absent claim as the parser's, which is what absence
 // means throughout the IR.
+// ClaimOrParser is the claim on something that carries one, or the parser's,
+// which is what an absent claim means: the field is omitted wherever nobody
+// but the reader of a document has said anything.
+//
+// Exported because every package that compares claims needs the same default
+// before it can compare them, and each had written its own.
+func ClaimOrParser(c *Claim) Claim { return claimOrParser(c) }
+
 func claimOrParser(c *Claim) Claim {
 	if c == nil {
 		return Claim{Origin: OriginParser}

@@ -646,3 +646,32 @@ func TestBuildingAPageDoesNotWriteBackIntoTheGraph(t *testing.T) {
 		t.Errorf("the page's line says %q about a reference that was drawn", got)
 	}
 }
+
+// A loop survives lifting only where the box it is on is the element itself.
+// A recursive call folded into its package is the inside of that package,
+// exactly as a call between two of its functions is, and drawing one of the
+// two says the package calls itself while the other vanishes.
+func TestLiftingKeepsALoopOnABoxAndNotOneItMade(t *testing.T) {
+	loop := func(id string) core.Edge {
+		return core.Edge{From: id, To: id, Kind: core.EdgeIACRef, Relation: "calls"}
+	}
+	between := func(from, to string) core.Edge {
+		return core.Edge{From: from, To: to, Kind: core.EdgeIACRef, Relation: "calls"}
+	}
+	in := []core.Edge{loop("fn.a"), between("fn.a", "fn.b"), loop("pkg")}
+	at := map[string]string{"fn.a": "pkg", "fn.b": "pkg", "pkg": "pkg"}
+
+	out := liftEdges(in, at)
+	if len(out) != 1 {
+		t.Fatalf("want only the loop the graph already had on pkg, got %d: %+v", len(out), out)
+	}
+	if out[0].From != "pkg" || out[0].To != "pkg" {
+		t.Errorf("the surviving line is %s -> %s", out[0].From, out[0].To)
+	}
+	// It is the one that was already a loop on this box, not the recursion
+	// that became one: those two folded to the same key, and the count says
+	// so if the wrong one survived.
+	if _, folded := out[0].Attrs["references"]; folded {
+		t.Errorf("a loop lifting made was folded in beside it: %v", out[0].Attrs)
+	}
+}
