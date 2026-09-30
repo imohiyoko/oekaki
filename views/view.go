@@ -367,14 +367,11 @@ func impactNodes(g *core.Graph, root string, depth int) (map[string]bool, error)
 	return seen, nil
 }
 
-func clone(in *core.Graph) (*core.Graph, error) {
-	b, err := in.MarshalIndent()
-	if err != nil {
-		return nil, err
-	}
-	out, err := core.Decode(strings.NewReader(string(b)))
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
+// clone is core.Clone, named here because every view reads better saying it.
+//
+// It used to marshal through core.Encode, which normalizes what it is given
+// before writing it — deliberately, so that a file on disk is stable, and
+// wrongly here, because the thing being written was a buffer and the thing
+// being normalized was the caller's graph. A function named clone that
+// reorders its source, and through it every view built on one.
+func clone(in *core.Graph) (*core.Graph, error) { return core.Clone(in) }
