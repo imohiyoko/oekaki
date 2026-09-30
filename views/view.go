@@ -6,6 +6,8 @@
 package views
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -368,11 +370,19 @@ func impactNodes(g *core.Graph, root string, depth int) (map[string]bool, error)
 }
 
 func clone(in *core.Graph) (*core.Graph, error) {
-	b, err := in.MarshalIndent()
+	// Marshalled directly rather than through core.Encode, which normalizes
+	// what it is given before writing it — deliberately, so that a file on
+	// disk is stable, and wrongly here, because the thing being written is a
+	// buffer and the thing being normalized is the caller's graph. A
+	// function named clone that reorders its source, and through it every
+	// view built on one, is the copy going the wrong way.
+	//
+	// Decode normalizes the new graph, which is where that belongs.
+	b, err := json.Marshal(in)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("copying the graph: %w", err)
 	}
-	out, err := core.Decode(strings.NewReader(string(b)))
+	out, err := core.Decode(bytes.NewReader(b))
 	if err != nil {
 		return nil, err
 	}

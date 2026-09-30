@@ -1008,8 +1008,17 @@ func (g *Graph) Normalize() {
 		if len(g.Nodes[i].Groups) == 0 {
 			g.Nodes[i].Groups = nil
 		}
-		if c := g.Nodes[i].Coverage; c != nil {
-			sortEvidence(c.Evidence)
+		// Through a copy, because a view puts the same *Coverage on the node
+		// it draws as the node it read: sorting in place, or replacing the
+		// slice inside the shared struct, reorders the evidence in the graph
+		// this one was derived from. Only when there is something to do, so
+		// the usual case — an input that was normalized before any view saw
+		// it — allocates nothing.
+		if c := g.Nodes[i].Coverage; c != nil && !evidenceSorted(c.Evidence) {
+			copied := *c
+			copied.Evidence = append([]Evidence(nil), c.Evidence...)
+			sortEvidence(copied.Evidence)
+			g.Nodes[i].Coverage = &copied
 		}
 	}
 
@@ -1018,7 +1027,12 @@ func (g *Graph) Normalize() {
 	// it in the output would mean the same overlays given in a different order
 	// produced different bytes — which is the guarantee this function exists
 	// to keep.
-	if g.Metadata != nil {
+	// And the same for the document's own record, which every view hands to
+	// its page as the pointer it was given.
+	if g.Metadata != nil && !overlaysSorted(g.Metadata.Overlays) {
+		copied := *g.Metadata
+		copied.Overlays = append([]OverlayRef(nil), g.Metadata.Overlays...)
+		g.Metadata = &copied
 		sort.SliceStable(g.Metadata.Overlays, func(i, j int) bool {
 			a, b := g.Metadata.Overlays[i], g.Metadata.Overlays[j]
 			if a.Source != b.Source {
@@ -1303,29 +1317,70 @@ func claimOrParser(c *Claim) Claim {
 // two different people. Any pair the key cannot separate is left in the order
 // it arrived in, which is the order the overlays were named on a command line.
 // That is not a fact about the estate, so it must not reach the output.
+// evidenceLess is the order sortEvidence puts evidence in, and the question
+// evidenceSorted asks of it.
+func evidenceLess(a, b Evidence) bool {
+	if a.Kind != b.Kind {
+		return a.Kind < b.Kind
+	}
+	if a.Sink != b.Sink {
+		return a.Sink < b.Sink
+	}
+	if a.Stream != b.Stream {
+		return a.Stream < b.Stream
+	}
+	if a.Via != b.Via {
+		return a.Via < b.Via
+	}
+	if optionalKey(a.Records) != optionalKey(b.Records) {
+		return optionalKey(a.Records) < optionalKey(b.Records)
+	}
+	if a.Matched != b.Matched {
+		return a.Matched < b.Matched
+	}
+	return claimLess(claimOrParser(a.Claim), claimOrParser(b.Claim))
+}
+
+// evidenceSorted asks whether there is anything to do, so that normalizing a
+// document that is already in order costs no allocation. Every graph the
+// pipeline hands a view is one of those.
+func evidenceSorted(ev []Evidence) bool {
+	for i := 1; i < len(ev); i++ {
+		if evidenceLess(ev[i], ev[i-1]) {
+			return false
+		}
+	}
+	return true
+}
+
+// overlaysSorted asks the same of the record of which overlays were applied.
+func overlaysSorted(refs []OverlayRef) bool {
+	for i := 1; i < len(refs); i++ {
+		a, b := refs[i-1], refs[i]
+		switch {
+		case a.Source != b.Source:
+			if a.Source > b.Source {
+				return false
+			}
+		case a.Origin != b.Origin:
+			if a.Origin > b.Origin {
+				return false
+			}
+		case a.Author != b.Author:
+			if a.Author > b.Author {
+				return false
+			}
+		case a.Window != b.Window:
+			if a.Window > b.Window {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func sortEvidence(ev []Evidence) {
-	sort.SliceStable(ev, func(i, j int) bool {
-		a, b := ev[i], ev[j]
-		if a.Kind != b.Kind {
-			return a.Kind < b.Kind
-		}
-		if a.Sink != b.Sink {
-			return a.Sink < b.Sink
-		}
-		if a.Stream != b.Stream {
-			return a.Stream < b.Stream
-		}
-		if a.Via != b.Via {
-			return a.Via < b.Via
-		}
-		if optionalKey(a.Records) != optionalKey(b.Records) {
-			return optionalKey(a.Records) < optionalKey(b.Records)
-		}
-		if a.Matched != b.Matched {
-			return a.Matched < b.Matched
-		}
-		return claimLess(claimOrParser(a.Claim), claimOrParser(b.Claim))
-	})
+	sort.SliceStable(ev, func(i, j int) bool { return evidenceLess(ev[i], ev[j]) })
 }
 
 // claimLess orders two claims by every field they carry, so that evidence

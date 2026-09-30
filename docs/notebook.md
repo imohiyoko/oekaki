@@ -366,22 +366,33 @@ six fields; of a `Group`, four. `liftEdges` copies an edge and clones only the
 attributes, which is safe today because `settledClaim` copies before it
 writes — an accident of the other fix rather than a stated rule.
 
-One leak is measured and left: `Normalize` sorts a node's coverage evidence
-through the shared `*Coverage`, so a page derived from a graph reorders the
-evidence in the graph it came from — `zeta, alpha, mu` in the original
-becomes `alpha, mu, zeta` after normalizing the page. It is left because the
-sort is canonical and idempotent: the original is put into the order it was
-going to be written in anyway, and nothing means anything different
-afterwards. The conflict case was not like that — it dropped claims and
-rewrote a sentence — which is why that one was fixed where it was found and
-this one is written here instead. Copying evidence too would be a third
-defensive copy at the writer, which is the habit this entry is about. The questions
-are whether `Normalize` may rewrite its caller's input, what a view copies
-before it hands a page over, and whether the copy lives at every hand-over or
-once at the place that writes. Conflicts took the last answer, because it is
-the one a caller cannot forget. Nothing else has an answer, and a test that
-derives a page and asserts the source graph is unchanged afterwards would say
-which parts still do not.
+That test now exists, in `views`: build a graph whose shared substructures are
+deliberately *not* in canonical order, derive every kind of document from it,
+and compare the source before and after. Unsorted is the point — the pipeline
+normalizes before any view runs, so a write onto already-sorted state changes
+nothing and hides. A library caller is the one who finds out.
+
+It failed on all five derivations, on three counts: a node's coverage evidence
+and the document's overlay record, both sorted through the pointer every view
+hands to its page; and, for the two that copy the graph first, everything —
+because `clone` marshalled through `core.Encode`, which normalizes what it is
+given so that a file on disk is stable, and the thing it was normalizing was
+the caller's graph.
+
+All three are fixed. The first two are copied before sorting, and only when
+there is sorting to do, so the usual case allocates nothing: 200 nodes with
+coverage normalize in the same 7 allocations as 200 without. The third stopped
+going through `Encode` at all.
+
+What that leaves is the question, not the instances. Whether `Normalize` may
+rewrite its caller's input — it still may, and `Encode` still normalizes what
+it writes. What a view copies before it hands a page over: `Attrs` in six
+places out of seventeen, and nothing else. Whether the copy lives at every
+hand-over or once at the place that writes — conflicts, coverage and metadata
+all took the second answer, because it is the one a caller cannot forget, and
+that is now three special cases rather than a rule. A `Clone` on the core
+types, called once where a view begins, would be the rule. The test is what
+makes trying it cheap: it already says whether the answer holds.
 
 ---
 
