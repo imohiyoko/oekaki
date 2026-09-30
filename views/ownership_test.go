@@ -108,3 +108,24 @@ func TestDerivingADocumentDoesNotChangeTheGraphItCameFrom(t *testing.T) {
 		})
 	}
 }
+
+// A graph built in memory has nil where a graph read from a document has an
+// empty array, and the copy goes through the document. Normalize has always
+// filled those in; taking the copy off core.Encode took that with it, and
+// every view that copies first stopped working on a hand-built graph.
+func TestCopyingAGraphBuiltInMemoryWorks(t *testing.T) {
+	g := &core.Graph{Version: core.Version}
+	g.Nodes = append(g.Nodes, core.Node{ID: "a", Type: "thing"})
+	// Axes, Edges, Groups and LogRecords left nil, as a caller who built this
+	// by hand rather than by reading a file leaves them.
+
+	if _, err := Apply(g, Options{}); err != nil {
+		t.Errorf("Apply: %v", err)
+	}
+	if _, _, err := Fold(g, FoldOptions{}); err != nil {
+		t.Errorf("Fold: %v", err)
+	}
+	if g.Edges != nil {
+		t.Error("copying the graph filled in the caller's own nil arrays")
+	}
+}

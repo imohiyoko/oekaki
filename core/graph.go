@@ -7,6 +7,7 @@
 package core
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -870,19 +871,16 @@ func (g *Graph) EdgesOfKind(k EdgeKind) []Edge {
 // edges. Determinism is a design requirement, not a nicety: users are meant to
 // commit generated graphs and review them as diffs, which only works if the
 // same input always produces the same bytes.
-func (g *Graph) Normalize() {
-	// A conflict's claims are copied before anything here reads them,
-	// because everything here settles one in place: the fold writes into the
-	// front of the slice, the sort reorders it, and settleDeniedNotes
-	// rewrites a sentence in it. A conflict can arrive sharing its array
-	// with a graph this one was derived from — views hands a page the
-	// conflicts of the graph it came from — and normalizing the derived one
-	// then did all of that to the original, and so to every page derived
-	// after it. Copied here rather than everywhere one is handed over, so
-	// that a caller cannot forget to.
-	for i := range g.Conflicts {
-		g.Conflicts[i].Claims = append([]ClaimedValue(nil), g.Conflicts[i].Claims...)
-	}
+// ensureArrays gives the arrays the schema requires a value, because a nil
+// slice marshals to null and the schema asks for an array. The four the
+// schema requires are the four without omitempty; log_records is here too
+// because a document that has been read once says [] and one built in memory
+// should not differ from it.
+//
+// One list, because there are two callers who must agree: Normalize, so that
+// what is written is what the schema asks for, and Clone, which marshals a
+// graph that has not been normalized.
+func (g *Graph) ensureArrays() {
 	if g.Axes == nil {
 		g.Axes = []Axis{}
 	}
@@ -898,6 +896,48 @@ func (g *Graph) Normalize() {
 	if g.LogRecords == nil {
 		g.LogRecords = []LogRecordSummary{}
 	}
+}
+
+// Clone returns a graph that shares nothing with g, so that whatever is done
+// to one leaves the other alone.
+//
+// Through the document, rather than field by field: every part of a graph is
+// serialized — nothing carries a json:"-" — so a round trip is a copy, and it
+// is a copy that cannot fall behind a new field the way a hand-written one
+// does. Decode normalizes and validates the result, which is what makes the
+// copy a document rather than only a copy.
+//
+// g is not touched. The arrays are filled on a copy of the struct, because
+// Encode would fill them on g — it normalizes what it is about to write, so
+// that a file on disk is stable, and a caller asking for a copy did not ask
+// for that.
+func Clone(g *Graph) (*Graph, error) {
+	if g == nil {
+		return nil, fmt.Errorf("copying a graph: there is no graph")
+	}
+	serialisable := *g
+	serialisable.ensureArrays()
+	b, err := json.Marshal(&serialisable)
+	if err != nil {
+		return nil, fmt.Errorf("copying a graph: %w", err)
+	}
+	return Decode(bytes.NewReader(b))
+}
+
+func (g *Graph) Normalize() {
+	// A conflict's claims are copied before anything here reads them,
+	// because everything here settles one in place: the fold writes into the
+	// front of the slice, the sort reorders it, and settleDeniedNotes
+	// rewrites a sentence in it. A conflict can arrive sharing its array
+	// with a graph this one was derived from — views hands a page the
+	// conflicts of the graph it came from — and normalizing the derived one
+	// then did all of that to the original, and so to every page derived
+	// after it. Copied here rather than everywhere one is handed over, so
+	// that a caller cannot forget to.
+	for i := range g.Conflicts {
+		g.Conflicts[i].Claims = append([]ClaimedValue(nil), g.Conflicts[i].Claims...)
+	}
+	g.ensureArrays()
 
 	sort.SliceStable(g.Axes, func(i, j int) bool { return g.Axes[i].ID < g.Axes[j].ID })
 	sort.SliceStable(g.Nodes, func(i, j int) bool { return g.Nodes[i].ID < g.Nodes[j].ID })

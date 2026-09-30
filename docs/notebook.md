@@ -390,9 +390,15 @@ it writes. What a view copies before it hands a page over: `Attrs` in six
 places out of seventeen, and nothing else. Whether the copy lives at every
 hand-over or once at the place that writes — conflicts, coverage and metadata
 all took the second answer, because it is the one a caller cannot forget, and
-that is now three special cases rather than a rule. A `Clone` on the core
-types, called once where a view begins, would be the rule. The test is what
-makes trying it cheap: it already says whether the answer holds.
+that is now three special cases rather than a rule.
+
+`core.Clone` exists as of that work, though only as far as the copy went: it
+round-trips the document, which is a copy because nothing on a graph carries
+`json:"-"`, and which cannot fall behind a new field the way a hand-written
+one would. It is what `views` copies with. Calling it once where every view
+begins, and taking the three special cases back out, is the rule the entry is
+still asking for. The test is what makes trying that cheap: it already says
+whether the answer holds.
 
 ---
 
