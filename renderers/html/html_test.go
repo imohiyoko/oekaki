@@ -263,6 +263,32 @@ func TestAClosingTagInTheDataCannotEscape(t *testing.T) {
 	}
 }
 
+// "<!--" followed by "<script" puts the HTML tokenizer into a state where
+// the block's own closing tag no longer ends it, so the rest of the page would
+// be swallowed into the data.
+func TestACommentOpenerInTheDataCannotHideTheClosingTag(t *testing.T) {
+	g := fixture()
+	g.Nodes[0].Name = `<!--<script>`
+	g.Normalize()
+
+	out := render(t, g, Options{})
+
+	data := between(t, out, `<script type="application/json" id="oekaki-graph">`, `</script>`)
+	if strings.Contains(data, "<!--") {
+		t.Error("the comment opener in the data was not escaped")
+	}
+	back := embeddedGraph(t, out)
+	found := false
+	for _, n := range back.Nodes {
+		if n.Name == `<!--<script>` {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("the escaped name does not read back as the original")
+	}
+}
+
 func TestRenderIsDeterministic(t *testing.T) {
 	first := render(t, fixture(), Options{Title: "t"})
 	for range 5 {
