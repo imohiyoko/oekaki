@@ -206,6 +206,18 @@ func TestALayoutCannotCloseTheElementItSitsIn(t *testing.T) {
 	}
 }
 
+// "<!--" followed by "<script" would make the element's own closing tag stop
+// counting, so the layout must not carry it into the page as is.
+func TestALayoutCannotHideTheClosingTagOfItsElement(t *testing.T) {
+	doc := `{"kind":"oekaki.layout","version":"0.2","nodes":[{"id":"<!--<script>","x":1,"y":2}],"claim":{"origin":"human"}}`
+	applied, _ := Apply([]byte(page), Dressing{Layout: []byte(doc)})
+	out := string(applied)
+
+	if strings.Contains(out, "<!--<script>") {
+		t.Fatalf("the comment opener survived into the page:\n%s", out)
+	}
+}
+
 // Saving is not only done by the browser, so the check cannot live there. A
 // document that will not parse must not become the one a page is served with.
 func TestOnlyALayoutCanBeSavedAsOne(t *testing.T) {

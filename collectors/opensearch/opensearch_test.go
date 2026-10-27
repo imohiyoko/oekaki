@@ -40,3 +40,20 @@ func TestFetchUsesCallerRequestAndClient(t *testing.T) {
 		t.Fatalf("got %+v", got)
 	}
 }
+
+func TestFetchRejectsOversizedBody(t *testing.T) {
+	old := maxResponseBytes
+	maxResponseBytes = 16
+	defer func() { maxResponseBytes = old }()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"hits":{"hits":[{"_id":"id-1","_source":{"service":"api","message":"event"}}]}}`))
+	}))
+	defer server.Close()
+	req, err := http.NewRequest(http.MethodPost, server.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Fetch(context.Background(), server.Client(), req); err == nil {
+		t.Fatal("oversized body was accepted")
+	}
+}

@@ -309,19 +309,20 @@ func Render(g *core.Graph, opts Options) ([]byte, error) {
 		// resource named "</script>" would otherwise close the block early
 		// and the rest of the graph would land in the document as markup, so
 		// every "</" is written as the JSON escape "<\/", which parsers
-		// accept and HTML tokenizers do not recognise as a closing tag.
-		graph = template.JS(bytes.ReplaceAll(graphJSON, []byte("</"), []byte(`<\/`)))
+		// accept and HTML tokenizers do not recognise as a closing tag. See
+		// escapeScriptData for the other sequence that has to go.
+		graph = template.JS(escapeScriptData(graphJSON))
 	}
 	if len(opts.Layout) > 0 {
-		layout = template.JS(bytes.ReplaceAll(opts.Layout, []byte("</"), []byte(`<\/`)))
+		layout = template.JS(escapeScriptData(opts.Layout))
 	}
 	var atlas template.JS
 	if len(opts.Atlas) > 0 {
-		atlas = template.JS(bytes.ReplaceAll(opts.Atlas, []byte("</"), []byte(`<\/`)))
+		atlas = template.JS(escapeScriptData(opts.Atlas))
 	}
 	var folds template.JS
 	if len(opts.Folds) > 0 {
-		folds = template.JS(bytes.ReplaceAll(opts.Folds, []byte("</"), []byte(`<\/`)))
+		folds = template.JS(escapeScriptData(opts.Folds))
 	}
 
 	title := opts.Title
@@ -429,4 +430,16 @@ func inputNames(g *core.Graph) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// escapeScriptData makes a JSON document safe to place inside a script
+// element. "</" is written as "<\/" so nothing in the data can close the
+// element. "<!--" is written as "\u003c!--" because it would otherwise put
+// the HTML tokenizer into its escaped script state, where a following
+// "<script" makes the element's own closing tag stop counting, and the rest of
+// the page is swallowed into the data. Both escapes are only ever inside JSON
+// strings, where parsers read them back as the original characters.
+func escapeScriptData(b []byte) []byte {
+	b = bytes.ReplaceAll(b, []byte("</"), []byte(`<\/`))
+	return bytes.ReplaceAll(b, []byte("<!--"), []byte(`\u003c!--`))
 }

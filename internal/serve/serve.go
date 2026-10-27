@@ -474,7 +474,7 @@ func Apply(page []byte, d Dressing) ([]byte, error) {
 	if len(d.Layout) > 0 {
 		out = layoutTag.ReplaceAll(out, nil)
 		tag := []byte(`<script type="application/json" id="oekaki-layout">` +
-			strings.ReplaceAll(string(d.Layout), "</", `<\/`) + "</script>\n")
+			escapeScriptData(string(d.Layout)) + "</script>\n")
 		out = bytes.Replace(out, []byte(`<script type="application/json" id="oekaki-graph">`),
 			append(tag, []byte(`<script type="application/json" id="oekaki-graph">`)...), 1)
 	}
@@ -486,7 +486,7 @@ func Apply(page []byte, d Dressing) ([]byte, error) {
 				return nil, err
 			}
 			out = graphTag.ReplaceAll(out, []byte(`<script type="application/json" id="oekaki-graph">`+
-				strings.ReplaceAll(string(enriched), "</", `<\/`)+`</script>`))
+				escapeScriptData(string(enriched))+`</script>`))
 		}
 	}
 	if d.GraphQuery != "" {
@@ -544,4 +544,13 @@ func Remove(root, page, name string) error {
 		return err
 	}
 	return os.Remove(path)
+}
+
+// escapeScriptData makes a JSON document safe to place inside a script
+// element: "</" could close it, and "<!--" followed by "<script" would make
+// its real closing tag stop counting. Both only occur inside JSON strings,
+// where the escapes read back as the original characters.
+func escapeScriptData(s string) string {
+	s = strings.ReplaceAll(s, "</", `<\/`)
+	return strings.ReplaceAll(s, "<!--", `\u003c!--`)
 }
