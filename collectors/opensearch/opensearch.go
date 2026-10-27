@@ -51,11 +51,29 @@ func Fetch(ctx context.Context, client *http.Client, req *http.Request) ([]login
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("OpenSearch returned HTTP %s", resp.Status)
 	}
-	raw, err := io.ReadAll(resp.Body)
+	raw, err := readLimited(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("reading OpenSearch response: %w", err)
 	}
 	return Parse(raw)
+}
+
+// maxResponseBytes caps how much of a response body is read. A misbehaving or
+// hostile endpoint could otherwise stream without end and exhaust memory. It is
+// a variable only so tests can lower it.
+var maxResponseBytes int64 = 64 << 20
+
+// readLimited reads at most maxResponseBytes and reports an error, rather than
+// silently truncating, when the body is larger.
+func readLimited(r io.Reader) ([]byte, error) {
+	b, err := io.ReadAll(io.LimitReader(r, maxResponseBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(b)) > maxResponseBytes {
+		return nil, fmt.Errorf("response body exceeds %d bytes", maxResponseBytes)
+	}
+	return b, nil
 }
 
 func Parse(raw []byte) ([]loginventory.Record, error) {

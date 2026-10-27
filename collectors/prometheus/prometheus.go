@@ -235,11 +235,29 @@ func Scrape(ctx context.Context, client *http.Client, endpoint string, opts Opti
 		_, _ = io.Copy(io.Discard, resp.Body)
 		return nil, fmt.Errorf("prometheus returned HTTP %s", resp.Status)
 	}
-	body, err := io.ReadAll(resp.Body)
+	body, err := readLimited(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("reading Prometheus response: %w", err)
 	}
 	return Parse(string(body), opts)
+}
+
+// maxResponseBytes caps how much of a response body is read. A misbehaving or
+// hostile endpoint could otherwise stream without end and exhaust memory. It is
+// a variable only so tests can lower it.
+var maxResponseBytes int64 = 64 << 20
+
+// readLimited reads at most maxResponseBytes and reports an error, rather than
+// silently truncating, when the body is larger.
+func readLimited(r io.Reader) ([]byte, error) {
+	b, err := io.ReadAll(io.LimitReader(r, maxResponseBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(b)) > maxResponseBytes {
+		return nil, fmt.Errorf("response body exceeds %d bytes", maxResponseBytes)
+	}
+	return b, nil
 }
 
 func Parse(text string, opts Options) ([]core.Observation, error) {

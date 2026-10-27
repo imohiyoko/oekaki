@@ -19,3 +19,16 @@ func TestScrape(t *testing.T) {
 		t.Fatalf("got=%+v err=%v", got, err)
 	}
 }
+
+func TestScrapeRejectsOversizedBody(t *testing.T) {
+	old := maxResponseBytes
+	maxResponseBytes = 16
+	defer func() { maxResponseBytes = old }()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("latency{service=\"checkout\"} 820\n"))
+	}))
+	defer srv.Close()
+	if _, err := Scrape(context.Background(), srv.Client(), srv.URL, Options{}); err == nil {
+		t.Fatal("oversized body was accepted")
+	}
+}
