@@ -6,11 +6,12 @@
 # because the moment a second maintainer exists the split should already be
 # written down rather than improvised.
 #
-# Code-owner review is deliberately *not* enforced by the branch ruleset while
-# there is one maintainer. GitHub does not let an author approve their own pull
-# request, so enforcing it against a sole owner produces a rule that can only
-# ever be satisfied by an admin override — which trains everyone to reach for
-# the override. Turn it on in the ruleset when a second maintainer arrives.
+# Code-owner review *is* enforced by the branch ruleset, the same way it is in
+# every other repository here. With one maintainer GitHub will not let an
+# author approve their own pull request, so a merge goes through the owner's
+# ruleset bypass. The rule is enforced anyway so that it already binds the
+# moment a second maintainer arrives, rather than waiting on someone to
+# remember to turn it on.
 #
 # Last match wins, so the default comes first.
 
